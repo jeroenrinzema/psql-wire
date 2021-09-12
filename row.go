@@ -83,7 +83,7 @@ func (column Column) Write(ctx context.Context, writer *buffer.Writer, src inter
 
 	ci := TypeInfo(ctx)
 	if ci == nil {
-		return errors.New("Postgres connection info has not been defined inside the given context")
+		return errors.New("postgres connection info has not been defined inside the given context")
 	}
 
 	typed, has := ci.DataTypeForOID(uint32(column.Oid))

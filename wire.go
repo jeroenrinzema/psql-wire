@@ -2,6 +2,7 @@ package wire
 
 import (
 	"context"
+	"crypto/tls"
 	"errors"
 	"net"
 
@@ -42,12 +43,13 @@ func NewServer(addr string, handler Handler) (*Server, error) {
 
 // Server contains options for listening to an address.
 type Server struct {
-	logger     *zap.Logger
-	Addr       string
-	Auth       AuthStrategy
-	Parameters Parameters
-	Handler    Handler
-	closer     chan struct{}
+	logger       *zap.Logger
+	Addr         string
+	Auth         AuthStrategy
+	Parameters   Parameters
+	Certificates []tls.Certificate
+	Handler      Handler
+	closer       chan struct{}
 }
 
 // ListenAndServe opens a new Postgres server on the preconfigured address and

@@ -61,5 +61,8 @@ func TestClearTextPassword(t *testing.T) {
 	writer := buffer.NewWriter(sink)
 
 	server := &Server{logger: zap.NewNop(), Auth: ClearTextPassword(validate)}
-	server.HandleAuth(ctx, reader, writer)
+	err := server.HandleAuth(ctx, reader, writer)
+	if err != nil {
+		t.Error("unexpected error:", err)
+	}
 }

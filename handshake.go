@@ -2,6 +2,7 @@ package wire
 
 import (
 	"context"
+	"crypto/tls"
 	"errors"
 	"net"
 
@@ -172,7 +173,8 @@ func (srv *Server) WriteParameters(ctx context.Context, writer *buffer.Writer, p
 }
 
 // PotentialConnUpgrade potentially upgrades the given connection using TLS
-// if the client requests for it.
+// if the client requests for it. The connection upgrade is ignored if the
+// server does not support a secure connection.
 func (srv *Server) PotentialConnUpgrade(conn net.Conn, reader *buffer.Reader, version Version) (_ net.Conn, _ *buffer.Reader, _ Version, err error) {
 	if version != VersionSSLRequest {
 		return conn, reader, version, nil
@@ -180,26 +182,42 @@ func (srv *Server) PotentialConnUpgrade(conn net.Conn, reader *buffer.Reader, ve
 
 	srv.logger.Debug("attempting to upgrade the client to a TLS connection")
 
-	// TODO(Jeroen): upgrade the connection to SSL using TLS if the client requests it
-	_, err = conn.Write([]byte{'N'}) // SSL not allowed ('Y' indicates SSL allowed)
+	if len(srv.Certificates) == 0 {
+		return srv.ContinueInsecureConn(conn, reader, version)
+	}
+
+	_, err = conn.Write(SSLSupported)
 	if err != nil {
 		return conn, reader, version, err
 	}
 
-	// tlsConfig := tls.Config{}
+	tlsConfig := tls.Config{
+		Certificates: srv.Certificates,
+	}
 
-	// cert, _ := tls.LoadX509KeyPair(
-	// 	"/seamkit/seamkit.crt",
-	// 	"/seamkit/seamkit.key")
+	conn = tls.Server(conn, &tlsConfig)
+	version, err = srv.ReadVersion(reader)
 
-	// tlsConfig.Certificates = []tls.Certificate{cert}
+	return conn, reader, version, err
+}
 
-	// conn = tls.Server(conn, &tlsConfig)
+// ContinueInsecureConn announces to the PostgreSQL client that we are unable to
+// upgrade the connection to a secure connection at this time. The client
+// version is read again once the insecure connection has been announced.
+func (srv *Server) ContinueInsecureConn(conn net.Conn, reader *buffer.Reader, version Version) (_ net.Conn, _ *buffer.Reader, _ Version, err error) {
+	_, err = conn.Write(SSLUnsupported)
+	if err != nil {
+		return conn, reader, version, err
+	}
 
 	version, err = srv.ReadVersion(reader)
+	if err != nil {
+		return conn, reader, version, err
+	}
+
 	if version == VersionCancel {
 		return conn, reader, version, errors.New("unexpected cancel version after upgrading the client connection")
 	}
 
-	return conn, reader, version, err
+	return conn, reader, version, nil
 }
