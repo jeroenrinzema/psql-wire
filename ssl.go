@@ -3,6 +3,6 @@ package wire
 type SSLIdentifier []byte
 
 var (
-	SSLSupported   SSLIdentifier = []byte{'Y'}
+	SSLSupported   SSLIdentifier = []byte{'S'}
 	SSLUnsupported SSLIdentifier = []byte{'N'}
 )
