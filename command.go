@@ -16,6 +16,12 @@ type Handler interface {
 	ServeQuery(ctx context.Context, query string, writer DataWriter) error
 }
 
+type HandlerFunc func(ctx context.Context, query string, writer DataWriter) error
+
+func (fn HandlerFunc) ServeQuery(ctx context.Context, query string, writer DataWriter) error {
+	return fn(ctx, query, writer)
+}
+
 // ConsumeCommands consumes incoming commands send over the Postgres wire connection.
 // Commands consumed from the connection are returned through a go channel.
 // Responses for the given message type are written back to the client.
