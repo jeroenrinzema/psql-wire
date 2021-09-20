@@ -38,14 +38,14 @@ func (srv *Server) ConsumeCommands(ctx context.Context, handle SimpleQueryFn, re
 			return err
 		}
 
-		err = srv.commandHandle(ctx, t, handle, reader, writer)
+		err = srv.commandHandle(ctx, t, reader, writer)
 		if err != nil {
 			return err
 		}
 	}
 }
 
-func (srv *Server) commandHandle(ctx context.Context, t types.ClientMessage, handle SimpleQueryFn, reader *buffer.Reader, writer *buffer.Writer) (err error) {
+func (srv *Server) commandHandle(ctx context.Context, t types.ClientMessage, reader *buffer.Reader, writer *buffer.Writer) (err error) {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
@@ -53,7 +53,7 @@ func (srv *Server) commandHandle(ctx context.Context, t types.ClientMessage, han
 	case types.ClientSync:
 		// TODO(Jeroen): client sync received
 	case types.ClientSimpleQuery:
-		return srv.handleSimpleQuery(ctx, handle, reader, writer)
+		return srv.handleSimpleQuery(ctx, reader, writer)
 	case types.ClientExecute:
 	case types.ClientParse:
 	case types.ClientDescribe:
@@ -172,7 +172,7 @@ func (writer *dataWriter) close() {
 	writer.closed = true
 }
 
-func (srv *Server) handleSimpleQuery(ctx context.Context, handle SimpleQueryFn, reader *buffer.Reader, writer *buffer.Writer) error {
+func (srv *Server) handleSimpleQuery(ctx context.Context, reader *buffer.Reader, writer *buffer.Writer) error {
 	query, err := reader.GetString()
 	if err != nil {
 		return err
@@ -180,7 +180,7 @@ func (srv *Server) handleSimpleQuery(ctx context.Context, handle SimpleQueryFn, 
 
 	srv.logger.Debug("incoming query", zap.String("query", query))
 
-	err = handle(ctx, query, &dataWriter{
+	err = srv.SimpleQuery(ctx, query, &dataWriter{
 		ctx:    ctx,
 		client: writer,
 	})
