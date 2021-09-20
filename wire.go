@@ -16,8 +16,8 @@ var ErrServerClosed = errors.New("server closed")
 
 // ListenAndServe opens a new Postgres server using the given address and
 // default configurations.
-func ListenAndServe(addr string, handler Handler) error {
-	server, err := NewServer(addr, handler)
+func ListenAndServe(addr string, handler SimpleQueryFn) error {
+	server, err := NewServer(addr, SimpleQuery(handler))
 	if err != nil {
 		return err
 	}
@@ -26,16 +26,19 @@ func ListenAndServe(addr string, handler Handler) error {
 }
 
 // NewServer constructs a new Postgres server using the given context address and handler.
-func NewServer(addr string, handler Handler) (*Server, error) {
+func NewServer(addr string, options ...OptionFn) (*Server, error) {
 	logger, err := zap.NewDevelopment()
 	if err != nil {
 		return nil, err
 	}
 
 	srv := &Server{
-		logger:  logger,
-		Addr:    addr,
-		Handler: handler,
+		logger: logger,
+		Addr:   addr,
+	}
+
+	for _, option := range options {
+		option(srv)
 	}
 
 	return srv, nil
@@ -49,7 +52,7 @@ type Server struct {
 	BufferedMsgSize int
 	Parameters      Parameters
 	Certificates    []tls.Certificate
-	Handler         Handler
+	SimpleQuery     SimpleQueryFn
 	closer          chan struct{}
 }
 
@@ -129,7 +132,7 @@ func (srv *Server) serve(ctx context.Context, conn net.Conn) error {
 		return err
 	}
 
-	return srv.ConsumeCommands(ctx, srv.Handler, reader, writer)
+	return srv.ConsumeCommands(ctx, srv.SimpleQuery, reader, writer)
 }
 
 // Close gracefully closes the underlaying Postgres server

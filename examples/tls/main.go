@@ -21,7 +21,7 @@ func run() error {
 		return err
 	}
 
-	server, err := wire.NewServer("127.0.0.1:5432", wire.HandlerFunc(handle))
+	server, err := wire.NewServer("127.0.0.1:5432", wire.SimpleQuery(handle))
 	if err != nil {
 		return err
 	}

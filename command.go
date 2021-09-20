@@ -11,23 +11,14 @@ import (
 	"go.uber.org/zap"
 )
 
-// Handler responds to incoming Postgres commands.
-type Handler interface {
-	ServeQuery(ctx context.Context, query string, writer DataWriter) error
-}
-
-type HandlerFunc func(ctx context.Context, query string, writer DataWriter) error
-
-func (fn HandlerFunc) ServeQuery(ctx context.Context, query string, writer DataWriter) error {
-	return fn(ctx, query, writer)
-}
+type SimpleQueryFn func(ctx context.Context, query string, writer DataWriter) error
 
 // ConsumeCommands consumes incoming commands send over the Postgres wire connection.
 // Commands consumed from the connection are returned through a go channel.
 // Responses for the given message type are written back to the client.
 // This method keeps consuming messages until the client issues a close message
 // or the connection is terminated.
-func (srv *Server) ConsumeCommands(ctx context.Context, handle Handler, reader *buffer.Reader, writer *buffer.Writer) (err error) {
+func (srv *Server) ConsumeCommands(ctx context.Context, handle SimpleQueryFn, reader *buffer.Reader, writer *buffer.Writer) (err error) {
 	srv.logger.Debug("ready for query... starting to consume commands")
 
 	for {
@@ -54,15 +45,13 @@ func (srv *Server) ConsumeCommands(ctx context.Context, handle Handler, reader *
 	}
 }
 
-func (srv *Server) commandHandle(ctx context.Context, t types.ClientMessage, handle Handler, reader *buffer.Reader, writer *buffer.Writer) (err error) {
+func (srv *Server) commandHandle(ctx context.Context, t types.ClientMessage, handle SimpleQueryFn, reader *buffer.Reader, writer *buffer.Writer) (err error) {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
 	switch t {
 	case types.ClientSync:
 		// TODO(Jeroen): client sync received
-	case types.ClientPassword:
-		// TODO(Jeroen): this message is only accepted during the auth phase
 	case types.ClientSimpleQuery:
 		return srv.handleSimpleQuery(ctx, handle, reader, writer)
 	case types.ClientExecute:
@@ -183,7 +172,7 @@ func (writer *dataWriter) close() {
 	writer.closed = true
 }
 
-func (srv *Server) handleSimpleQuery(ctx context.Context, handle Handler, reader *buffer.Reader, writer *buffer.Writer) error {
+func (srv *Server) handleSimpleQuery(ctx context.Context, handle SimpleQueryFn, reader *buffer.Reader, writer *buffer.Writer) error {
 	query, err := reader.GetString()
 	if err != nil {
 		return err
@@ -191,7 +180,7 @@ func (srv *Server) handleSimpleQuery(ctx context.Context, handle Handler, reader
 
 	srv.logger.Debug("incoming query", zap.String("query", query))
 
-	err = handle.ServeQuery(ctx, query, &dataWriter{
+	err = handle(ctx, query, &dataWriter{
 		ctx:    ctx,
 		client: writer,
 	})
