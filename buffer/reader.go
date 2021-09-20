@@ -45,6 +45,10 @@ func NewErrMaxMessageSizeExceeded(max, size int) error {
 	return psqlerr.WithSeverity(psqlerr.WithCode(err, codes.ProgramLimitExceeded), psqlerr.LevelFatal)
 }
 
+// DefaultBufferSize represents the default buffer size whenever the buffer size
+// is not set or a negative value is presented.
+const DefaultBufferSize = 4096
+
 // BufferedReader extended io.Reader with some convenience methods.
 type BufferedReader interface {
 	io.Reader
@@ -61,14 +65,18 @@ type Reader struct {
 }
 
 // NewReader constructs a new Postgres wire buffer for the given io.Reader
-func NewReader(reader io.Reader) *Reader {
+func NewReader(reader io.Reader, bufferSize int) *Reader {
 	if reader == nil {
 		return nil
 	}
 
+	if bufferSize <= 0 {
+		bufferSize = DefaultBufferSize
+	}
+
 	return &Reader{
-		Buffer:         bufio.NewReaderSize(reader, 4096),
-		MaxMessageSize: 4096,
+		Buffer:         bufio.NewReaderSize(reader, bufferSize),
+		MaxMessageSize: bufferSize,
 	}
 }
 

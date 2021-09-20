@@ -33,7 +33,7 @@ const (
 // Handshake performs the connection handshake and returns the 3connection version
 // and a buffered reader to read incoming messages send by the client.
 func (srv *Server) Handshake(conn net.Conn) (_ net.Conn, version Version, reader *buffer.Reader, err error) {
-	reader = buffer.NewReader(conn)
+	reader = buffer.NewReader(conn, srv.BufferedMsgSize)
 	version, err = srv.ReadVersion(reader)
 	if err != nil {
 		return conn, version, reader, err
@@ -192,7 +192,7 @@ func (srv *Server) PotentialConnUpgrade(conn net.Conn, reader *buffer.Reader, ve
 	// NOTE(Jeroen): initialize the TLS connection and construct a new buffered
 	// reader for the constructed TLS connection.
 	conn = tls.Server(conn, &tlsConfig)
-	reader = buffer.NewReader(conn)
+	reader = buffer.NewReader(conn, srv.BufferedMsgSize)
 
 	version, err = srv.ReadVersion(reader)
 	if err != nil {
