@@ -26,9 +26,9 @@ func MessageBufferSize(size int) OptionFn {
 	}
 }
 
-// TLSCertificates sets the given TLS certificates to be used to initialize a
+// Certificates sets the given TLS certificates to be used to initialize a
 // secure connection between the front-end (client) and back-end (server).
-func TLSCertificates(certs []tls.Certificate) OptionFn {
+func Certificates(certs []tls.Certificate) OptionFn {
 	return func(srv *Server) {
 		srv.Certificates = certs
 	}
