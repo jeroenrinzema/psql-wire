@@ -3,10 +3,12 @@ package wire
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"strconv"
 	"testing"
 
 	"github.com/jeroenrinzema/psql-wire/buffer"
+	"github.com/jeroenrinzema/psql-wire/types"
 	"go.uber.org/zap"
 )
 
@@ -15,7 +17,7 @@ func TestDefaultHandleAuth(t *testing.T) {
 	sink := bytes.NewBuffer([]byte{})
 
 	ctx := context.Background()
-	reader := buffer.NewReader(input)
+	reader := buffer.NewReader(input, buffer.DefaultBufferSize)
 	writer := buffer.NewWriter(sink)
 
 	server := &Server{logger: zap.NewNop()}
@@ -24,7 +26,7 @@ func TestDefaultHandleAuth(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	result := buffer.NewReader(sink)
+	result := buffer.NewReader(sink, buffer.DefaultBufferSize)
 	ty, ln, err := result.ReadTypedMsg()
 	if err != nil {
 		t.Fatal(err)
@@ -49,15 +51,29 @@ func TestDefaultHandleAuth(t *testing.T) {
 }
 
 func TestClearTextPassword(t *testing.T) {
+	expected := "password"
+
+	input := bytes.NewBuffer([]byte{})
+	incoming := buffer.NewWriter(input)
+
+	// NOTE(Jeroen): we could reuse the server buffered writer to write client messages
+	incoming.Start(types.ServerMessage(types.ClientPassword))
+	incoming.AddString(expected)
+	incoming.AddNullTerminate()
+	incoming.End()
+
 	validate := func(username, password string) (bool, error) {
+		if password != expected {
+			return false, fmt.Errorf("unexpected password: %s", password)
+		}
+
 		return true, nil
 	}
 
-	input := bytes.NewBuffer([]byte{})
 	sink := bytes.NewBuffer([]byte{})
 
 	ctx := context.Background()
-	reader := buffer.NewReader(input)
+	reader := buffer.NewReader(input, buffer.DefaultBufferSize)
 	writer := buffer.NewWriter(sink)
 
 	server := &Server{logger: zap.NewNop(), Auth: ClearTextPassword(validate)}
