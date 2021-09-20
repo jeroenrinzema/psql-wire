@@ -60,7 +60,7 @@ func TestClearTextPassword(t *testing.T) {
 	incoming.Start(types.ServerMessage(types.ClientPassword))
 	incoming.AddString(expected)
 	incoming.AddNullTerminate()
-	incoming.End()
+	incoming.End() //nolint:errcheck
 
 	validate := func(username, password string) (bool, error) {
 		if password != expected {
