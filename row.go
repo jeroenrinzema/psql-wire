@@ -49,6 +49,7 @@ func (columns Columns) Write(ctx context.Context, writer *buffer.Writer, srcs []
 
 // Column represents a table column and its attributes such as name, type and
 // encode formatter.
+// https://www.postgresql.org/docs/8.3/catalog-pg-attribute.html
 type Column struct {
 	Table        int32  // table id
 	Name         string // column name

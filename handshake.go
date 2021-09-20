@@ -11,10 +11,6 @@ import (
 	"go.uber.org/zap"
 )
 
-// ErrCancel indicates a canceled network connection. This error is returned
-// when the user presents a cancel version during the connection handshake.
-var ErrCancel = errors.New("canceled connection")
-
 // Version represents a connection version presented inside the connection header
 type Version uint32
 
@@ -28,13 +24,13 @@ type Version uint32
 //
 // See: https://www.postgresql.org/docs/current/protocol-message-formats.html
 const (
-	Version30         = 196608   // (3 << 16) + 0
-	VersionCancel     = 80877102 // (1234 << 16) + 5678
-	VersionSSLRequest = 80877103 // (1234 << 16) + 5679
-	VersionGSSENC     = 80877104 // (1234 << 16) + 5680
+	Version30         Version = 196608   // (3 << 16) + 0
+	VersionCancel     Version = 80877102 // (1234 << 16) + 5678
+	VersionSSLRequest Version = 80877103 // (1234 << 16) + 5679
+	VersionGSSENC     Version = 80877104 // (1234 << 16) + 5680
 )
 
-// Handshake performs the connection handshake and returns the connection version
+// Handshake performs the connection handshake and returns the 3connection version
 // and a buffered reader to read incoming messages send by the client.
 func (srv *Server) Handshake(conn net.Conn) (_ net.Conn, version Version, reader *buffer.Reader, err error) {
 	reader = buffer.NewReader(conn)
@@ -44,16 +40,14 @@ func (srv *Server) Handshake(conn net.Conn) (_ net.Conn, version Version, reader
 	}
 
 	if version == VersionCancel {
-		return conn, version, reader, ErrCancel
+		return conn, version, reader, nil
 	}
+
+	// TODO(Jeroen): support GSS encryption
 
 	conn, reader, version, err = srv.PotentialConnUpgrade(conn, reader, version)
 	if err != nil {
 		return conn, version, reader, err
-	}
-
-	if version == VersionCancel {
-		return conn, version, reader, ErrCancel
 	}
 
 	return conn, version, reader, nil
@@ -62,7 +56,6 @@ func (srv *Server) Handshake(conn net.Conn) (_ net.Conn, version Version, reader
 // ReadVersion reads the start-up protocol version (uint32) and the
 // buffer containing the rest.
 func (srv *Server) ReadVersion(reader *buffer.Reader) (_ Version, err error) {
-	// TODO(Jeroen): check the incoming size if it is gte max msg size
 	var version uint32
 	_, err = reader.ReadUntypedMsg()
 	if err != nil {
@@ -183,7 +176,8 @@ func (srv *Server) PotentialConnUpgrade(conn net.Conn, reader *buffer.Reader, ve
 	srv.logger.Debug("attempting to upgrade the client to a TLS connection")
 
 	if len(srv.Certificates) == 0 {
-		return srv.ContinueInsecureConn(conn, reader, version)
+		srv.logger.Debug("no TLS certificates available continuing with a insecure connection")
+		return srv.SSLUnsupported(conn, reader, version)
 	}
 
 	_, err = conn.Write(SSLSupported)
@@ -195,16 +189,24 @@ func (srv *Server) PotentialConnUpgrade(conn net.Conn, reader *buffer.Reader, ve
 		Certificates: srv.Certificates,
 	}
 
+	// NOTE(Jeroen): initialize the TLS connection and construct a new buffered
+	// reader for the constructed TLS connection.
 	conn = tls.Server(conn, &tlsConfig)
-	version, err = srv.ReadVersion(reader)
+	reader = buffer.NewReader(conn)
 
+	version, err = srv.ReadVersion(reader)
+	if err != nil {
+		return conn, reader, version, err
+	}
+
+	srv.logger.Debug("connection has been upgraded successfully")
 	return conn, reader, version, err
 }
 
-// ContinueInsecureConn announces to the PostgreSQL client that we are unable to
+// SSLUnsupported announces to the PostgreSQL client that we are unable to
 // upgrade the connection to a secure connection at this time. The client
 // version is read again once the insecure connection has been announced.
-func (srv *Server) ContinueInsecureConn(conn net.Conn, reader *buffer.Reader, version Version) (_ net.Conn, _ *buffer.Reader, _ Version, err error) {
+func (srv *Server) SSLUnsupported(conn net.Conn, reader *buffer.Reader, version Version) (_ net.Conn, _ *buffer.Reader, _ Version, err error) {
 	_, err = conn.Write(SSLUnsupported)
 	if err != nil {
 		return conn, reader, version, err

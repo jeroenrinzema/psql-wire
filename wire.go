@@ -27,7 +27,7 @@ func ListenAndServe(addr string, handler Handler) error {
 
 // NewServer constructs a new Postgres server using the given context address and handler.
 func NewServer(addr string, handler Handler) (*Server, error) {
-	logger, err := zap.NewProduction()
+	logger, err := zap.NewDevelopment()
 	if err != nil {
 		return nil, err
 	}
@@ -99,10 +99,16 @@ func (srv *Server) serve(ctx context.Context, conn net.Conn) error {
 
 	srv.logger.Debug("serving a new client connection")
 
-	conn, _, reader, err := srv.Handshake(conn)
+	conn, version, reader, err := srv.Handshake(conn)
 	if err != nil {
 		return err
 	}
+
+	if version == VersionCancel {
+		return conn.Close()
+	}
+
+	srv.logger.Debug("handshake successfull, validating authentication")
 
 	writer := buffer.NewWriter(conn)
 	ctx, err = srv.ReadParameters(ctx, reader)
@@ -114,6 +120,8 @@ func (srv *Server) serve(ctx context.Context, conn net.Conn) error {
 	if err != nil {
 		return err
 	}
+
+	srv.logger.Debug("connection authenticated, writing server parameters")
 
 	ctx, err = srv.WriteParameters(ctx, writer, srv.Parameters)
 	if err != nil {
