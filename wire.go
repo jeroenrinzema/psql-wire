@@ -15,7 +15,9 @@ import (
 var ErrServerClosed = errors.New("server closed")
 
 // ListenAndServe opens a new Postgres server using the given address and
-// default configurations.
+// default configurations. The given handler function is used to handle simple
+// queries. This method should be used to construct a simple Postgres server for
+// testing purposes or simple use cases.
 func ListenAndServe(addr string, handler SimpleQueryFn) error {
 	server, err := NewServer(addr, SimpleQuery(handler))
 	if err != nil {
@@ -25,15 +27,10 @@ func ListenAndServe(addr string, handler SimpleQueryFn) error {
 	return server.ListenAndServe()
 }
 
-// NewServer constructs a new Postgres server using the given context address and handler.
+// NewServer constructs a new Postgres server using the given address and server options.
 func NewServer(addr string, options ...OptionFn) (*Server, error) {
-	logger, err := zap.NewDevelopment()
-	if err != nil {
-		return nil, err
-	}
-
 	srv := &Server{
-		logger: logger,
+		logger: zap.NewNop(),
 		Addr:   addr,
 	}
 
