@@ -133,3 +133,12 @@ func (writer *Writer) End() error {
 	_, err := writer.Writer.Write(bytes)
 	return err
 }
+
+// EncodeBoolean returns a string value ("on"/"off") representing the given boolean value
+func EncodeBoolean(value bool) string {
+	if value {
+		return "on"
+	}
+
+	return "off"
+}

@@ -123,15 +123,6 @@ func (srv *Server) ReadParameters(ctx context.Context, reader *buffer.Reader) (_
 	return setClientParameters(ctx, meta), nil
 }
 
-// EncodeBoolean returns a string value ("on"/"off") representing the given boolean value
-func EncodeBoolean(value bool) string {
-	if value {
-		return "on"
-	}
-
-	return "off"
-}
-
 // WriteParameters writes the server parameters such as client encoding to the client.
 // The written parameters will be attached as a value to the given context. A new
 // context containing the written parameters will be returned.
@@ -145,7 +136,7 @@ func (srv *Server) WriteParameters(ctx context.Context, writer *buffer.Writer, p
 
 	params[ParamServerEncoding] = "UTF8"
 	params[ParamClientEncoding] = "UTF8"
-	params[ParamIsSuperuser] = EncodeBoolean(IsSuperUser(ctx))
+	params[ParamIsSuperuser] = buffer.EncodeBoolean(IsSuperUser(ctx))
 	params[ParamSessionAuthorization] = AuthenticatedUsername(ctx)
 
 	for key, value := range params {
