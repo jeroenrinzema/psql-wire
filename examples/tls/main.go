@@ -27,13 +27,13 @@ func run() error {
 	}
 
 	certs := []tls.Certificate{cert}
-	server, err := wire.NewServer("127.0.0.1:5432", wire.SimpleQuery(handle), wire.Certificates(certs), wire.Logger(logger))
+	server, err := wire.NewServer(wire.SimpleQuery(handle), wire.Certificates(certs), wire.Logger(logger), wire.MessageBufferSize(100))
 	if err != nil {
 		return err
 	}
 
 	logger.Info("PostgreSQL server is up and running at [127.0.0.1:5432]")
-	return server.ListenAndServe()
+	return server.ListenAndServe("127.0.0.1:5432")
 }
 
 func handle(ctx context.Context, query string, writer wire.DataWriter) error {

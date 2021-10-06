@@ -4,50 +4,15 @@ import (
 	"bufio"
 	"bytes"
 	"encoding/binary"
-	"errors"
-	"fmt"
 	"io"
 	"unsafe"
 
-	"github.com/jeroenrinzema/psql-wire/codes"
-	psqlerr "github.com/jeroenrinzema/psql-wire/errors"
 	"github.com/jeroenrinzema/psql-wire/types"
 )
 
-// ErrMissingNulTerminator is thrown when no NUL terminator is found when
-// interperating a message property as a string.
-var ErrMissingNulTerminator = errors.New("NUL terminator not found")
-
-// NewErrMissingNulTerminator constructs a new error message wrapping the ErrMissingNulTerminator
-// type with additional metadata.
-func NewErrMissingNulTerminator() error {
-	return psqlerr.WithSeverity(psqlerr.WithCode(ErrMissingNulTerminator, codes.DataCorrupted), psqlerr.LevelFatal)
-}
-
-// ErrInsufficientData is thrown when there is insufficient data available inside
-// the given message to unmarshal into a given type.
-var ErrInsufficientData = errors.New("insufficient data")
-
-// NewErrInsufficientData constructs a new error message wrapping the ErrInsufficientData
-// type with additional metadata.
-func NewErrInsufficientData(length int) error {
-	err := fmt.Errorf("length: %d %w", length, ErrInsufficientData)
-	return psqlerr.WithSeverity(psqlerr.WithCode(err, codes.DataCorrupted), psqlerr.LevelFatal)
-}
-
-// ErrMaxMessageSizeExceeded is thrown when the maximum message size is exceeded.
-var ErrMaxMessageSizeExceeded = errors.New("maximum message size exceeded")
-
-// NewErrMaxMessageSizeExceeded constructs a new error message wrapping the
-// ErrMaxMessageSizeExceeded type with additional metadata.
-func NewErrMaxMessageSizeExceeded(max, size int) error {
-	err := fmt.Errorf("message size %d bigger than maximum allowed message size %d", size, max)
-	return psqlerr.WithSeverity(psqlerr.WithCode(err, codes.ProgramLimitExceeded), psqlerr.LevelFatal)
-}
-
 // DefaultBufferSize represents the default buffer size whenever the buffer size
 // is not set or a negative value is presented.
-const DefaultBufferSize = 4096
+const DefaultBufferSize = 1 << 24 // 16777216 bytes
 
 // BufferedReader extended io.Reader with some convenience methods.
 type BufferedReader interface {
@@ -116,6 +81,29 @@ func (reader *Reader) ReadTypedMsg() (types.ClientMessage, int, error) {
 	return types.ClientMessage(b), n, nil
 }
 
+// Slurp reads the remaining
+func (reader *Reader) Slurp(size int) error {
+	remaining := size
+	for remaining > 0 {
+		reading := remaining
+
+		if reading > reader.MaxMessageSize {
+			reading = reader.MaxMessageSize
+		}
+
+		reader.reset(reading)
+
+		n, err := io.ReadFull(reader.Buffer, reader.Msg)
+		if err != nil {
+			return err
+		}
+
+		remaining -= n
+	}
+
+	return nil
+}
+
 // ReadUntypedMsg reads a length-prefixed message. It is only used directly
 // during the authentication phase of the protocol; ReadTypedMsg is used at all
 // other times. This returns the number of bytes read and an error, if there
@@ -136,7 +124,7 @@ func (reader *Reader) ReadUntypedMsg() (int, error) {
 	size -= 4
 
 	if size > reader.MaxMessageSize || size < 0 {
-		return nread, NewErrMaxMessageSizeExceeded(reader.MaxMessageSize, size)
+		return nread, NewMessageSizeExceeded(reader.MaxMessageSize, size)
 	}
 
 	reader.reset(size)
@@ -148,7 +136,7 @@ func (reader *Reader) ReadUntypedMsg() (int, error) {
 func (reader *Reader) GetString() (string, error) {
 	pos := bytes.IndexByte(reader.Msg, 0)
 	if pos == -1 {
-		return "", NewErrMissingNulTerminator()
+		return "", NewMissingNulTerminator()
 	}
 
 	// Note: this is a conversion from a byte slice to a string which avoids
@@ -172,7 +160,7 @@ func (reader *Reader) GetPrepareType() (PrepareType, error) {
 // GetBytes returns the buffer's contents as a []byte.
 func (reader *Reader) GetBytes(n int) ([]byte, error) {
 	if len(reader.Msg) < n {
-		return nil, NewErrInsufficientData(len(reader.Msg))
+		return nil, NewInsufficientData(len(reader.Msg))
 	}
 
 	v := reader.Msg[:n]
@@ -183,7 +171,7 @@ func (reader *Reader) GetBytes(n int) ([]byte, error) {
 // GetUint16 returns the buffer's contents as a uint16.
 func (reader *Reader) GetUint16() (uint16, error) {
 	if len(reader.Msg) < 2 {
-		return 0, NewErrInsufficientData(len(reader.Msg))
+		return 0, NewInsufficientData(len(reader.Msg))
 	}
 
 	v := binary.BigEndian.Uint16(reader.Msg[:2])
@@ -194,7 +182,7 @@ func (reader *Reader) GetUint16() (uint16, error) {
 // GetUint32 returns the buffer's contents as a uint32.
 func (reader *Reader) GetUint32() (uint32, error) {
 	if len(reader.Msg) < 4 {
-		return 0, NewErrInsufficientData(len(reader.Msg))
+		return 0, NewInsufficientData(len(reader.Msg))
 	}
 
 	v := binary.BigEndian.Uint32(reader.Msg[:4])

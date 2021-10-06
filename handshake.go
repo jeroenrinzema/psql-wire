@@ -30,8 +30,8 @@ const (
 	VersionGSSENC     Version = 80877104 // (1234 << 16) + 5680
 )
 
-// Handshake performs the connection handshake and returns the 3connection version
-// and a buffered reader to read incoming messages send by the client.
+// Handshake performs the connection handshake and returns the 3 connection
+// version and a buffered reader to read incoming messages send by the client.
 func (srv *Server) Handshake(conn net.Conn) (_ net.Conn, version Version, reader *buffer.Reader, err error) {
 	reader = buffer.NewReader(conn, srv.BufferedMsgSize)
 	version, err = srv.ReadVersion(reader)
