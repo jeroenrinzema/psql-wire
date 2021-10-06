@@ -18,20 +18,20 @@ var ErrServerClosed = errors.New("server closed")
 // default configurations. The given handler function is used to handle simple
 // queries. This method should be used to construct a simple Postgres server for
 // testing purposes or simple use cases.
-func ListenAndServe(addr string, handler SimpleQueryFn) error {
-	server, err := NewServer(addr, SimpleQuery(handler))
+func ListenAndServe(address string, handler SimpleQueryFn) error {
+	server, err := NewServer(SimpleQuery(handler))
 	if err != nil {
 		return err
 	}
 
-	return server.ListenAndServe()
+	return server.ListenAndServe(address)
 }
 
 // NewServer constructs a new Postgres server using the given address and server options.
-func NewServer(addr string, options ...OptionFn) (*Server, error) {
+func NewServer(options ...OptionFn) (*Server, error) {
 	srv := &Server{
 		logger: zap.NewNop(),
-		Addr:   addr,
+		closer: make(chan struct{}),
 	}
 
 	for _, option := range options {
@@ -44,7 +44,6 @@ func NewServer(addr string, options ...OptionFn) (*Server, error) {
 // Server contains options for listening to an address.
 type Server struct {
 	logger          *zap.Logger
-	Addr            string
 	Auth            AuthStrategy
 	BufferedMsgSize int
 	Parameters      Parameters
@@ -55,8 +54,8 @@ type Server struct {
 
 // ListenAndServe opens a new Postgres server on the preconfigured address and
 // starts accepting and serving incoming client connections.
-func (srv *Server) ListenAndServe() error {
-	listener, err := net.Listen("tcp", srv.Addr)
+func (srv *Server) ListenAndServe(address string) error {
+	listener, err := net.Listen("tcp", address)
 	if err != nil {
 		return err
 	}
@@ -75,6 +74,11 @@ func (srv *Server) Serve(listener net.Listener) error {
 	for {
 		select {
 		case <-srv.closer:
+			err := listener.Close()
+			if err != nil {
+				return err
+			}
+
 			return ErrServerClosed
 		default:
 		}

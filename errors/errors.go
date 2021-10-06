@@ -25,12 +25,16 @@ type Source struct {
 
 // Flatten returns a flattened error which could be used to construct Postgres
 // wire error messages.
-func Flatten(err error) *Error {
+func Flatten(err error) Error {
 	if err == nil {
-		return nil
+		return Error{
+			Code:     codes.Internal,
+			Message:  "unknown error, an internal process attempted to throw an error",
+			Severity: LevelFatal,
+		}
 	}
 
-	result := &Error{
+	result := Error{
 		Code:           GetCode(err),
 		Message:        err.Error(),
 		Severity:       DefaultSeverity(GetSeverity(err)),
@@ -38,6 +42,5 @@ func Flatten(err error) *Error {
 	}
 
 	// TODO(Jeroen): missing components: source, hint, detail
-
 	return result
 }

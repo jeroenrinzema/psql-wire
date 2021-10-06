@@ -2,6 +2,7 @@ package wire
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 
@@ -21,7 +22,9 @@ func (srv *Server) ConsumeCommands(ctx context.Context, handle SimpleQueryFn, re
 	srv.logger.Debug("ready for query... starting to consume commands")
 
 	for {
+		fmt.Println("before ready")
 		err = ReadyForQuery(writer, ServerIdle)
+		fmt.Println("after ready")
 		if err != nil {
 			return err
 		}
@@ -29,6 +32,16 @@ func (srv *Server) ConsumeCommands(ctx context.Context, handle SimpleQueryFn, re
 		t, length, err := reader.ReadTypedMsg()
 		if err == io.EOF {
 			return nil
+		}
+
+		// NOTE(Jeroen): we could recover from this scenario
+		if errors.Is(err, buffer.ErrMessageSizeExceeded) {
+			err = srv.HandleMessageSizeExceeded(reader, writer, err)
+			if err != nil {
+				return err
+			}
+
+			continue
 		}
 
 		srv.logger.Debug("incoming command", zap.Int("length", length), zap.String("type", string(t)))
@@ -42,6 +55,29 @@ func (srv *Server) ConsumeCommands(ctx context.Context, handle SimpleQueryFn, re
 			return err
 		}
 	}
+}
+
+// HandleMessageSizeExceeded attempts to unwrap the given error message as
+// message size exceeded. The expected message size will be consumed and
+// discarded from the given reader. An error message is written to the client
+// once the expected message size is read.
+//
+// The given error is returned if it does not contain an message size exceeded
+// type. A fatal error is returned when an unexpected error is returned while
+// consuming the expected message size or when attempting to write the error
+// message back to the client.
+func (srv *Server) HandleMessageSizeExceeded(reader *buffer.Reader, writer *buffer.Writer, exceeded error) (err error) {
+	unwrapped, has := buffer.UnwrapMessageSizeExceeded(exceeded)
+	if !has {
+		return exceeded
+	}
+
+	err = reader.Slurp(unwrapped.Size)
+	if err != nil {
+		return err
+	}
+
+	return ErrorCode(writer, exceeded)
 }
 
 func (srv *Server) commandHandle(ctx context.Context, t types.ClientMessage, reader *buffer.Reader, writer *buffer.Writer) (err error) {
