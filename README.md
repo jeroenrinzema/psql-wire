@@ -3,7 +3,7 @@
 A pure Go [PostgreSQL](https://www.postgresql.org/) server wire protocol implementation.
 Build your own PostgreSQL server with 15 lines of code.
 This project attempts to make it as straigt forward as possible to set-up and configure your own PSQL server.
-Feel free to check out the examples directory for various ways on how to configure/set-up your own server.
+Feel free to check out the [examples](https://github.com/jeroenrinzema/psql-wire/tree/main/examples) directory for various ways on how to configure/set-up your own server.
 
 > 🚧 This project does not include a PSQL parser. Please check out other projects such as [auxten/postgresql-parser](https://github.com/auxten/postgresql-parser) to parse PSQL SQL queries.
 
