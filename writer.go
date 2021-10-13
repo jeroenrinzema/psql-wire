@@ -105,7 +105,7 @@ func (writer *dataWriter) Complete(description string) error {
 		return ErrClosedWriter
 	}
 
-	if writer.written == 0 {
+	if writer.written == 0 && writer.columns != nil {
 		err := writer.Empty()
 		if err != nil {
 			return err
