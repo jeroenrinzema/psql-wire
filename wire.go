@@ -7,7 +7,6 @@ import (
 	"sync"
 
 	"github.com/jeroenrinzema/psql-wire/buffer"
-	"github.com/jeroenrinzema/psql-wire/types"
 	"go.uber.org/zap"
 )
 
@@ -121,24 +120,24 @@ func (srv *Server) serve(ctx context.Context, conn net.Conn) error {
 	srv.logger.Debug("handshake successfull, validating authentication")
 
 	writer := buffer.NewWriter(conn)
-	ctx, err = srv.ReadParameters(ctx, reader)
+	ctx, err = srv.readParameters(ctx, reader)
 	if err != nil {
 		return err
 	}
 
-	err = srv.HandleAuth(ctx, reader, writer)
+	err = srv.handleAuth(ctx, reader, writer)
 	if err != nil {
 		return err
 	}
 
 	srv.logger.Debug("connection authenticated, writing server parameters")
 
-	ctx, err = srv.WriteParameters(ctx, writer, srv.Parameters)
+	ctx, err = srv.writeParameters(ctx, writer, srv.Parameters)
 	if err != nil {
 		return err
 	}
 
-	return srv.ConsumeCommands(ctx, srv.SimpleQuery, reader, writer)
+	return srv.consumeCommands(ctx, srv.SimpleQuery, reader, writer)
 }
 
 // Close gracefully closes the underlaying Postgres server.
@@ -146,20 +145,4 @@ func (srv *Server) Close() error {
 	close(srv.closer)
 	srv.wg.Wait()
 	return nil
-}
-
-// CommandComplete announces that the requested command has successfully been executed.
-// The given description is written back to the client and could be used to send
-// additional meta data to the user.
-func CommandComplete(writer *buffer.Writer, description string) error {
-	writer.Start(types.ServerCommandComplete)
-	writer.AddString(description)
-	writer.AddNullTerminate()
-	return writer.End()
-}
-
-// EmptyQuery indicates a empty query response by sending a EmptyQuery message.
-func EmptyQuery(writer *buffer.Writer) error {
-	writer.Start(types.ServerEmptyQuery)
-	return writer.End()
 }

@@ -5,13 +5,16 @@ import (
 	"errors"
 
 	"github.com/jeroenrinzema/psql-wire/buffer"
+	"github.com/jeroenrinzema/psql-wire/types"
 )
 
 // DataWriter represents a writer interface for writing columns and data rows
 // using the Postgres wire to the connected client.
 type DataWriter interface {
 	// Define writes the column headers containing their type definitions, width
-	// type oid, etc. to the underlaying Postgres client.
+	// type oid, etc. to the underlaying Postgres client. The column headers
+	// could only be written once. An error will be returned whenever this
+	// method is called twice.
 	Define(Columns) error
 	// Row writes a single data row containing the values inside the given slice to
 	// the underlaying Postgres client. The column headers have to be written before
@@ -37,14 +40,20 @@ var ErrColumnsDefined = errors.New("columns have already been defined")
 // yet been defined.
 var ErrUndefinedColumns = errors.New("columns have not been defined")
 
+// ErrDataWritten is thrown when an empty result is attempted to be send to the
+// client while data has already been written.
+var ErrDataWritten = errors.New("data has already been written")
+
 // ErrClosedWriter is thrown when the data writer has been closed
 var ErrClosedWriter = errors.New("closed writer")
 
+// dataWriter is a implementation of the DataWriter interface.
 type dataWriter struct {
 	columns Columns
 	ctx     context.Context
 	client  *buffer.Writer
 	closed  bool
+	written uint64
 }
 
 func (writer *dataWriter) Define(columns Columns) error {
@@ -69,6 +78,8 @@ func (writer *dataWriter) Row(values []interface{}) error {
 		return ErrUndefinedColumns
 	}
 
+	writer.written++
+
 	return writer.columns.Write(writer.ctx, writer.client, values)
 }
 
@@ -81,8 +92,12 @@ func (writer *dataWriter) Empty() error {
 		return ErrUndefinedColumns
 	}
 
+	if writer.written != 0 {
+		return ErrDataWritten
+	}
+
 	defer writer.close()
-	return EmptyQuery(writer.client)
+	return emptyQuery(writer.client)
 }
 
 func (writer *dataWriter) Complete(description string) error {
@@ -90,10 +105,33 @@ func (writer *dataWriter) Complete(description string) error {
 		return ErrClosedWriter
 	}
 
+	if writer.written == 0 {
+		err := writer.Empty()
+		if err != nil {
+			return err
+		}
+	}
+
 	defer writer.close()
-	return CommandComplete(writer.client, description)
+	return commandComplete(writer.client, description)
 }
 
 func (writer *dataWriter) close() {
 	writer.closed = true
+}
+
+// commandComplete announces that the requested command has successfully been executed.
+// The given description is written back to the client and could be used to send
+// additional meta data to the user.
+func commandComplete(writer *buffer.Writer, description string) error {
+	writer.Start(types.ServerCommandComplete)
+	writer.AddString(description)
+	writer.AddNullTerminate()
+	return writer.End()
+}
+
+// emptyQuery indicates a empty query response by sending a emptyQuery message.
+func emptyQuery(writer *buffer.Writer) error {
+	writer.Start(types.ServerEmptyQuery)
+	return writer.End()
 }

@@ -25,11 +25,11 @@ const (
 // AuthStrategy represents a authentication strategy used to authenticate a user
 type AuthStrategy func(ctx context.Context, writer *buffer.Writer, reader *buffer.Reader) (err error)
 
-// HandleAuth handles the client authentication for the given connection.
+// handleAuth handles the client authentication for the given connection.
 // This methods validates the incoming credentials and writes to the client whether
 // the provided credentials are correct. When the provided credentials are invalid
 // or any unexpected error occures is an error returned and should the connection be closed.
-func (srv *Server) HandleAuth(ctx context.Context, reader *buffer.Reader, writer *buffer.Writer) error {
+func (srv *Server) handleAuth(ctx context.Context, reader *buffer.Reader, writer *buffer.Writer) error {
 	srv.logger.Debug("authenticating client connection")
 
 	if srv.Auth == nil {

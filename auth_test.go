@@ -21,7 +21,7 @@ func TestDefaultHandleAuth(t *testing.T) {
 	writer := buffer.NewWriter(sink)
 
 	server := &Server{logger: zap.NewNop()}
-	err := server.HandleAuth(ctx, reader, writer)
+	err := server.handleAuth(ctx, reader, writer)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -77,7 +77,7 @@ func TestClearTextPassword(t *testing.T) {
 	writer := buffer.NewWriter(sink)
 
 	server := &Server{logger: zap.NewNop(), Auth: ClearTextPassword(validate)}
-	err := server.HandleAuth(ctx, reader, writer)
+	err := server.handleAuth(ctx, reader, writer)
 	if err != nil {
 		t.Error("unexpected error:", err)
 	}
