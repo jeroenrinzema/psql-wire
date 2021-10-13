@@ -2,7 +2,7 @@ package wire
 
 import (
 	"github.com/jeroenrinzema/psql-wire/buffer"
-	"github.com/jeroenrinzema/psql-wire/errors"
+	psqlerr "github.com/jeroenrinzema/psql-wire/errors"
 	"github.com/jeroenrinzema/psql-wire/types"
 )
 
@@ -26,7 +26,7 @@ const (
 // ErrorCode writes a error message as response to a command with the given severity and error message
 // https://www.postgresql.org/docs/current/static/protocol-error-fields.html
 func ErrorCode(writer *buffer.Writer, err error) error {
-	desc := errors.Flatten(err)
+	desc := psqlerr.Flatten(err)
 
 	writer.Start(types.ServerErrorResponse)
 

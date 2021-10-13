@@ -3,16 +3,13 @@ package wire
 import (
 	"context"
 	"crypto/tls"
-	"errors"
 	"net"
+	"sync"
 
 	"github.com/jeroenrinzema/psql-wire/buffer"
 	"github.com/jeroenrinzema/psql-wire/types"
 	"go.uber.org/zap"
 )
-
-// ErrServerClosed indicates that the given Postgres server has been closed
-var ErrServerClosed = errors.New("server closed")
 
 // ListenAndServe opens a new Postgres server using the given address and
 // default configurations. The given handler function is used to handle simple
@@ -43,12 +40,14 @@ func NewServer(options ...OptionFn) (*Server, error) {
 
 // Server contains options for listening to an address.
 type Server struct {
+	wg              sync.WaitGroup
 	logger          *zap.Logger
 	Auth            AuthStrategy
 	BufferedMsgSize int
 	Parameters      Parameters
 	Certificates    []tls.Certificate
 	SimpleQuery     SimpleQueryFn
+	CloseConn       CloseFn
 	closer          chan struct{}
 }
 
@@ -64,31 +63,37 @@ func (srv *Server) ListenAndServe(address string) error {
 }
 
 // Serve accepts and serves incoming Postgres client connections using the
-// preconfigured configurations.
+// preconfigured configurations. The given listener will be closed once the
+// server is gracefully closed.
 func (srv *Server) Serve(listener net.Listener) error {
 	defer listener.Close()
 	defer srv.logger.Info("closing server")
 
 	srv.logger.Info("serving incoming connections", zap.String("addr", listener.Addr().String()))
 
-	for {
-		select {
-		case <-srv.closer:
-			err := listener.Close()
-			if err != nil {
-				return err
-			}
+	srv.wg.Add(1)
 
-			return ErrServerClosed
-		default:
+	// NOTE(Jeroen): handle graceful shutdowns
+	go func() {
+		defer srv.wg.Done()
+		<-srv.closer
+
+		err := listener.Close()
+		if err != nil {
+			srv.logger.Error("unexpected error while attempting to close the net listener", zap.Error(err))
 		}
+	}()
 
+	for {
 		conn, err := listener.Accept()
 		if err != nil {
 			return err
 		}
 
+		srv.wg.Add(1)
+
 		go func() {
+			defer srv.wg.Done()
 			ctx := context.Background()
 			err = srv.serve(ctx, conn)
 			if err != nil {
@@ -136,9 +141,10 @@ func (srv *Server) serve(ctx context.Context, conn net.Conn) error {
 	return srv.ConsumeCommands(ctx, srv.SimpleQuery, reader, writer)
 }
 
-// Close gracefully closes the underlaying Postgres server
+// Close gracefully closes the underlaying Postgres server.
 func (srv *Server) Close() error {
 	close(srv.closer)
+	srv.wg.Wait()
 	return nil
 }
 

@@ -7,11 +7,28 @@ import (
 	"io"
 
 	"github.com/jeroenrinzema/psql-wire/buffer"
+	"github.com/jeroenrinzema/psql-wire/codes"
+	psqlerr "github.com/jeroenrinzema/psql-wire/errors"
 	"github.com/jeroenrinzema/psql-wire/types"
 	"go.uber.org/zap"
 )
 
+// ErrUnimplementedMessageType is thrown whenever a unimplemented message type
+// is encountered. This error indicates to the client that the send message
+// cannot be processed at this moment in time.
+var ErrUnimplementedMessageType = errors.New("unimplemented client message type")
+
+// NewErrUnimplementedMessageType is called whenever a unimplemented message
+// type is send. This error indicates to the client that the send message cannot
+// be processed at this moment in time.
+func NewErrUnimplementedMessageType(t types.ClientMessage) error {
+	err := fmt.Errorf("type: %s %w", string(t), ErrUnimplementedMessageType)
+	return psqlerr.WithSeverity(psqlerr.WithCode(err, codes.ConnectionDoesNotExist), psqlerr.LevelFatal)
+}
+
 type SimpleQueryFn func(ctx context.Context, query string, writer DataWriter) error
+
+type CloseFn func(ctx context.Context) error
 
 // ConsumeCommands consumes incoming commands send over the Postgres wire connection.
 // Commands consumed from the connection are returned through a go channel.
@@ -21,10 +38,11 @@ type SimpleQueryFn func(ctx context.Context, query string, writer DataWriter) er
 func (srv *Server) ConsumeCommands(ctx context.Context, handle SimpleQueryFn, reader *buffer.Reader, writer *buffer.Writer) (err error) {
 	srv.logger.Debug("ready for query... starting to consume commands")
 
+	// TODO(Jeroen): include a indentification value inside the context that
+	// could be used to identify connections at a later stage.
+
 	for {
-		fmt.Println("before ready")
 		err = ReadyForQuery(writer, ServerIdle)
-		fmt.Println("after ready")
 		if err != nil {
 			return err
 		}
@@ -80,6 +98,9 @@ func (srv *Server) HandleMessageSizeExceeded(reader *buffer.Reader, writer *buff
 	return ErrorCode(writer, exceeded)
 }
 
+// commandHandle handles the given client message. A client message includes a
+// message type and reader buffer containing the actual message. The type
+// indecates a action executed by the client.
 func (srv *Server) commandHandle(ctx context.Context, t types.ClientMessage, reader *buffer.Reader, writer *buffer.Writer) (err error) {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
@@ -102,8 +123,7 @@ func (srv *Server) commandHandle(ctx context.Context, t types.ClientMessage, rea
 		// https://github.com/postgres/postgres/blob/6e1dd2773eb60a6ab87b27b8d9391b756e904ac3/src/backend/tcop/postgres.c#L4295
 		break
 	case types.ClientClose:
-		// TODO(Jeroen): handle graceful close
-		return nil
+		return srv.handleConnClose(ctx)
 	case types.ClientTerminate:
 		return nil
 	default:
@@ -117,6 +137,10 @@ func (srv *Server) commandHandle(ctx context.Context, t types.ClientMessage, rea
 }
 
 func (srv *Server) handleSimpleQuery(ctx context.Context, reader *buffer.Reader, writer *buffer.Writer) error {
+	if srv.SimpleQuery == nil {
+		return ErrorCode(writer, NewErrUnimplementedMessageType(types.ClientSimpleQuery))
+	}
+
 	query, err := reader.GetString()
 	if err != nil {
 		return err
@@ -134,4 +158,12 @@ func (srv *Server) handleSimpleQuery(ctx context.Context, reader *buffer.Reader,
 	}
 
 	return nil
+}
+
+func (srv *Server) handleConnClose(ctx context.Context) error {
+	if srv.CloseConn == nil {
+		return nil
+	}
+
+	return srv.CloseConn(ctx)
 }
