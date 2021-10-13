@@ -13,16 +13,11 @@ import (
 	"go.uber.org/zap"
 )
 
-// ErrUnimplementedMessageType is thrown whenever a unimplemented message type
-// is encountered. This error indicates to the client that the send message
-// cannot be processed at this moment in time.
-var ErrUnimplementedMessageType = errors.New("unimplemented client message type")
-
 // NewErrUnimplementedMessageType is called whenever a unimplemented message
 // type is send. This error indicates to the client that the send message cannot
 // be processed at this moment in time.
 func NewErrUnimplementedMessageType(t types.ClientMessage) error {
-	err := fmt.Errorf("type: %s %w", string(t), ErrUnimplementedMessageType)
+	err := fmt.Errorf("unimplemented client message type: %d", t)
 	return psqlerr.WithSeverity(psqlerr.WithCode(err, codes.ConnectionDoesNotExist), psqlerr.LevelFatal)
 }
 
@@ -127,10 +122,7 @@ func (srv *Server) handleCommand(ctx context.Context, t types.ClientMessage, rea
 	case types.ClientTerminate:
 		return nil
 	default:
-		err = ErrorCode(writer, fmt.Errorf("unrecognized client message type %d", t))
-		if err != nil {
-			return err
-		}
+		return ErrorCode(writer, NewErrUnimplementedMessageType(t))
 	}
 
 	return nil
