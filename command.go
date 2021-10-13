@@ -30,19 +30,19 @@ type SimpleQueryFn func(ctx context.Context, query string, writer DataWriter) er
 
 type CloseFn func(ctx context.Context) error
 
-// ConsumeCommands consumes incoming commands send over the Postgres wire connection.
+// consumeCommands consumes incoming commands send over the Postgres wire connection.
 // Commands consumed from the connection are returned through a go channel.
 // Responses for the given message type are written back to the client.
 // This method keeps consuming messages until the client issues a close message
 // or the connection is terminated.
-func (srv *Server) ConsumeCommands(ctx context.Context, handle SimpleQueryFn, reader *buffer.Reader, writer *buffer.Writer) (err error) {
+func (srv *Server) consumeCommands(ctx context.Context, handle SimpleQueryFn, reader *buffer.Reader, writer *buffer.Writer) (err error) {
 	srv.logger.Debug("ready for query... starting to consume commands")
 
 	// TODO(Jeroen): include a indentification value inside the context that
 	// could be used to identify connections at a later stage.
 
 	for {
-		err = ReadyForQuery(writer, ServerIdle)
+		err = readyForQuery(writer, ServerIdle)
 		if err != nil {
 			return err
 		}
@@ -54,7 +54,7 @@ func (srv *Server) ConsumeCommands(ctx context.Context, handle SimpleQueryFn, re
 
 		// NOTE(Jeroen): we could recover from this scenario
 		if errors.Is(err, buffer.ErrMessageSizeExceeded) {
-			err = srv.HandleMessageSizeExceeded(reader, writer, err)
+			err = srv.handleMessageSizeExceeded(reader, writer, err)
 			if err != nil {
 				return err
 			}
@@ -68,14 +68,14 @@ func (srv *Server) ConsumeCommands(ctx context.Context, handle SimpleQueryFn, re
 			return err
 		}
 
-		err = srv.commandHandle(ctx, t, reader, writer)
+		err = srv.handleCommand(ctx, t, reader, writer)
 		if err != nil {
 			return err
 		}
 	}
 }
 
-// HandleMessageSizeExceeded attempts to unwrap the given error message as
+// handleMessageSizeExceeded attempts to unwrap the given error message as
 // message size exceeded. The expected message size will be consumed and
 // discarded from the given reader. An error message is written to the client
 // once the expected message size is read.
@@ -84,7 +84,7 @@ func (srv *Server) ConsumeCommands(ctx context.Context, handle SimpleQueryFn, re
 // type. A fatal error is returned when an unexpected error is returned while
 // consuming the expected message size or when attempting to write the error
 // message back to the client.
-func (srv *Server) HandleMessageSizeExceeded(reader *buffer.Reader, writer *buffer.Writer, exceeded error) (err error) {
+func (srv *Server) handleMessageSizeExceeded(reader *buffer.Reader, writer *buffer.Writer, exceeded error) (err error) {
 	unwrapped, has := buffer.UnwrapMessageSizeExceeded(exceeded)
 	if !has {
 		return exceeded
@@ -98,10 +98,10 @@ func (srv *Server) HandleMessageSizeExceeded(reader *buffer.Reader, writer *buff
 	return ErrorCode(writer, exceeded)
 }
 
-// commandHandle handles the given client message. A client message includes a
+// handleCommand handles the given client message. A client message includes a
 // message type and reader buffer containing the actual message. The type
 // indecates a action executed by the client.
-func (srv *Server) commandHandle(ctx context.Context, t types.ClientMessage, reader *buffer.Reader, writer *buffer.Writer) (err error) {
+func (srv *Server) handleCommand(ctx context.Context, t types.ClientMessage, reader *buffer.Reader, writer *buffer.Writer) (err error) {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
