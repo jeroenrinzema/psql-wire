@@ -17,6 +17,13 @@ func SimpleQuery(fn SimpleQueryFn) OptionFn {
 	}
 }
 
+// CloseConn sets the close connection handle inside the given server instance.
+func CloseConn(fn CloseFn) OptionFn {
+	return func(srv *Server) {
+		srv.CloseConn = fn
+	}
+}
+
 // MessageBufferSize sets the message buffer size which is allocated once a new
 // connection gets constructed. If a negative value or zero value is provided is
 // the default message buffer size used.
