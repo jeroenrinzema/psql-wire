@@ -22,6 +22,6 @@ func TListenAndServe(t *testing.T, server *Server) string {
 		}
 	})
 
-	go server.Serve(listener)
+	go server.Serve(listener) //nolint:errcheck
 	return listener.Addr().String()
 }
