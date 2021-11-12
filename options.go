@@ -24,6 +24,13 @@ func CloseConn(fn CloseFn) OptionFn {
 	}
 }
 
+// TerminateConn sets the terminate connection handle inside the given server instance.
+func TerminateConn(fn CloseFn) OptionFn {
+	return func(srv *Server) {
+		srv.TerminateConn = fn
+	}
+}
+
 // MessageBufferSize sets the message buffer size which is allocated once a new
 // connection gets constructed. If a negative value or zero value is provided is
 // the default message buffer size used.

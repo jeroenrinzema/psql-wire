@@ -126,6 +126,11 @@ func (srv *Server) handleCommand(ctx context.Context, conn net.Conn, t types.Cli
 
 		return conn.Close()
 	case types.ClientTerminate:
+		err = srv.handleConnTerminate(ctx)
+		if err != nil {
+			return err
+		}
+
 		return conn.Close()
 	default:
 		return ErrorCode(writer, NewErrUnimplementedMessageType(t))
@@ -164,4 +169,12 @@ func (srv *Server) handleConnClose(ctx context.Context) error {
 	}
 
 	return srv.CloseConn(ctx)
+}
+
+func (srv *Server) handleConnTerminate(ctx context.Context) error {
+	if srv.TerminateConn == nil {
+		return nil
+	}
+
+	return srv.TerminateConn(ctx)
 }
