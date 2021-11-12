@@ -5,11 +5,12 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 
-	"github.com/jeroenrinzema/psql-wire/buffer"
 	"github.com/jeroenrinzema/psql-wire/codes"
 	psqlerr "github.com/jeroenrinzema/psql-wire/errors"
-	"github.com/jeroenrinzema/psql-wire/types"
+	"github.com/jeroenrinzema/psql-wire/internal/buffer"
+	"github.com/jeroenrinzema/psql-wire/internal/types"
 	"go.uber.org/zap"
 )
 
@@ -30,14 +31,14 @@ type CloseFn func(ctx context.Context) error
 // Responses for the given message type are written back to the client.
 // This method keeps consuming messages until the client issues a close message
 // or the connection is terminated.
-func (srv *Server) consumeCommands(ctx context.Context, handle SimpleQueryFn, reader *buffer.Reader, writer *buffer.Writer) (err error) {
+func (srv *Server) consumeCommands(ctx context.Context, conn net.Conn, reader *buffer.Reader, writer *buffer.Writer) (err error) {
 	srv.logger.Debug("ready for query... starting to consume commands")
 
 	// TODO(Jeroen): include a indentification value inside the context that
 	// could be used to identify connections at a later stage.
 
 	for {
-		err = readyForQuery(writer, ServerIdle)
+		err = readyForQuery(writer, types.ServerIdle)
 		if err != nil {
 			return err
 		}
@@ -63,7 +64,7 @@ func (srv *Server) consumeCommands(ctx context.Context, handle SimpleQueryFn, re
 			return err
 		}
 
-		err = srv.handleCommand(ctx, t, reader, writer)
+		err = srv.handleCommand(ctx, conn, t, reader, writer)
 		if err != nil {
 			return err
 		}
@@ -96,7 +97,7 @@ func (srv *Server) handleMessageSizeExceeded(reader *buffer.Reader, writer *buff
 // handleCommand handles the given client message. A client message includes a
 // message type and reader buffer containing the actual message. The type
 // indecates a action executed by the client.
-func (srv *Server) handleCommand(ctx context.Context, t types.ClientMessage, reader *buffer.Reader, writer *buffer.Writer) (err error) {
+func (srv *Server) handleCommand(ctx context.Context, conn net.Conn, t types.ClientMessage, reader *buffer.Reader, writer *buffer.Writer) (err error) {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
@@ -118,9 +119,14 @@ func (srv *Server) handleCommand(ctx context.Context, t types.ClientMessage, rea
 		// https://github.com/postgres/postgres/blob/6e1dd2773eb60a6ab87b27b8d9391b756e904ac3/src/backend/tcop/postgres.c#L4295
 		break
 	case types.ClientClose:
-		return srv.handleConnClose(ctx)
+		err = srv.handleConnClose(ctx)
+		if err != nil {
+			return err
+		}
+
+		return conn.Close()
 	case types.ClientTerminate:
-		return nil
+		return conn.Close()
 	default:
 		return ErrorCode(writer, NewErrUnimplementedMessageType(t))
 	}

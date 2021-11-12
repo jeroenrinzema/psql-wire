@@ -6,7 +6,8 @@ import (
 	"net"
 	"sync"
 
-	"github.com/jeroenrinzema/psql-wire/buffer"
+	"github.com/jeroenrinzema/psql-wire/internal/buffer"
+	"github.com/jeroenrinzema/psql-wire/internal/types"
 	"go.uber.org/zap"
 )
 
@@ -113,7 +114,7 @@ func (srv *Server) serve(ctx context.Context, conn net.Conn) error {
 		return err
 	}
 
-	if version == VersionCancel {
+	if version == types.VersionCancel {
 		return conn.Close()
 	}
 
@@ -137,7 +138,7 @@ func (srv *Server) serve(ctx context.Context, conn net.Conn) error {
 		return err
 	}
 
-	return srv.consumeCommands(ctx, srv.SimpleQuery, reader, writer)
+	return srv.consumeCommands(ctx, conn, reader, writer)
 }
 
 // Close gracefully closes the underlaying Postgres server.

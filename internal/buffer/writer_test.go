@@ -6,7 +6,7 @@ import (
 	"math"
 	"testing"
 
-	"github.com/jeroenrinzema/psql-wire/types"
+	"github.com/jeroenrinzema/psql-wire/internal/types"
 )
 
 func TestNewWriterNil(t *testing.T) {

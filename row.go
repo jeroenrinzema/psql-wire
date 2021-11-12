@@ -5,8 +5,8 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/jeroenrinzema/psql-wire/buffer"
-	"github.com/jeroenrinzema/psql-wire/types"
+	"github.com/jeroenrinzema/psql-wire/internal/buffer"
+	"github.com/jeroenrinzema/psql-wire/internal/types"
 	"github.com/lib/pq/oid"
 )
 

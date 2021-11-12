@@ -8,7 +8,7 @@ import (
 	"math"
 	"testing"
 
-	"github.com/jeroenrinzema/psql-wire/types"
+	"github.com/jeroenrinzema/psql-wire/internal/types"
 )
 
 func TestNewReaderNil(t *testing.T) {
