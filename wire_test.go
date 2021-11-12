@@ -59,7 +59,7 @@ func TestClientConnect(t *testing.T) {
 	})
 
 	t.Run("lib/pq", func(t *testing.T) {
-		connstr := fmt.Sprintf("host=%s port=%d sslmode=disable", address.IP.String(), address.Port)
+		connstr := fmt.Sprintf("host=%s port=%d sslmode=disable", address.IP, address.Port)
 		conn, err := sql.Open("postgres", connstr)
 		if err != nil {
 			t.Fatal(err)
@@ -78,7 +78,7 @@ func TestClientConnect(t *testing.T) {
 
 	t.Run("jackc/pgx", func(t *testing.T) {
 		ctx := context.Background()
-		connstr := fmt.Sprintf("postgres://%s:%d", address.IP.String(), address.Port)
+		connstr := fmt.Sprintf("postgres://%s:%d", address.IP, address.Port)
 		conn, err := pgx.Connect(ctx, connstr)
 		if err != nil {
 			t.Fatal(err)
