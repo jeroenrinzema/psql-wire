@@ -6,40 +6,21 @@ import (
 	"errors"
 	"net"
 
-	"github.com/jeroenrinzema/psql-wire/buffer"
-	"github.com/jeroenrinzema/psql-wire/types"
+	"github.com/jeroenrinzema/psql-wire/internal/buffer"
+	"github.com/jeroenrinzema/psql-wire/internal/types"
 	"go.uber.org/zap"
 )
 
-// Version represents a connection version presented inside the connection header
-type Version uint32
-
-// The below constants can occur during the first message a client
-// sends to the server. There are two categories: protocol version and
-// request code. The protocol version is (major version number << 16)
-// + minor version number. Request codes are (1234 << 16) + 5678 + N,
-// where N started at 0 and is increased by 1 for every new request
-// code added, which happens rarely during major or minor Postgres
-// releases.
-//
-// See: https://www.postgresql.org/docs/current/protocol-message-formats.html
-const (
-	Version30         Version = 196608   // (3 << 16) + 0
-	VersionCancel     Version = 80877102 // (1234 << 16) + 5678
-	VersionSSLRequest Version = 80877103 // (1234 << 16) + 5679
-	VersionGSSENC     Version = 80877104 // (1234 << 16) + 5680
-)
-
-// Handshake performs the connection handshake and returns the 3 connection
+// Handshake performs the connection handshake and returns the connection
 // version and a buffered reader to read incoming messages send by the client.
-func (srv *Server) Handshake(conn net.Conn) (_ net.Conn, version Version, reader *buffer.Reader, err error) {
+func (srv *Server) Handshake(conn net.Conn) (_ net.Conn, version types.Version, reader *buffer.Reader, err error) {
 	reader = buffer.NewReader(conn, srv.BufferedMsgSize)
 	version, err = srv.readVersion(reader)
 	if err != nil {
 		return conn, version, reader, err
 	}
 
-	if version == VersionCancel {
+	if version == types.VersionCancel {
 		return conn, version, reader, nil
 	}
 
@@ -55,7 +36,7 @@ func (srv *Server) Handshake(conn net.Conn) (_ net.Conn, version Version, reader
 
 // readVersion reads the start-up protocol version (uint32) and the
 // buffer containing the rest.
-func (srv *Server) readVersion(reader *buffer.Reader) (_ Version, err error) {
+func (srv *Server) readVersion(reader *buffer.Reader) (_ types.Version, err error) {
 	var version uint32
 	_, err = reader.ReadUntypedMsg()
 	if err != nil {
@@ -67,26 +48,12 @@ func (srv *Server) readVersion(reader *buffer.Reader) (_ Version, err error) {
 		return 0, err
 	}
 
-	return Version(version), nil
+	return types.Version(version), nil
 }
-
-// ServerStatus indicates the current server status. Possible values are 'I' if
-// idle (not in a transaction block); 'T' if in a transaction block; or 'E' if
-// in a failed transaction block (queries will be rejected until block is ended).
-type ServerStatus byte
-
-// Possible values are 'I' if idle (not in a transaction block); 'T' if in a
-// transaction block; or 'E' if in a failed transaction block
-// (queries will be rejected until block is ended).
-const (
-	ServerIdle              = 'I'
-	ServerTransactionBlock  = 'T'
-	ServerTransactionFailed = 'E'
-)
 
 // readyForQuery indicates that the server is ready to receive queries.
 // The given server status is included inside the message to indicate the server status.
-func readyForQuery(writer *buffer.Writer, status ServerStatus) error {
+func readyForQuery(writer *buffer.Writer, status types.ServerStatus) error {
 	writer.Start(types.ServerReady)
 	writer.AddByte(byte(status))
 	return writer.End()
@@ -159,8 +126,8 @@ func (srv *Server) writeParameters(ctx context.Context, writer *buffer.Writer, p
 // potentialConnUpgrade potentially upgrades the given connection using TLS
 // if the client requests for it. The connection upgrade is ignored if the
 // server does not support a secure connection.
-func (srv *Server) potentialConnUpgrade(conn net.Conn, reader *buffer.Reader, version Version) (_ net.Conn, _ *buffer.Reader, _ Version, err error) {
-	if version != VersionSSLRequest {
+func (srv *Server) potentialConnUpgrade(conn net.Conn, reader *buffer.Reader, version types.Version) (_ net.Conn, _ *buffer.Reader, _ types.Version, err error) {
+	if version != types.VersionSSLRequest {
 		return conn, reader, version, nil
 	}
 
@@ -197,7 +164,7 @@ func (srv *Server) potentialConnUpgrade(conn net.Conn, reader *buffer.Reader, ve
 // sslUnsupported announces to the PostgreSQL client that we are unable to
 // upgrade the connection to a secure connection at this time. The client
 // version is read again once the insecure connection has been announced.
-func (srv *Server) sslUnsupported(conn net.Conn, reader *buffer.Reader, version Version) (_ net.Conn, _ *buffer.Reader, _ Version, err error) {
+func (srv *Server) sslUnsupported(conn net.Conn, reader *buffer.Reader, version types.Version) (_ net.Conn, _ *buffer.Reader, _ types.Version, err error) {
 	_, err = conn.Write(sslUnsupported)
 	if err != nil {
 		return conn, reader, version, err
@@ -208,7 +175,7 @@ func (srv *Server) sslUnsupported(conn net.Conn, reader *buffer.Reader, version 
 		return conn, reader, version, err
 	}
 
-	if version == VersionCancel {
+	if version == types.VersionCancel {
 		return conn, reader, version, errors.New("unexpected cancel version after upgrading the client connection")
 	}
 
