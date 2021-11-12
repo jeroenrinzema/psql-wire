@@ -48,6 +48,7 @@ type Server struct {
 	Certificates    []tls.Certificate
 	SimpleQuery     SimpleQueryFn
 	CloseConn       CloseFn
+	TerminateConn   CloseFn
 	closer          chan struct{}
 }
 
