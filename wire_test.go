@@ -34,6 +34,8 @@ func TListenAndServe(t *testing.T, server *Server) *net.TCPAddr {
 }
 
 func TestClientConnect(t *testing.T) {
+	t.Parallel()
+
 	pong := func(ctx context.Context, query string, writer DataWriter) error {
 		return writer.Complete("OK")
 	}
