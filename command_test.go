@@ -16,7 +16,7 @@ func TestMessageSizeExceeded(t *testing.T) {
 	}
 
 	address := TListenAndServe(t, server)
-	conn, err := net.Dial("tcp", address)
+	conn, err := net.Dial("tcp", address.String())
 	if err != nil {
 		t.Fatal(err)
 	}
