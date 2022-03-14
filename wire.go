@@ -3,6 +3,7 @@ package wire
 import (
 	"context"
 	"crypto/tls"
+	"crypto/x509"
 	"net"
 	"sync"
 
@@ -46,6 +47,8 @@ type Server struct {
 	BufferedMsgSize int
 	Parameters      Parameters
 	Certificates    []tls.Certificate
+	ClientCAs       *x509.CertPool
+	ClientAuth      tls.ClientAuthType
 	SimpleQuery     SimpleQueryFn
 	CloseConn       CloseFn
 	TerminateConn   CloseFn

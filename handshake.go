@@ -145,6 +145,8 @@ func (srv *Server) potentialConnUpgrade(conn net.Conn, reader *buffer.Reader, ve
 
 	tlsConfig := tls.Config{
 		Certificates: srv.Certificates,
+		ClientAuth:   srv.ClientAuth,
+		ClientCAs:    srv.ClientCAs,
 	}
 
 	// NOTE(Jeroen): initialize the TLS connection and construct a new buffered
