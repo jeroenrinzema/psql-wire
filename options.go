@@ -2,6 +2,7 @@ package wire
 
 import (
 	"crypto/tls"
+	"crypto/x509"
 
 	"go.uber.org/zap"
 )
@@ -45,6 +46,22 @@ func MessageBufferSize(size int) OptionFn {
 func Certificates(certs []tls.Certificate) OptionFn {
 	return func(srv *Server) {
 		srv.Certificates = certs
+	}
+}
+
+// ClientCAs sets the given Client CAs to be used, by the server, to verify a
+// secure connection between the front-end (client) and back-end (server).
+func ClientCAs(cas *x509.CertPool) OptionFn {
+	return func(srv *Server) {
+		srv.ClientCAs = cas
+	}
+}
+
+// ClientAuth sets the given Client Auth to be used, by the server, to verify a
+// secure connection between the front-end (client) and back-end (server).
+func ClientAuth(authType tls.ClientAuthType) OptionFn {
+	return func(srv *Server) {
+		srv.ClientAuth = authType
 	}
 }
 
