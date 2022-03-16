@@ -105,7 +105,7 @@ func TestServerWritingResult(t *testing.T) {
 	handler := func(ctx context.Context, query string, writer DataWriter) error {
 		t.Log("serving query")
 
-		writer.Define(Columns{
+		writer.Define(Columns{ //nolint:errcheck
 			{
 				Table:  0,
 				Name:   "name",
@@ -129,8 +129,8 @@ func TestServerWritingResult(t *testing.T) {
 			},
 		})
 
-		writer.Row([]interface{}{"John", true, 28})
-		writer.Row([]interface{}{"Marry", false, 21})
+		writer.Row([]interface{}{"John", true, 28})   //nolint:errcheck
+		writer.Row([]interface{}{"Marry", false, 21}) //nolint:errcheck
 		return writer.Complete("OK")
 	}
 
