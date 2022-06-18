@@ -49,6 +49,7 @@ const (
 	ParamApplicationName      ParameterStatus = "application_name"
 	ParamDatabase             ParameterStatus = "database"
 	ParamUsername             ParameterStatus = "user"
+	ParamServerVersion        ParameterStatus = "server_version"
 )
 
 // setClientParameters constructs a new context containing the given parameters.

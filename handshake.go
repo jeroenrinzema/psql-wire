@@ -103,6 +103,7 @@ func (srv *Server) writeParameters(ctx context.Context, writer *buffer.Writer, p
 
 	params[ParamServerEncoding] = "UTF8"
 	params[ParamClientEncoding] = "UTF8"
+	params[ParamServerVersion] = "13.0"
 	params[ParamIsSuperuser] = buffer.EncodeBoolean(IsSuperUser(ctx))
 	params[ParamSessionAuthorization] = AuthenticatedUsername(ctx)
 
