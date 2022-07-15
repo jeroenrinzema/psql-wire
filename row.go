@@ -103,7 +103,15 @@ func (column Column) Write(ctx context.Context, writer *buffer.Writer, src inter
 		return err
 	}
 
-	writer.AddInt32(int32(len(bb)))
+	// NOTE(Jeroen): The length of the column value, in bytes (this count does
+	// not include itself). Can be zero. As a special case, -1 indicates a NULL
+	// column value. No value bytes follow in the NULL case.
+	length := int32(len(bb))
+	if src == nil {
+		length = -1
+	}
+
+	writer.AddInt32(length)
 	writer.AddBytes(bb)
 
 	return nil
