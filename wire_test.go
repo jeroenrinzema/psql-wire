@@ -206,3 +206,88 @@ func TestServerWritingResult(t *testing.T) {
 	// 	}
 	// })
 }
+
+func TestServerNULLValues(t *testing.T) {
+	t.Parallel()
+
+	name := "John"
+	expected := []*string{
+		&name,
+		nil,
+	}
+
+	handler := func(ctx context.Context, query string, writer DataWriter) error {
+		t.Log("serving query")
+
+		writer.Define(Columns{ //nolint:errcheck
+			{
+				Table:  0,
+				Name:   "name",
+				Oid:    oid.T_text,
+				Width:  256,
+				Format: TextFormat,
+			},
+		})
+
+		writer.Row([]any{"John"}) //nolint:errcheck
+		writer.Row([]any{nil})    //nolint:errcheck
+		return writer.Complete("OK")
+	}
+
+	server, err := NewServer(SimpleQuery(handler))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	address := TListenAndServe(t, server)
+
+	t.Run("lib/pq", func(t *testing.T) {
+		connstr := fmt.Sprintf("host=%s port=%d sslmode=disable", address.IP, address.Port)
+		conn, err := sql.Open("postgres", connstr)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		rows, err := conn.Query("SELECT *;")
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		result := []*string{}
+		for rows.Next() {
+			var name *string
+			err := rows.Scan(&name)
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			t.Logf("scan result: %+v", name)
+			result = append(result, name)
+		}
+
+		if len(result) != len(expected) {
+			t.Fatal("an unexpected amount of records was returned")
+		}
+
+		for index := range expected {
+			switch {
+			case expected[index] == nil:
+				if result[index] != nil {
+					t.Errorf("unexpected value %+v, expected nil", result[index])
+				}
+			case expected[index] != nil:
+				left := *expected[index]
+				right := *result[index]
+
+				if left != right {
+					t.Errorf("unexpected value %+v, expected %+v", left, right)
+				}
+			}
+		}
+
+		err = conn.Close()
+		if err != nil {
+			t.Fatal(err)
+		}
+	})
+}
