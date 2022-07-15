@@ -19,12 +19,9 @@ $(BUILD_DIR):
 $(BIN):
 	@mkdir -p $@
 $(BIN)/%: | $(BIN) ; $(info $(M) building $(@F)…)
-	$Q GOBIN=$(BIN) $(GO) install $(shell $(GO) list -tags=tools -f '{{ join .Imports "\n" }}' | grep $(@F))
+	$Q GOBIN=$(BIN) $(GO) install $(shell $(GO) list -tags=tools -f '{{ join .Imports "\n" }}' ./tools | grep $(@F))
 
 GOLANGCI_LINT = $(BIN)/golangci-lint
-$(BIN)/golangci-lint: | $(BIN) ;
-	curl -sfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh| sh -s v1.42.1
-
 STRINGER = $(BIN)/stringer
 GOIMPORTS = $(BIN)/goimports
 
