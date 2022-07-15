@@ -41,7 +41,7 @@ func handle(ctx context.Context, query string, writer wire.DataWriter) error {
 	log.Println("incoming SQL query:", query)
 
 	writer.Define(table)
-	writer.Row([]interface{}{"John", true, 29})
-	writer.Row([]interface{}{"Marry", false, 21})
+	writer.Row([]any{"John", true, 29})
+	writer.Row([]any{"Marry", false, 21})
 	return writer.Complete("OK")
 }

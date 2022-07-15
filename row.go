@@ -29,7 +29,7 @@ func (columns Columns) Define(ctx context.Context, writer *buffer.Writer) error 
 
 // Write writes the given column values back to the client using the predefined
 // table column types and format encoders (text/binary).
-func (columns Columns) Write(ctx context.Context, writer *buffer.Writer, srcs []interface{}) (err error) {
+func (columns Columns) Write(ctx context.Context, writer *buffer.Writer, srcs []any) (err error) {
 	if len(srcs) != len(columns) {
 		return fmt.Errorf("unexpected columns, %d columns are defined inside the given table but %d were given", len(columns), len(srcs))
 	}
@@ -77,7 +77,7 @@ func (column Column) Define(ctx context.Context, writer *buffer.Writer) {
 // Write encodes the given source value using the column type definition and connection
 // info. The encoded byte buffer is added to the given write buffer. This method
 // Is used to encode values and return them inside a DataRow message.
-func (column Column) Write(ctx context.Context, writer *buffer.Writer, src interface{}) (err error) {
+func (column Column) Write(ctx context.Context, writer *buffer.Writer, src any) (err error) {
 	if ctx.Err() != nil {
 		return ctx.Err()
 	}

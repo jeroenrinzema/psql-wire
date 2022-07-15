@@ -21,7 +21,7 @@ type DataWriter interface {
 	// sending rows. Each item inside the slice represents a single column value.
 	// The slice length needs to be the same length as the defined columns. Nil
 	// values are encoded as NULL values.
-	Row([]interface{}) error
+	Row([]any) error
 
 	// Empty announces to the client a empty response and that no data rows should
 	// be expected.
@@ -69,7 +69,7 @@ func (writer *dataWriter) Define(columns Columns) error {
 	return writer.columns.Define(writer.ctx, writer.client)
 }
 
-func (writer *dataWriter) Row(values []interface{}) error {
+func (writer *dataWriter) Row(values []any) error {
 	if writer.closed {
 		return ErrClosedWriter
 	}

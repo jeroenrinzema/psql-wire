@@ -129,8 +129,8 @@ func TestServerWritingResult(t *testing.T) {
 			},
 		})
 
-		writer.Row([]interface{}{"John", true, 28})   //nolint:errcheck
-		writer.Row([]interface{}{"Marry", false, 21}) //nolint:errcheck
+		writer.Row([]any{"John", true, 28})   //nolint:errcheck
+		writer.Row([]any{"Marry", false, 21}) //nolint:errcheck
 		return writer.Complete("OK")
 	}
 
