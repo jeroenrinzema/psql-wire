@@ -1,12 +1,44 @@
 package wire
 
 import (
+	"context"
 	"crypto/tls"
 	"crypto/x509"
 
 	"github.com/jackc/pgtype"
 	"go.uber.org/zap"
 )
+
+type SimpleQueryFn func(ctx context.Context, query string, writer DataWriter) error
+
+// ParseFn parses the given query and returns a prepared statement which could
+// be used to execute at a later point in time.
+type ParseFn func(ctx context.Context, query string) (PreparedStatementFn, error)
+
+// PreparedStatementFn represents a query of which a statement has been
+// prepared. The statement could be executed at any point in time with the given
+// arguments and data writer.
+type PreparedStatementFn func(ctx context.Context, writer DataWriter) error
+
+// StatementCache represents a cache which could be used to store and retrieve
+// prepared statements bound to a name.
+type StatementCache interface {
+	// Set attempts to bind the given statement to the given name. Any
+	// previously defined statement is overridden.
+	Set(ctx context.Context, name string, fn PreparedStatementFn) error
+	// Get attempts to get the prepared statement for the given name. An error
+	// is returned when no statement has been found.
+	Get(ctx context.Context, name string) (PreparedStatementFn, error)
+}
+
+
+type PortalCache interface {
+	Set(ctx context.Context) error
+	Remove(ctx context.Context)
+	Get(ctx context.Context) error
+}
+
+type CloseFn func(ctx context.Context) error
 
 // OptionFn options pattern used to define and set options for the given
 // PostgreSQL server.
@@ -15,7 +47,32 @@ type OptionFn func(*Server)
 // SimpleQuery sets the simple query handle inside the given server instance.
 func SimpleQuery(fn SimpleQueryFn) OptionFn {
 	return func(srv *Server) {
-		srv.SimpleQuery = fn
+		if srv.Parse != nil {
+			return
+		}
+
+		srv.Parse = func(ctx context.Context, query string) (PreparedStatementFn, error) {
+			statement := func(ctx context.Context, writer DataWriter) error {
+				return fn(ctx, query, writer)
+			}
+
+			return statement, nil
+		}
+	}
+}
+
+// Parse sets the given parse function used to parse queries into prepared statements.
+func Parse(fn ParseFn) OptionFn {
+	return func(srv *Server) {
+		srv.Parse = fn
+	}
+}
+
+// Cache sets the statement cache used to cache statements for later use. By
+// default is the DefaultStatementCache used to cache prepared statements.
+func Cache(fn StatementCache) OptionFn {
+	return func(srv *Server) {
+		srv.Statements = fn
 	}
 }
 
