@@ -1,3 +1,4 @@
 bin/
-### Intellij IDE settings ###
+
 .idea/*
+.vscode/
