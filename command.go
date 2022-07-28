@@ -22,9 +22,12 @@ func NewErrUnimplementedMessageType(t types.ClientMessage) error {
 	return psqlerr.WithSeverity(psqlerr.WithCode(err, codes.ConnectionDoesNotExist), psqlerr.LevelFatal)
 }
 
-type SimpleQueryFn func(ctx context.Context, query string, writer DataWriter) error
-
-type CloseFn func(ctx context.Context) error
+// NewErrUnkownStatement is returned whenever no executable has been found for
+// the given name.
+func NewErrUnkownStatement(name string) error {
+	err := fmt.Errorf("unknown executeable: %s", name)
+	return psqlerr.WithSeverity(psqlerr.WithCode(err, codes.InvalidPreparedStatementDefinition), psqlerr.LevelFatal)
+}
 
 // consumeCommands consumes incoming commands send over the Postgres wire connection.
 // Commands consumed from the connection are returned through a go channel.
@@ -101,6 +104,7 @@ func (srv *Server) handleMessageSizeExceeded(reader *buffer.Reader, writer *buff
 // handleCommand handles the given client message. A client message includes a
 // message type and reader buffer containing the actual message. The type
 // indecates a action executed by the client.
+// https://www.postgresql.org/docs/14/protocol-message-formats.html
 func (srv *Server) handleCommand(ctx context.Context, conn net.Conn, t types.ClientMessage, reader *buffer.Reader, writer *buffer.Writer) (err error) {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
@@ -108,13 +112,35 @@ func (srv *Server) handleCommand(ctx context.Context, conn net.Conn, t types.Cli
 	switch t {
 	case types.ClientSync:
 		// TODO(Jeroen): client sync received
+		fmt.Println("Sync!")
 	case types.ClientSimpleQuery:
 		return srv.handleSimpleQuery(ctx, reader, writer)
 	case types.ClientExecute:
+		return srv.handleExecute(ctx, reader, writer)
 	case types.ClientParse:
+		return srv.handleParse(ctx, reader, writer)
 	case types.ClientDescribe:
+		fmt.Println("Describe Message:")
+		fmt.Println(reader.GetBytes(1)) // 'S' to describe a prepared statement; or 'P' to describe a portal.
+		fmt.Println(reader.GetString()) // The name of the prepared statement or portal to describe (an empty string selects the unnamed prepared statement or portal).
 	case types.ClientBind:
+		fmt.Println("Bind Message Type:")
+		fmt.Println(reader.GetString()) // name bind
+		fmt.Println(reader.GetString()) // name statement
+		fmt.Println(reader.GetUint16()) // number of parameters
+		fmt.Println(reader.GetUint16()) // parameter format code
+		fmt.Println(reader.GetUint16()) // number of parameters that will follow
+
+		fmt.Println(reader.GetUint32()) // length of the value
+		fmt.Println(reader.GetBytes(0)) // value in bytes (based on length)
+		fmt.Println(reader.GetUint16()) // The number of result-column format codes that follow
+		fmt.Println(reader.GetUint16()) // The result-column format codes
+
+		writer.Start(types.ServerBindComplete)
+		writer.End() //nolint:errcheck
 	case types.ClientFlush:
+		// TODO(Jeroen): flush received
+		fmt.Println("Flush!")
 	case types.ClientCopyData, types.ClientCopyDone, types.ClientCopyFail:
 		// We're supposed to ignore these messages, per the protocol spec. This
 		// state will happen when an error occurs on the server-side during a copy
@@ -149,7 +175,7 @@ func (srv *Server) handleCommand(ctx context.Context, conn net.Conn, t types.Cli
 }
 
 func (srv *Server) handleSimpleQuery(ctx context.Context, reader *buffer.Reader, writer *buffer.Writer) error {
-	if srv.SimpleQuery == nil {
+	if srv.Parse == nil {
 		return ErrorCode(writer, NewErrUnimplementedMessageType(types.ClientSimpleQuery))
 	}
 
@@ -160,11 +186,100 @@ func (srv *Server) handleSimpleQuery(ctx context.Context, reader *buffer.Reader,
 
 	srv.logger.Debug("incoming query", zap.String("query", query))
 
-	err = srv.SimpleQuery(ctx, query, &dataWriter{
+	statement, err := srv.Parse(ctx, query)
+	if err != nil {
+		return err
+	}
+
+	if err != nil {
+		return ErrorCode(writer, err)
+	}
+
+	err = statement(ctx, &dataWriter{
 		ctx:    ctx,
 		client: writer,
 	})
 
+	if err != nil {
+		return ErrorCode(writer, err)
+	}
+
+	return nil
+}
+
+func (srv *Server) handleParse(ctx context.Context, reader *buffer.Reader, writer *buffer.Writer) error {
+	if srv.Parse == nil || srv.Statements == nil {
+		return ErrorCode(writer, NewErrUnimplementedMessageType(types.ClientParse))
+	}
+
+	name, err := reader.GetString()
+	if err != nil {
+		return err
+	}
+
+	query, err := reader.GetString()
+	if err != nil {
+		return err
+	}
+
+	// TODO(Jeroen): reader.GetUint16()
+	// The number of parameter data types specified (can be zero). Note that
+	// this is not an indication of the number of parameters that might appear
+	// in the query string, only the number that the frontend wants to
+	// prespecify types for.
+
+	// TODO(Jeroen): reader.GetUint32()
+	// Specifies the object ID of the parameter data type. Placing a zero here
+	// is equivalent to leaving the type unspecified.
+
+	srv.logger.Debug("incoming query", zap.String("query", query), zap.String("name", name))
+
+	statement, err := srv.Parse(ctx, query)
+	if err != nil {
+		return ErrorCode(writer, err)
+	}
+
+	err = srv.Statements.Set(ctx, name, statement)
+	if err != nil {
+		return ErrorCode(writer, err)
+	}
+
+	writer.Start(types.ServerParseComplete)
+	writer.End() //nolint:errcheck
+
+	return nil
+}
+
+func (srv *Server) handleExecute(ctx context.Context, reader *buffer.Reader, writer *buffer.Writer) error {
+	if srv.Statements == nil {
+		return ErrorCode(writer, NewErrUnimplementedMessageType(types.ClientExecute))
+	}
+
+	name, err := reader.GetString()
+	if err != nil {
+		return err
+	}
+
+	fmt.Println("execute name", name)
+
+	// TODO(Jeroen): reader.GetUint32()
+	// Maximum number of rows to return, if portal
+	// contains a query that returns rows (ignored otherwise). Zero denotes “no
+	// limit”.
+
+	statement, err := srv.Statements.Get(ctx, name)
+	if err != nil {
+		return ErrorCode(writer, err)
+	}
+
+	if statement == nil {
+		return ErrorCode(writer, NewErrUnkownStatement(name))
+	}
+
+	err = statement(ctx, &dataWriter{
+		ctx:    ctx,
+		client: writer,
+	})
 	if err != nil {
 		return ErrorCode(writer, err)
 	}

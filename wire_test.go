@@ -11,6 +11,7 @@ import (
 	"github.com/jeroenrinzema/psql-wire/internal/mock"
 	_ "github.com/lib/pq"
 	"github.com/lib/pq/oid"
+	"go.uber.org/zap"
 )
 
 // TListenAndServe will open a new TCP listener on a unallocated port inside
@@ -134,7 +135,8 @@ func TestServerWritingResult(t *testing.T) {
 		return writer.Complete("OK")
 	}
 
-	server, err := NewServer(SimpleQuery(handler))
+	d, _ := zap.NewDevelopment()
+	server, err := NewServer(SimpleQuery(handler), Logger(d))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -171,40 +173,40 @@ func TestServerWritingResult(t *testing.T) {
 		}
 	})
 
-	// NOTE(Jeroen): the jackc/pgx test has been disabled due to a lock of
+	// NOTE(Jeroen): the jackc/pgx test has been disabled due to a lack of
 	// support for parse, describe, and execute messages. This test could be
 	// enabled again once these message types are supported.
-	// t.Run("jackc/pgx", func(t *testing.T) {
-	// 	ctx := context.Background()
-	// 	connstr := fmt.Sprintf("postgres://%s:%d", address.IP, address.Port)
-	// 	conn, err := pgx.Connect(ctx, connstr)
-	// 	if err != nil {
-	// 		t.Fatal(err)
-	// 	}
+	t.Run("jackc/pgx", func(t *testing.T) {
+		ctx := context.Background()
+		connstr := fmt.Sprintf("postgres://%s:%d", address.IP, address.Port)
+		conn, err := pgx.Connect(ctx, connstr)
+		if err != nil {
+			t.Fatal(err)
+		}
 
-	// 	rows, err := conn.Query(ctx, "SELECT *;")
-	// 	if err != nil {
-	// 		t.Fatal(err)
-	// 	}
+		rows, err := conn.Query(ctx, "SELECT *;")
+		if err != nil {
+			t.Fatal(err)
+		}
 
-	// 	for rows.Next() {
-	// 		var name string
-	// 		var member bool
-	// 		var age int
+		for rows.Next() {
+			var name string
+			var member bool
+			var age int
 
-	// 		err := rows.Scan(&name, &member, &age)
-	// 		if err != nil {
-	// 			t.Fatal(err)
-	// 		}
+			err := rows.Scan(&name, &member, &age)
+			if err != nil {
+				t.Fatal(err)
+			}
 
-	// 		t.Logf("scan result: %s, %d, %t", name, age, member)
-	// 	}
+			t.Logf("scan result: %s, %d, %t", name, age, member)
+		}
 
-	// 	err = conn.Close(ctx)
-	// 	if err != nil {
-	// 		t.Fatal(err)
-	// 	}
-	// })
+		err = conn.Close(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+	})
 }
 
 func TestServerNULLValues(t *testing.T) {

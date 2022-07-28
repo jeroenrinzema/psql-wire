@@ -29,9 +29,10 @@ func ListenAndServe(address string, handler SimpleQueryFn) error {
 // NewServer constructs a new Postgres server using the given address and server options.
 func NewServer(options ...OptionFn) (*Server, error) {
 	srv := &Server{
-		logger: zap.NewNop(),
-		closer: make(chan struct{}),
-		types:  pgtype.NewConnInfo(),
+		logger:     zap.NewNop(),
+		closer:     make(chan struct{}),
+		types:      pgtype.NewConnInfo(),
+		Statements: &DefaultStatementCache{},
 	}
 
 	for _, option := range options {
@@ -52,7 +53,9 @@ type Server struct {
 	Certificates    []tls.Certificate
 	ClientCAs       *x509.CertPool
 	ClientAuth      tls.ClientAuthType
-	SimpleQuery     SimpleQueryFn
+	Parse           ParseFn
+	Statements      StatementCache
+	Portals         PortalCache
 	CloseConn       CloseFn
 	TerminateConn   CloseFn
 	Version         string
