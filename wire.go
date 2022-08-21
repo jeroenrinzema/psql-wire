@@ -52,6 +52,7 @@ type Server struct {
 	SimpleQuery     SimpleQueryFn
 	CloseConn       CloseFn
 	TerminateConn   CloseFn
+	Version         string
 	closer          chan struct{}
 }
 
