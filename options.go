@@ -79,3 +79,11 @@ func Logger(logger *zap.Logger) OptionFn {
 		srv.logger = logger
 	}
 }
+
+// Version sets the PostgreSQL version for the server which is send back to the
+// front-end (client) once a handshake has been established.
+func Version(version string) OptionFn {
+	return func(srv *Server) {
+		srv.Version = version
+	}
+}
