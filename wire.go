@@ -7,6 +7,7 @@ import (
 	"net"
 	"sync"
 
+	"github.com/jackc/pgtype"
 	"github.com/jeroenrinzema/psql-wire/internal/buffer"
 	"github.com/jeroenrinzema/psql-wire/internal/types"
 	"go.uber.org/zap"
@@ -30,6 +31,7 @@ func NewServer(options ...OptionFn) (*Server, error) {
 	srv := &Server{
 		logger: zap.NewNop(),
 		closer: make(chan struct{}),
+		types:  pgtype.NewConnInfo(),
 	}
 
 	for _, option := range options {
@@ -43,6 +45,7 @@ func NewServer(options ...OptionFn) (*Server, error) {
 type Server struct {
 	wg              sync.WaitGroup
 	logger          *zap.Logger
+	types           *pgtype.ConnInfo
 	Auth            AuthStrategy
 	BufferedMsgSize int
 	Parameters      Parameters
@@ -109,7 +112,7 @@ func (srv *Server) Serve(listener net.Listener) error {
 }
 
 func (srv *Server) serve(ctx context.Context, conn net.Conn) error {
-	ctx = setTypeInfo(ctx)
+	ctx = setTypeInfo(ctx, srv.types)
 	defer conn.Close()
 
 	srv.logger.Debug("serving a new client connection")
