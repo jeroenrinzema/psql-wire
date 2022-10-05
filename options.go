@@ -89,6 +89,9 @@ func Version(version string) OptionFn {
 	}
 }
 
+// ExtendTypes provides the ability to extend the underlying connection types.
+// Types registered inside the given pgtype.ConnInfo are registered to all
+// incoming connections.
 func ExtendTypes(fn func(*pgtype.ConnInfo)) OptionFn {
 	return func(srv *Server) {
 		fn(srv.types)
