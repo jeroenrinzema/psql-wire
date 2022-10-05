@@ -4,6 +4,7 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 
+	"github.com/jackc/pgtype"
 	"go.uber.org/zap"
 )
 
@@ -85,5 +86,11 @@ func Logger(logger *zap.Logger) OptionFn {
 func Version(version string) OptionFn {
 	return func(srv *Server) {
 		srv.Version = version
+	}
+}
+
+func ExtendTypes(fn func(*pgtype.ConnInfo)) OptionFn {
+	return func(srv *Server) {
+		fn(srv.types)
 	}
 }

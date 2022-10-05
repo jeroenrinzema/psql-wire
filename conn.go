@@ -15,8 +15,8 @@ const (
 )
 
 // setTypeInfo constructs a new Postgres type connection info for the given value
-func setTypeInfo(ctx context.Context) context.Context {
-	return context.WithValue(ctx, ctxTypeInfo, pgtype.NewConnInfo())
+func setTypeInfo(ctx context.Context, info *pgtype.ConnInfo) context.Context {
+	return context.WithValue(ctx, ctxTypeInfo, info)
 }
 
 // TypeInfo returns the Postgres type connection info if it has been set inside
