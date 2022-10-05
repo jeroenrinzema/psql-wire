@@ -62,7 +62,7 @@ func readyForQuery(writer *buffer.Writer, status types.ServerStatus) error {
 // readParameters reads the key/value connection parameters send by the client and
 // The read parameters will be set inside the given context. A new context containing
 // the consumed parameters will be returned.
-func (srv *Server) readParameters(ctx context.Context, reader *buffer.Reader) (_ context.Context, err error) {
+func (srv *Server) readClientParameters(ctx context.Context, reader *buffer.Reader) (_ context.Context, err error) {
 	meta := make(Parameters)
 
 	srv.logger.Debug("reading client parameters")

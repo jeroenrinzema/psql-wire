@@ -112,7 +112,6 @@ func (srv *Server) handleCommand(ctx context.Context, conn net.Conn, t types.Cli
 	switch t {
 	case types.ClientSync:
 		// TODO(Jeroen): client sync received
-		fmt.Println("Sync!")
 	case types.ClientSimpleQuery:
 		return srv.handleSimpleQuery(ctx, reader, writer)
 	case types.ClientExecute:
@@ -124,20 +123,7 @@ func (srv *Server) handleCommand(ctx context.Context, conn net.Conn, t types.Cli
 		fmt.Println(reader.GetBytes(1)) // 'S' to describe a prepared statement; or 'P' to describe a portal.
 		fmt.Println(reader.GetString()) // The name of the prepared statement or portal to describe (an empty string selects the unnamed prepared statement or portal).
 	case types.ClientBind:
-		fmt.Println("Bind Message Type:")
-		fmt.Println(reader.GetString()) // name bind
-		fmt.Println(reader.GetString()) // name statement
-		fmt.Println(reader.GetUint16()) // number of parameters
-		fmt.Println(reader.GetUint16()) // parameter format code
-		fmt.Println(reader.GetUint16()) // number of parameters that will follow
-
-		fmt.Println(reader.GetUint32()) // length of the value
-		fmt.Println(reader.GetBytes(0)) // value in bytes (based on length)
-		fmt.Println(reader.GetUint16()) // The number of result-column format codes that follow
-		fmt.Println(reader.GetUint16()) // The result-column format codes
-
-		writer.Start(types.ServerBindComplete)
-		writer.End() //nolint:errcheck
+		return srv.handleBind(ctx, reader, writer)
 	case types.ClientFlush:
 		// TODO(Jeroen): flush received
 		fmt.Println("Flush!")
@@ -195,11 +181,7 @@ func (srv *Server) handleSimpleQuery(ctx context.Context, reader *buffer.Reader,
 		return ErrorCode(writer, err)
 	}
 
-	err = statement(ctx, &dataWriter{
-		ctx:    ctx,
-		client: writer,
-	})
-
+	err = statement(ctx, NewDataWriter(ctx, writer))
 	if err != nil {
 		return ErrorCode(writer, err)
 	}
@@ -250,6 +232,59 @@ func (srv *Server) handleParse(ctx context.Context, reader *buffer.Reader, write
 	return nil
 }
 
+func (srv *Server) handleBind(ctx context.Context, reader *buffer.Reader, writer *buffer.Writer) error {
+	name, err := reader.GetString()
+	if err != nil {
+		return err
+	}
+
+	statement, err := reader.GetString()
+	if err != nil {
+		return err
+	}
+
+	_, err = srv.readParameters(ctx, reader)
+	if err != nil {
+		return err
+	}
+
+	fn, err := srv.Statements.Get(ctx, statement)
+	if err != nil {
+		return err
+	}
+
+	err = srv.Portals.Bind(ctx, name, fn)
+	if err != nil {
+		return err
+	}
+
+	writer.Start(types.ServerBindComplete)
+	return writer.End()
+}
+
+func (srv *Server) readParameters(ctx context.Context, reader *buffer.Reader) ([]interface{}, error) {
+	length, err := reader.GetUint16()
+	if err != nil {
+		return nil, err
+	}
+
+	srv.logger.Debug("reading parameters", zap.Uint16("length", length))
+	if length == 0 {
+		return nil, nil
+	}
+
+	for i := uint16(0); i < length; i++ {
+		fmt.Println(reader.GetUint16()) // parameter format code
+		fmt.Println(reader.GetUint16()) // number of parameters that will follow
+		fmt.Println(reader.GetUint32()) // length of the value
+		fmt.Println(reader.GetBytes(0)) // value in bytes (based on length)
+		fmt.Println(reader.GetUint16()) // The number of result-column format codes that follow
+		fmt.Println(reader.GetUint16()) // The result-column format codes
+	}
+
+	return nil, nil
+}
+
 func (srv *Server) handleExecute(ctx context.Context, reader *buffer.Reader, writer *buffer.Writer) error {
 	if srv.Statements == nil {
 		return ErrorCode(writer, NewErrUnimplementedMessageType(types.ClientExecute))
@@ -260,31 +295,13 @@ func (srv *Server) handleExecute(ctx context.Context, reader *buffer.Reader, wri
 		return err
 	}
 
-	fmt.Println("execute name", name)
-
 	// TODO(Jeroen): reader.GetUint32()
 	// Maximum number of rows to return, if portal
 	// contains a query that returns rows (ignored otherwise). Zero denotes “no
 	// limit”.
 
-	statement, err := srv.Statements.Get(ctx, name)
-	if err != nil {
-		return ErrorCode(writer, err)
-	}
-
-	if statement == nil {
-		return ErrorCode(writer, NewErrUnkownStatement(name))
-	}
-
-	err = statement(ctx, &dataWriter{
-		ctx:    ctx,
-		client: writer,
-	})
-	if err != nil {
-		return ErrorCode(writer, err)
-	}
-
-	return nil
+	srv.logger.Debug("executing", zap.String("name", name))
+	return srv.Portals.Execute(ctx, name, NewDataWriter(ctx, writer))
 }
 
 func (srv *Server) handleConnClose(ctx context.Context) error {
