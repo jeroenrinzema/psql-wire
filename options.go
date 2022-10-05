@@ -31,11 +31,11 @@ type StatementCache interface {
 	Get(ctx context.Context, name string) (PreparedStatementFn, error)
 }
 
-
+// PortalCache represents a cache which could be used to bind and execute
+// prepared statements with parameters.
 type PortalCache interface {
-	Set(ctx context.Context) error
-	Remove(ctx context.Context)
-	Get(ctx context.Context) error
+	Bind(ctx context.Context, name string, statement PreparedStatementFn) error
+	Execute(ctx context.Context, name string, writer DataWriter) error
 }
 
 type CloseFn func(ctx context.Context) error
@@ -68,11 +68,19 @@ func Parse(fn ParseFn) OptionFn {
 	}
 }
 
-// Cache sets the statement cache used to cache statements for later use. By
+// Statements sets the statement cache used to cache statements for later use. By
 // default is the DefaultStatementCache used to cache prepared statements.
-func Cache(fn StatementCache) OptionFn {
+func Statements(cache StatementCache) OptionFn {
 	return func(srv *Server) {
-		srv.Statements = fn
+		srv.Statements = cache
+	}
+}
+
+// Portals sets the portals cache used to cache statements for later use. By
+// default is the DefaultPortalCache used to evaluate portals.
+func Portals(cache PortalCache) OptionFn {
+	return func(srv *Server) {
+		srv.Portals = cache
 	}
 }
 

@@ -47,6 +47,14 @@ var ErrDataWritten = errors.New("data has already been written")
 // ErrClosedWriter is thrown when the data writer has been closed
 var ErrClosedWriter = errors.New("closed writer")
 
+// NewDataWriter constructs a new data writer using the given context and buffer.
+func NewDataWriter(ctx context.Context, writer *buffer.Writer) DataWriter {
+	return &dataWriter{
+		ctx:    ctx,
+		client: writer,
+	}
+}
+
 // dataWriter is a implementation of the DataWriter interface.
 type dataWriter struct {
 	columns Columns

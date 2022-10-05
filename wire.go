@@ -33,6 +33,7 @@ func NewServer(options ...OptionFn) (*Server, error) {
 		closer:     make(chan struct{}),
 		types:      pgtype.NewConnInfo(),
 		Statements: &DefaultStatementCache{},
+		Portals:    &DefaultPortalCache{},
 	}
 
 	for _, option := range options {
@@ -132,7 +133,7 @@ func (srv *Server) serve(ctx context.Context, conn net.Conn) error {
 	srv.logger.Debug("handshake successfull, validating authentication")
 
 	writer := buffer.NewWriter(conn)
-	ctx, err = srv.readParameters(ctx, reader)
+	ctx, err = srv.readClientParameters(ctx, reader)
 	if err != nil {
 		return err
 	}

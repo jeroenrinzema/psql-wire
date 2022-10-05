@@ -2,8 +2,13 @@ package wire
 
 import (
 	"context"
+	"errors"
 	"sync"
 )
+
+// ErrStatementAlreadyExists is thrown whenever an prepared statement already
+// exists within the given statement cache.
+var ErrStatementAlreadyExists = errors.New("prepared statement already exists")
 
 type DefaultStatementCache struct {
 	statements map[string]PreparedStatementFn
@@ -18,6 +23,11 @@ func (cache *DefaultStatementCache) Set(ctx context.Context, name string, fn Pre
 
 	if cache.statements == nil {
 		cache.statements = map[string]PreparedStatementFn{}
+	}
+
+	_, has := cache.statements[name]
+	if has {
+		return ErrStatementAlreadyExists
 	}
 
 	cache.statements[name] = fn
@@ -38,4 +48,30 @@ func (cache *DefaultStatementCache) Get(ctx context.Context, name string) (Prepa
 }
 
 type DefaultPortalCache struct {
+	portals map[string]PreparedStatementFn
+	mu      sync.RWMutex
+}
+
+func (cache *DefaultPortalCache) Bind(ctx context.Context, name string, fn PreparedStatementFn) error {
+	cache.mu.Lock()
+	defer cache.mu.Unlock()
+
+	if cache.portals == nil {
+		cache.portals = map[string]PreparedStatementFn{}
+	}
+
+	cache.portals[name] = fn
+	return nil
+}
+
+func (cache *DefaultPortalCache) Execute(ctx context.Context, name string, writer DataWriter) error {
+	cache.mu.Lock()
+	defer cache.mu.Unlock()
+
+	fn, has := cache.portals[name]
+	if !has {
+		return nil
+	}
+
+	return fn(ctx, writer)
 }
