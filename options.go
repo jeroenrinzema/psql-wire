@@ -167,8 +167,9 @@ func Logger(logger *zap.Logger) OptionFn {
 // Version sets the PostgreSQL version for the server which is send back to the
 // front-end (client) once a handshake has been established.
 func Version(version string) OptionFn {
-	return func(srv *Server) {
+	return func(srv *Server) error {
 		srv.Version = version
+		return nil
 	}
 }
 
@@ -176,7 +177,8 @@ func Version(version string) OptionFn {
 // Types registered inside the given pgtype.ConnInfo are registered to all
 // incoming connections.
 func ExtendTypes(fn func(*pgtype.ConnInfo)) OptionFn {
-	return func(srv *Server) {
+	return func(srv *Server) error {
 		fn(srv.types)
+		return nil
 	}
 }
