@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/tls"
 	"crypto/x509"
+	"fmt"
 	"net"
 	"sync"
 
@@ -37,7 +38,10 @@ func NewServer(options ...OptionFn) (*Server, error) {
 	}
 
 	for _, option := range options {
-		option(srv)
+		err := option(srv)
+		if err != nil {
+			return nil, fmt.Errorf("unexpected error while attempting to configure a new server: %w", err)
+		}
 	}
 
 	return srv, nil
