@@ -37,4 +37,4 @@ Check out the open projects and/or issues and feel free to join any ongoing disc
 
 Everyone is welcome to contribute, whether it's in the form of code, documentation, bug reports, feature requests, or anything else. We encourage you to experiment with the project and make contributions to help evolve it to meet your needs!
 
-See the [contributing guide](https://github.com/jeroenrinzema/psql-wire/blob/master/CONTRIBUTING.md) for more details.
+See the [contributing guide](https://github.com/jeroenrinzema/psql-wire/blob/main/CONTRIBUTING.md) for more details.
