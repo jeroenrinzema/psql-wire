@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/tls"
 	"crypto/x509"
+	"errors"
 
 	"github.com/jackc/pgtype"
 	"go.uber.org/zap"
@@ -42,13 +43,13 @@ type CloseFn func(ctx context.Context) error
 
 // OptionFn options pattern used to define and set options for the given
 // PostgreSQL server.
-type OptionFn func(*Server)
+type OptionFn func(*Server) error
 
 // SimpleQuery sets the simple query handle inside the given server instance.
 func SimpleQuery(fn SimpleQueryFn) OptionFn {
-	return func(srv *Server) {
+	return func(srv *Server) error {
 		if srv.Parse != nil {
-			return
+			return errors.New("simple query handler could not set if a query parser is set")
 		}
 
 		srv.Parse = func(ctx context.Context, query string) (PreparedStatementFn, error) {
@@ -58,43 +59,54 @@ func SimpleQuery(fn SimpleQueryFn) OptionFn {
 
 			return statement, nil
 		}
+
+		return nil
 	}
 }
 
 // Parse sets the given parse function used to parse queries into prepared statements.
 func Parse(fn ParseFn) OptionFn {
-	return func(srv *Server) {
+	return func(srv *Server) error {
+		if srv.Parse != nil {
+			return errors.New("parser could not set if a simple query handler is set")
+		}
+
 		srv.Parse = fn
+		return nil
 	}
 }
 
 // Statements sets the statement cache used to cache statements for later use. By
 // default is the DefaultStatementCache used to cache prepared statements.
 func Statements(cache StatementCache) OptionFn {
-	return func(srv *Server) {
+	return func(srv *Server) error {
 		srv.Statements = cache
+		return nil
 	}
 }
 
 // Portals sets the portals cache used to cache statements for later use. By
 // default is the DefaultPortalCache used to evaluate portals.
 func Portals(cache PortalCache) OptionFn {
-	return func(srv *Server) {
+	return func(srv *Server) error {
 		srv.Portals = cache
+		return nil
 	}
 }
 
 // CloseConn sets the close connection handle inside the given server instance.
 func CloseConn(fn CloseFn) OptionFn {
-	return func(srv *Server) {
+	return func(srv *Server) error {
 		srv.CloseConn = fn
+		return nil
 	}
 }
 
 // TerminateConn sets the terminate connection handle inside the given server instance.
 func TerminateConn(fn CloseFn) OptionFn {
-	return func(srv *Server) {
+	return func(srv *Server) error {
 		srv.TerminateConn = fn
+		return nil
 	}
 }
 
@@ -102,47 +114,53 @@ func TerminateConn(fn CloseFn) OptionFn {
 // connection gets constructed. If a negative value or zero value is provided is
 // the default message buffer size used.
 func MessageBufferSize(size int) OptionFn {
-	return func(srv *Server) {
+	return func(srv *Server) error {
 		srv.BufferedMsgSize = size
+		return nil
 	}
 }
 
 // Certificates sets the given TLS certificates to be used to initialize a
 // secure connection between the front-end (client) and back-end (server).
 func Certificates(certs []tls.Certificate) OptionFn {
-	return func(srv *Server) {
+	return func(srv *Server) error {
 		srv.Certificates = certs
+		return nil
 	}
 }
 
 // ClientCAs sets the given Client CAs to be used, by the server, to verify a
 // secure connection between the front-end (client) and back-end (server).
 func ClientCAs(cas *x509.CertPool) OptionFn {
-	return func(srv *Server) {
+	return func(srv *Server) error {
 		srv.ClientCAs = cas
+		return nil
 	}
 }
 
 // ClientAuth sets the given Client Auth to be used, by the server, to verify a
 // secure connection between the front-end (client) and back-end (server).
 func ClientAuth(authType tls.ClientAuthType) OptionFn {
-	return func(srv *Server) {
+	return func(srv *Server) error {
 		srv.ClientAuth = authType
+		return nil
 	}
 }
 
 // GlobalParameters sets the server parameters which are send back to the
 // front-end (client) once a handshake has been established.
 func GlobalParameters(params Parameters) OptionFn {
-	return func(srv *Server) {
+	return func(srv *Server) error {
 		srv.Parameters = params
+		return nil
 	}
 }
 
 // Logger sets the given zap logger as the default logger for the given server.
 func Logger(logger *zap.Logger) OptionFn {
-	return func(srv *Server) {
+	return func(srv *Server) error {
 		srv.logger = logger
+		return nil
 	}
 }
 
