@@ -10,6 +10,7 @@ import (
 type errFieldType byte
 
 // http://www.postgresql.org/docs/current/static/protocol-error-fields.html
+//
 //nolint:varcheck,deadcode
 const (
 	errFieldSeverity       errFieldType = 'S'
