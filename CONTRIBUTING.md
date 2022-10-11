@@ -20,33 +20,29 @@ how the requested feature would help you do that.
      issue that you are planning to work on that bug or feature so that it can
      be assigned to you.
 
-  1. Follow the normal process of [forking][] the project, and setup a new
+  2. Follow the normal process of [forking][] the project, and set up a new
      branch to work in. It's important that each group of changes be done in
      separate branches in order to ensure that a pull request only includes the
      commits related to that bug or feature.
 
-  1. Go makes it very simple to ensure properly formatted code, so always run
-     `go fmt` on your code before committing it. You should also run
-     [golint][] over your code. As noted in the [golint readme][], it's not
-     strictly necessary that your code be completely "lint-free", but this will
-     help you find common style issues.
+  3. Go makes it very simple to ensure properly formatted code, so always run
+     `make fmt` on your code before committing it.
 
-  1. Any significant changes should almost always be accompanied by tests. The
-     project already has good test coverage, so look at some of the existing
-     tests if you're unsure how to go about it. [gocov][] and [gocov-html][]
+  4. Any significant changes should almost always be accompanied by tests. The
+     project already has good test coverage, so look at existing tests if
+     you're unsure how to go about it. [gocov][] and [gocov-html][]
      are invaluable tools for seeing which parts of your code aren't being
      exercised by your tests.
 
-  1. Please run:
-     * `go test ./...`
-     * `go vet ./...`
-     Before commiting any changes to `psql-wire`.
+  5. Please run:
+     * `make build`
+     Before committing any changes to `psql-wire`.
 
-  1. Do your best to have [well-formed commit messages][] for each change.
+  6. Do your best to have [well-formed commit messages][] for each change.
      This provides consistency throughout the project, and ensures that commit
-     messages are able to be formatted properly by various git tools.
+     messages are able to be properly formatted by various git tools.
 
-  1. Finally, push the commits to your fork and submit a [pull request][].
+  7. Finally, push the commits to your fork and submit a [pull request][].
 
 [forking]: https://help.github.com/articles/fork-a-repo
 [golint]: https://github.com/golang/lint
