@@ -24,8 +24,8 @@ jobs:
         path: ./bin
         key: ${{ runner.os }}-bin-${{ hashFiles('**/go.sum') }}
 
-    - name: Linting
-      run: make lint
+    - name: Building
+      run: make build
     
     - name: Cache bin
       uses: actions/cache@v2

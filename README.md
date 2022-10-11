@@ -1,6 +1,6 @@
 # PSQL wire protocol 🔌
 
-[![CI](https://github.com/jeroenrinzema/psql-wire/actions/workflows/lint.yaml/badge.svg)](https://github.com/jeroenrinzema/psql-wire/actions/workflows/lint.yaml)
+[![CI](https://github.com/jeroenrinzema/psql-wire/actions/workflows/build.yaml/badge.svg)](https://github.com/jeroenrinzema/psql-wire/actions/workflows/build.yaml)
 [![Go Reference](https://pkg.go.dev/badge/github.com/jeroenrinzema/psql-wire.svg)](https://pkg.go.dev/github.com/jeroenrinzema/psql-wire) [![Latest release](https://img.shields.io/github/release/jeroenrinzema/psql-wire.svg)](https://github.com/jeroenrinzema/psql-wire/releases) [![Go Report Card](https://goreportcard.com/badge/github.com/jeroenrinzema/psql-wire)](https://goreportcard.com/report/github.com/jeroenrinzema/psql-wire)
 
 A pure Go [PostgreSQL](https://www.postgresql.org/) server wire protocol implementation.
