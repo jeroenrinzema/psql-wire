@@ -64,7 +64,7 @@ func (cache *DefaultPortalCache) Bind(ctx context.Context, name string, fn Prepa
 	return nil
 }
 
-func (cache *DefaultPortalCache) Execute(ctx context.Context, name string, writer DataWriter) error {
+func (cache *DefaultPortalCache) Execute(ctx context.Context, name string, writer DataWriter, parameters []any) error {
 	cache.mu.Lock()
 	defer cache.mu.Unlock()
 
@@ -73,5 +73,5 @@ func (cache *DefaultPortalCache) Execute(ctx context.Context, name string, write
 		return nil
 	}
 
-	return fn(ctx, writer)
+	return fn(ctx, writer, parameters)
 }

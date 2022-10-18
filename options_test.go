@@ -4,12 +4,14 @@ import (
 	"context"
 	"strconv"
 	"testing"
+
+	"github.com/lib/pq/oid"
 )
 
 func TestInvalidOptions(t *testing.T) {
 	tests := [][]OptionFn{
 		{
-			Parse(func(context.Context, string) (PreparedStatementFn, error) { return nil, nil }),
+			Parse(func(context.Context, string) (PreparedStatementFn, []oid.Oid, error) { return nil, nil, nil }),
 			SimpleQuery(func(context.Context, string, DataWriter) error { return nil }),
 		},
 	}

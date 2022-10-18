@@ -11,6 +11,7 @@ import (
 	psqlerr "github.com/jeroenrinzema/psql-wire/errors"
 	"github.com/jeroenrinzema/psql-wire/internal/buffer"
 	"github.com/jeroenrinzema/psql-wire/internal/types"
+	"github.com/lib/pq/oid"
 	"go.uber.org/zap"
 )
 
@@ -122,6 +123,8 @@ func (srv *Server) handleCommand(ctx context.Context, conn net.Conn, t types.Cli
 		fmt.Println("Describe Message:")
 		fmt.Println(reader.GetBytes(1)) // 'S' to describe a prepared statement; or 'P' to describe a portal.
 		fmt.Println(reader.GetString()) // The name of the prepared statement or portal to describe (an empty string selects the unnamed prepared statement or portal).
+
+		// TODO: RowDescriptor
 	case types.ClientBind:
 		return srv.handleBind(ctx, reader, writer)
 	case types.ClientFlush:
@@ -172,7 +175,7 @@ func (srv *Server) handleSimpleQuery(ctx context.Context, reader *buffer.Reader,
 
 	srv.logger.Debug("incoming query", zap.String("query", query))
 
-	statement, err := srv.Parse(ctx, query)
+	statement, _, err := srv.Parse(ctx, query)
 	if err != nil {
 		return err
 	}
@@ -181,7 +184,7 @@ func (srv *Server) handleSimpleQuery(ctx context.Context, reader *buffer.Reader,
 		return ErrorCode(writer, err)
 	}
 
-	err = statement(ctx, NewDataWriter(ctx, writer))
+	err = statement(ctx, NewDataWriter(ctx, writer), []any{})
 	if err != nil {
 		return ErrorCode(writer, err)
 	}
@@ -204,21 +207,31 @@ func (srv *Server) handleParse(ctx context.Context, reader *buffer.Reader, write
 		return err
 	}
 
-	// TODO(Jeroen): reader.GetUint16()
-	// The number of parameter data types specified (can be zero). Note that
-	// this is not an indication of the number of parameters that might appear
-	// in the query string, only the number that the frontend wants to
-	// prespecify types for.
+	// NOTE(Jeroen): the number of parameter data types specified (can be
+	// zero). Note that this is not an indication of the number of parameters
+	// that might appear in the query string, only the number that the frontend
+	// wants to prespecify types for.
+	parameters, err := reader.GetUint16()
+	if err != nil {
+		return err
+	}
 
-	// TODO(Jeroen): reader.GetUint32()
-	// Specifies the object ID of the parameter data type. Placing a zero here
-	// is equivalent to leaving the type unspecified.
+	for i := uint16(0); i < parameters; i++ {
+		// TODO(Jeroen): reader.GetUint32()
+		// Specifies the object ID of the parameter data type. Placing a zero here
+		// is equivalent to leaving the type unspecified.
+	}
 
-	srv.logger.Debug("incoming query", zap.String("query", query), zap.String("name", name))
+	srv.logger.Debug("incoming query", zap.String("query", query), zap.String("name", name), zap.Uint16("parameters", parameters))
 
-	statement, err := srv.Parse(ctx, query)
+	statement, descriptions, err := srv.Parse(ctx, query)
 	if err != nil {
 		return ErrorCode(writer, err)
+	}
+
+	err = srv.writeParameterDescriptions(writer, descriptions)
+	if err != nil {
+		return err
 	}
 
 	err = srv.Statements.Set(ctx, name, statement)
@@ -227,9 +240,18 @@ func (srv *Server) handleParse(ctx context.Context, reader *buffer.Reader, write
 	}
 
 	writer.Start(types.ServerParseComplete)
-	writer.End() //nolint:errcheck
+	return writer.End()
+}
 
-	return nil
+func (srv *Server) writeParameterDescriptions(writer *buffer.Writer, parameters []oid.Oid) error {
+	writer.Start(types.ServerParameterDescription)
+	writer.AddInt16(int16(len(parameters)))
+
+	for _, parameter := range parameters {
+		writer.AddInt32(int32(parameter))
+	}
+
+	return writer.End()
 }
 
 func (srv *Server) handleBind(ctx context.Context, reader *buffer.Reader, writer *buffer.Writer) error {
@@ -295,13 +317,17 @@ func (srv *Server) handleExecute(ctx context.Context, reader *buffer.Reader, wri
 		return err
 	}
 
-	// TODO(Jeroen): reader.GetUint32()
-	// Maximum number of rows to return, if portal
-	// contains a query that returns rows (ignored otherwise). Zero denotes “no
-	// limit”.
+	// TODO(Jeroen): Maximum number of limit to return, if portal contains a
+	// query that returns limit (ignored otherwise). Zero denotes “no limit”.
+	limit, err := reader.GetUint32()
+	if err != nil {
+		return err
+	}
 
-	srv.logger.Debug("executing", zap.String("name", name))
-	return srv.Portals.Execute(ctx, name, NewDataWriter(ctx, writer))
+	parameters := []any{}
+
+	srv.logger.Debug("executing", zap.String("name", name), zap.Uint32("limit", limit), zap.Any("parameters", parameters))
+	return srv.Portals.Execute(ctx, name, NewDataWriter(ctx, writer), parameters)
 }
 
 func (srv *Server) handleConnClose(ctx context.Context) error {

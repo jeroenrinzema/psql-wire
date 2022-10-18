@@ -7,6 +7,7 @@ import (
 	"errors"
 
 	"github.com/jackc/pgtype"
+	"github.com/lib/pq/oid"
 	"go.uber.org/zap"
 )
 
@@ -14,12 +15,12 @@ type SimpleQueryFn func(ctx context.Context, query string, writer DataWriter) er
 
 // ParseFn parses the given query and returns a prepared statement which could
 // be used to execute at a later point in time.
-type ParseFn func(ctx context.Context, query string) (PreparedStatementFn, error)
+type ParseFn func(ctx context.Context, query string) (PreparedStatementFn, []oid.Oid, error)
 
 // PreparedStatementFn represents a query of which a statement has been
 // prepared. The statement could be executed at any point in time with the given
 // arguments and data writer.
-type PreparedStatementFn func(ctx context.Context, writer DataWriter) error
+type PreparedStatementFn func(ctx context.Context, writer DataWriter, parameters []any) error
 
 // StatementCache represents a cache which could be used to store and retrieve
 // prepared statements bound to a name.
@@ -36,7 +37,7 @@ type StatementCache interface {
 // prepared statements with parameters.
 type PortalCache interface {
 	Bind(ctx context.Context, name string, statement PreparedStatementFn) error
-	Execute(ctx context.Context, name string, writer DataWriter) error
+	Execute(ctx context.Context, name string, writer DataWriter, parameters []any) error
 }
 
 type CloseFn func(ctx context.Context) error
@@ -52,12 +53,12 @@ func SimpleQuery(fn SimpleQueryFn) OptionFn {
 			return errors.New("simple query handler could not set if a query parser is set")
 		}
 
-		srv.Parse = func(ctx context.Context, query string) (PreparedStatementFn, error) {
-			statement := func(ctx context.Context, writer DataWriter) error {
+		srv.Parse = func(ctx context.Context, query string) (PreparedStatementFn, []oid.Oid, error) {
+			statement := func(ctx context.Context, writer DataWriter, parameters []any) error {
 				return fn(ctx, query, writer)
 			}
 
-			return statement, nil
+			return statement, nil, nil
 		}
 
 		return nil
