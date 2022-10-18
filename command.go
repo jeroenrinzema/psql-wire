@@ -34,7 +34,7 @@ type CloseFn func(ctx context.Context) error
 func (srv *Server) consumeCommands(ctx context.Context, conn net.Conn, reader *buffer.Reader, writer *buffer.Writer) (err error) {
 	srv.logger.Debug("ready for query... starting to consume commands")
 
-	// TODO(Jeroen): include a indentification value inside the context that
+	// TODO(Jeroen): include a identification value inside the context that
 	// could be used to identify connections at a later stage.
 
 	for {
@@ -65,6 +65,10 @@ func (srv *Server) consumeCommands(ctx context.Context, conn net.Conn, reader *b
 		}
 
 		err = srv.handleCommand(ctx, conn, t, reader, writer)
+		if err == io.EOF {
+			return nil
+		}
+
 		if err != nil {
 			return err
 		}
@@ -131,7 +135,12 @@ func (srv *Server) handleCommand(ctx context.Context, conn net.Conn, t types.Cli
 			return err
 		}
 
-		return conn.Close()
+		err = conn.Close()
+		if err != nil {
+			return err
+		}
+
+		return io.EOF
 	default:
 		return ErrorCode(writer, NewErrUnimplementedMessageType(t))
 	}
