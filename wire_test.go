@@ -7,7 +7,7 @@ import (
 	"net"
 	"testing"
 
-	"github.com/jackc/pgx/v4"
+	"github.com/jackc/pgx/v5"
 	"github.com/jeroenrinzema/psql-wire/internal/mock"
 	_ "github.com/lib/pq"
 	"github.com/lib/pq/oid"
@@ -173,9 +173,6 @@ func TestServerWritingResult(t *testing.T) {
 		}
 	})
 
-	// NOTE(Jeroen): the jackc/pgx test has been disabled due to a lack of
-	// support for parse, describe, and execute messages. This test could be
-	// enabled again once these message types are supported.
 	t.Run("jackc/pgx", func(t *testing.T) {
 		ctx := context.Background()
 		connstr := fmt.Sprintf("postgres://%s:%d", address.IP, address.Port)
@@ -288,6 +285,53 @@ func TestServerNULLValues(t *testing.T) {
 		}
 
 		err = conn.Close()
+		if err != nil {
+			t.Fatal(err)
+		}
+	})
+
+	t.Run("jackc/pgx", func(t *testing.T) {
+		ctx := context.Background()
+		connstr := fmt.Sprintf("postgres://%s:%d", address.IP, address.Port)
+		conn, err := pgx.Connect(ctx, connstr)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		rows, err := conn.Query(ctx, "SELECT *;")
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		result := []*string{}
+		for rows.Next() {
+			var name *string
+			err := rows.Scan(&name)
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			t.Logf("scan result: %+v", name)
+			result = append(result, name)
+		}
+
+		for index := range expected {
+			switch {
+			case expected[index] == nil:
+				if result[index] != nil {
+					t.Errorf("unexpected value %+v, expected nil", result[index])
+				}
+			case expected[index] != nil:
+				left := *expected[index]
+				right := *result[index]
+
+				if left != right {
+					t.Errorf("unexpected value %+v, expected %+v", left, right)
+				}
+			}
+		}
+
+		err = conn.Close(ctx)
 		if err != nil {
 			t.Fatal(err)
 		}

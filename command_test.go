@@ -6,7 +6,7 @@ import (
 	"net"
 	"testing"
 
-	"github.com/jackc/pgx/v4"
+	"github.com/jackc/pgx/v5"
 	"github.com/jeroenrinzema/psql-wire/internal/buffer"
 	"github.com/jeroenrinzema/psql-wire/internal/mock"
 	"github.com/jeroenrinzema/psql-wire/internal/types"
