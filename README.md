@@ -21,7 +21,7 @@ import (
 )
 
 func main() {
-	wire.ListenAndServe("127.0.0.1:5432", func(ctx context.Context, query string, writer wire.DataWriter) error {
+	wire.ListenAndServe("127.0.0.1:5432", func(ctx context.Context, query string, writer wire.DataWriter, parameters []string) error {
 		fmt.Println(query)
 		return writer.Complete("OK")
 	})
