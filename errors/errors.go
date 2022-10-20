@@ -37,10 +37,12 @@ func Flatten(err error) Error {
 	result := Error{
 		Code:           GetCode(err),
 		Message:        err.Error(),
+		Detail:         GetDetail(err),
+		Hint:           GetHint(err),
 		Severity:       DefaultSeverity(GetSeverity(err)),
 		ConstraintName: GetConstraintName(err),
+		Source:         GetSource(err),
 	}
 
-	// TODO(Jeroen): missing components: source, hint, detail
 	return result
 }

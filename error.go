@@ -41,6 +41,32 @@ func ErrorCode(writer *buffer.Writer, err error) error {
 	writer.AddString(desc.Message)
 	writer.AddNullTerminate()
 
+	if desc.Hint != "" {
+		writer.AddByte(byte(errFieldHint))
+		writer.AddString(desc.Hint)
+		writer.AddNullTerminate()
+	}
+
+	if desc.Detail != "" {
+		writer.AddByte(byte(errFieldDetail))
+		writer.AddString(desc.Detail)
+		writer.AddNullTerminate()
+	}
+
+	if desc.Source != nil {
+		writer.AddByte(byte(errFieldSrcFile))
+		writer.AddString(desc.Source.File)
+		writer.AddNullTerminate()
+
+		writer.AddByte(byte(errFieldSrcLine))
+		writer.AddInt32(desc.Source.Line)
+		writer.AddNullTerminate()
+
+		writer.AddByte(byte(errFieldSrcFunction))
+		writer.AddString(desc.Source.Function)
+		writer.AddNullTerminate()
+	}
+
 	writer.AddNullTerminate()
 	return writer.End()
 }
