@@ -36,6 +36,6 @@ func run() error {
 	return server.ListenAndServe("127.0.0.1:5432")
 }
 
-func handle(ctx context.Context, query string, writer wire.DataWriter) error {
+func handle(ctx context.Context, query string, writer wire.DataWriter, parameters []string) error {
 	return writer.Complete("OK")
 }

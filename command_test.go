@@ -11,6 +11,7 @@ import (
 	"github.com/jeroenrinzema/psql-wire/internal/mock"
 	"github.com/jeroenrinzema/psql-wire/internal/types"
 	"github.com/lib/pq/oid"
+	"github.com/stretchr/testify/assert"
 	"go.uber.org/zap"
 )
 
@@ -50,35 +51,31 @@ func TestMessageSizeExceeded(t *testing.T) {
 func TestBindMessageParameters(t *testing.T) {
 	t.Parallel()
 
-	handler := func(ctx context.Context, query string, writer DataWriter) error {
+	handler := func(ctx context.Context, query string, writer DataWriter, parameters []string) error {
 		t.Log("serving query")
 
 		writer.Define(Columns{ //nolint:errcheck
 			{
 				Table:  0,
-				Name:   "name",
+				Name:   "full_name",
 				Oid:    oid.T_text,
 				Width:  256,
 				Format: TextFormat,
 			},
 			{
 				Table:  0,
-				Name:   "member",
-				Oid:    oid.T_bool,
-				Width:  1,
-				Format: TextFormat,
-			},
-			{
-				Table:  0,
-				Name:   "age",
-				Oid:    oid.T_int4,
-				Width:  1,
+				Name:   "answer_to_life_the_universe_and_everything",
+				Oid:    oid.T_text,
+				Width:  256,
 				Format: TextFormat,
 			},
 		})
 
-		writer.Row([]any{"John", true, 28})   //nolint:errcheck
-		writer.Row([]any{"Marry", false, 21}) //nolint:errcheck
+		if len(parameters) != 2 {
+			return fmt.Errorf("unexpected amount of parameters %d, expected 2", len(parameters))
+		}
+
+		writer.Row([]any{parameters[0], parameters[1]}) //nolint:errcheck
 		return writer.Complete("OK")
 	}
 
@@ -101,29 +98,34 @@ func TestBindMessageParameters(t *testing.T) {
 
 		defer conn.Close(ctx)
 
-		_, err = conn.Query(ctx, "SELECT $1 $2;", 10, "Jeroen")
+		rows, err := conn.Query(ctx, "SELECT $1 $2;", "John Doe", 42)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		assert.True(t, rows.Next())
+
+		var name string
+		var answer string
+
+		err = rows.Scan(&name, &answer)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		t.Logf("scan result: %s, %s", name, answer)
+
+		assert.Equal(t, name, "John Doe")
+		assert.Equal(t, answer, "42")
+
+		assert.False(t, rows.Next())
+
+		rows.Close()
+
+		err = conn.Close(ctx)
 		if err != nil {
 			t.Fatal(err)
 		}
 	})
 
-	// for rows.Next() {
-	// 	var name string
-	// 	var member bool
-	// 	var age int
-
-	// 	err := rows.Scan(&name, &member, &age)
-	// 	if err != nil {
-	// 		t.Fatal(err)
-	// 	}
-
-	// 	t.Logf("scan result: %s, %d, %t", name, age, member)
-	// }
-
-	// rows.Close()
-
-	// err = conn.Close(ctx)
-	// if err != nil {
-	// 	t.Fatal(err)
-	// }
 }
