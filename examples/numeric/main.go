@@ -39,7 +39,7 @@ var table = wire.Columns{
 	},
 }
 
-func handle(ctx context.Context, query string, writer wire.DataWriter) error {
+func handle(ctx context.Context, query string, writer wire.DataWriter, parameters []string) error {
 	log.Println("incoming SQL query:", query)
 
 	balance, err := decimal.NewFromString("256.23")

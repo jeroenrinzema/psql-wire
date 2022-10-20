@@ -47,31 +47,40 @@ func (cache *DefaultStatementCache) Get(ctx context.Context, name string) (Prepa
 	return cache.statements[name], nil
 }
 
+type portal struct {
+	statement  PreparedStatementFn
+	parameters []string
+}
+
 type DefaultPortalCache struct {
-	portals map[string]PreparedStatementFn
+	portals map[string]portal
 	mu      sync.RWMutex
 }
 
-func (cache *DefaultPortalCache) Bind(ctx context.Context, name string, fn PreparedStatementFn) error {
+func (cache *DefaultPortalCache) Bind(ctx context.Context, name string, fn PreparedStatementFn, parametes []string) error {
 	cache.mu.Lock()
 	defer cache.mu.Unlock()
 
 	if cache.portals == nil {
-		cache.portals = map[string]PreparedStatementFn{}
+		cache.portals = map[string]portal{}
 	}
 
-	cache.portals[name] = fn
+	cache.portals[name] = portal{
+		statement:  fn,
+		parameters: parametes,
+	}
+
 	return nil
 }
 
-func (cache *DefaultPortalCache) Execute(ctx context.Context, name string, writer DataWriter, parameters []any) error {
+func (cache *DefaultPortalCache) Execute(ctx context.Context, name string, writer DataWriter) error {
 	cache.mu.Lock()
 	defer cache.mu.Unlock()
 
-	fn, has := cache.portals[name]
+	portal, has := cache.portals[name]
 	if !has {
 		return nil
 	}
 
-	return fn(ctx, writer, parameters)
+	return portal.statement(ctx, writer, portal.parameters)
 }

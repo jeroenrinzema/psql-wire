@@ -112,7 +112,23 @@ func (srv *Server) handleCommand(ctx context.Context, conn net.Conn, t types.Cli
 
 	switch t {
 	case types.ClientSync:
-		// TODO(Jeroen): client sync received
+		// TODO(Jeroen): include the ability to catch sync messages in order to
+		// close the current transaction.
+		//
+		// At completion of each series of extended-query messages, the frontend
+		// should issue a Sync message. This parameterless message causes the
+		// backend to close the current transaction if it's not inside a
+		// BEGIN/COMMIT transaction block (“close” meaning to commit if no
+		// error, or roll back if error). Then a ReadyForQuery response is
+		// issued. The purpose of Sync is to provide a resynchronization point
+		// for error recovery. When an error is detected while processing any
+		// extended-query message, the backend issues ErrorResponse, then reads
+		// and discards messages until a Sync is reached, then issues
+		// ReadyForQuery and returns to normal message processing. (But note
+		// that no skipping occurs if an error is detected while processing Sync
+		// — this ensures that there is one and only one ReadyForQuery sent for
+		// each Sync.)
+		// https://www.postgresql.org/docs/current/protocol-flow.html#PROTOCOL-FLOW-EXT-QUERY
 	case types.ClientSimpleQuery:
 		return srv.handleSimpleQuery(ctx, reader, writer)
 	case types.ClientExecute:
@@ -120,16 +136,40 @@ func (srv *Server) handleCommand(ctx context.Context, conn net.Conn, t types.Cli
 	case types.ClientParse:
 		return srv.handleParse(ctx, reader, writer)
 	case types.ClientDescribe:
-		fmt.Println("Describe Message:")
-		fmt.Println(reader.GetBytes(1)) // 'S' to describe a prepared statement; or 'P' to describe a portal.
-		fmt.Println(reader.GetString()) // The name of the prepared statement or portal to describe (an empty string selects the unnamed prepared statement or portal).
-
-		// TODO: RowDescriptor
+		// TODO(Jeroen): the server should return the column types that will be
+		// returned for the given portal or statement.
+		//
+		// The Describe message (portal variant) specifies the name of an
+		// existing portal (or an empty string for the unnamed portal). The
+		// response is a RowDescription message describing the rows that will be
+		// returned by executing the portal; or a NoData message if the portal
+		// does not contain a query that will return rows; or ErrorResponse if
+		// there is no such portal.
+		//
+		// The Describe message (statement variant) specifies the name of an
+		// existing prepared statement (or an empty string for the unnamed
+		// prepared statement). The response is a ParameterDescription message
+		// describing the parameters needed by the statement, followed by a
+		// RowDescription message describing the rows that will be returned when
+		// the statement is eventually executed (or a NoData message if the
+		// statement will not return rows). ErrorResponse is issued if there is
+		// no such prepared statement. Note that since Bind has not yet been
+		// issued, the formats to be used for returned columns are not yet known
+		// to the backend; the format code fields in the RowDescription message
+		// will be zeroes in this case.
+		// https://www.postgresql.org/docs/current/protocol-flow.html#PROTOCOL-FLOW-EXT-QUERY
 	case types.ClientBind:
 		return srv.handleBind(ctx, reader, writer)
 	case types.ClientFlush:
-		// TODO(Jeroen): flush received
-		fmt.Println("Flush!")
+		// TODO(Jeroen): flush all remaining rows inside connection buffer if
+		// any are remaining. The Flush message does not cause any specific
+		// output to be generated, but forces the backend to deliver any data
+		// pending in its output buffers. A Flush must be sent after any
+		// extended-query command except Sync, if the frontend wishes to examine
+		// the results of that command before issuing more commands. Without
+		// Flush, messages returned by the backend will be combined into the
+		// minimum possible number of packets to minimize network overhead.
+		// https://www.postgresql.org/docs/current/protocol-flow.html#PROTOCOL-FLOW-EXT-QUERY
 	case types.ClientCopyData, types.ClientCopyDone, types.ClientCopyFail:
 		// We're supposed to ignore these messages, per the protocol spec. This
 		// state will happen when an error occurs on the server-side during a copy
@@ -173,7 +213,7 @@ func (srv *Server) handleSimpleQuery(ctx context.Context, reader *buffer.Reader,
 		return err
 	}
 
-	srv.logger.Debug("incoming query", zap.String("query", query))
+	srv.logger.Debug("incoming simple query", zap.String("query", query))
 
 	statement, _, err := srv.Parse(ctx, query)
 	if err != nil {
@@ -184,7 +224,7 @@ func (srv *Server) handleSimpleQuery(ctx context.Context, reader *buffer.Reader,
 		return ErrorCode(writer, err)
 	}
 
-	err = statement(ctx, NewDataWriter(ctx, writer), []any{})
+	err = statement(ctx, NewDataWriter(ctx, writer), nil)
 	if err != nil {
 		return ErrorCode(writer, err)
 	}
@@ -222,12 +262,12 @@ func (srv *Server) handleParse(ctx context.Context, reader *buffer.Reader, write
 		// is equivalent to leaving the type unspecified.
 	}
 
-	srv.logger.Debug("incoming query", zap.String("query", query), zap.String("name", name), zap.Uint16("parameters", parameters))
-
 	statement, descriptions, err := srv.Parse(ctx, query)
 	if err != nil {
 		return ErrorCode(writer, err)
 	}
+
+	srv.logger.Debug("incoming extended query", zap.String("query", query), zap.String("name", name), zap.Int("parameters", len(descriptions)))
 
 	err = srv.writeParameterDescriptions(writer, descriptions)
 	if err != nil {
@@ -265,7 +305,7 @@ func (srv *Server) handleBind(ctx context.Context, reader *buffer.Reader, writer
 		return err
 	}
 
-	_, err = srv.readParameters(ctx, reader)
+	parameters, err := srv.readParameters(ctx, reader)
 	if err != nil {
 		return err
 	}
@@ -275,7 +315,7 @@ func (srv *Server) handleBind(ctx context.Context, reader *buffer.Reader, writer
 		return err
 	}
 
-	err = srv.Portals.Bind(ctx, name, fn)
+	err = srv.Portals.Bind(ctx, name, fn, parameters)
 	if err != nil {
 		return err
 	}
@@ -284,27 +324,77 @@ func (srv *Server) handleBind(ctx context.Context, reader *buffer.Reader, writer
 	return writer.End()
 }
 
-func (srv *Server) readParameters(ctx context.Context, reader *buffer.Reader) ([]interface{}, error) {
+// readParameters attempts to read all incoming parameters from the given
+// reader. The parameters are parsed and returned.
+// https://www.postgresql.org/docs/14/protocol-message-formats.html
+func (srv *Server) readParameters(ctx context.Context, reader *buffer.Reader) ([]string, error) {
+	// NOTE(Jeroen): read the total amount of parameter format codes that will
+	// be send by the client.
 	length, err := reader.GetUint16()
 	if err != nil {
 		return nil, err
 	}
 
-	srv.logger.Debug("reading parameters", zap.Uint16("length", length))
-	if length == 0 {
-		return nil, nil
-	}
+	srv.logger.Debug("reading parameters format codes", zap.Uint16("length", length))
 
 	for i := uint16(0); i < length; i++ {
-		fmt.Println(reader.GetUint16()) // parameter format code
-		fmt.Println(reader.GetUint16()) // number of parameters that will follow
-		fmt.Println(reader.GetUint32()) // length of the value
-		fmt.Println(reader.GetBytes(0)) // value in bytes (based on length)
-		fmt.Println(reader.GetUint16()) // The number of result-column format codes that follow
-		fmt.Println(reader.GetUint16()) // The result-column format codes
+		format, err := reader.GetUint16()
+		if err != nil {
+			return nil, err
+		}
+
+		// NOTE(Jeroen): the parameter format codes. Each must presently be zero (text) or one (binary).
+		// https://www.postgresql.org/docs/14/protocol-message-formats.html
+		if format != 0 {
+			return nil, errors.New("unsupported binary parameter format, only text formatted parameter types are currently supported")
+		}
+
+		// TODO(Jeroen): handle multiple parameter format codes.
 	}
 
-	return nil, nil
+	// NOTE(Jeroen): read the total amount of parameter values that will be send
+	// by the client.
+	length, err = reader.GetUint16()
+	if err != nil {
+		return nil, err
+	}
+
+	srv.logger.Debug("reading parameters values", zap.Uint16("length", length))
+
+	parameters := make([]string, length)
+	for i := uint16(0); i < length; i++ {
+		length, err := reader.GetUint32()
+		if err != nil {
+			return nil, err
+		}
+
+		value, err := reader.GetBytes(int(length))
+		if err != nil {
+			return nil, err
+		}
+
+		srv.logger.Debug("incoming parameter", zap.String("value", string(value)))
+		parameters[i] = string(value)
+	}
+
+	// NOTE(Jeroen): read the total amount of result-column format that will be
+	// send by the client.
+	length, err = reader.GetUint16()
+	if err != nil {
+		return nil, err
+	}
+
+	srv.logger.Debug("reading result-column format codes", zap.Uint16("length", length))
+
+	for i := uint16(0); i < length; i++ {
+		// TODO(Jeroen): handle incoming result-column format codes
+		_, err := reader.GetUint16()
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	return parameters, nil
 }
 
 func (srv *Server) handleExecute(ctx context.Context, reader *buffer.Reader, writer *buffer.Writer) error {
@@ -324,10 +414,8 @@ func (srv *Server) handleExecute(ctx context.Context, reader *buffer.Reader, wri
 		return err
 	}
 
-	parameters := []any{}
-
-	srv.logger.Debug("executing", zap.String("name", name), zap.Uint32("limit", limit), zap.Any("parameters", parameters))
-	return srv.Portals.Execute(ctx, name, NewDataWriter(ctx, writer), parameters)
+	srv.logger.Debug("executing", zap.String("name", name), zap.Uint32("limit", limit))
+	return srv.Portals.Execute(ctx, name, NewDataWriter(ctx, writer))
 }
 
 func (srv *Server) handleConnClose(ctx context.Context) error {

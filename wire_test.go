@@ -38,7 +38,7 @@ func TListenAndServe(t *testing.T, server *Server) *net.TCPAddr {
 func TestClientConnect(t *testing.T) {
 	t.Parallel()
 
-	pong := func(ctx context.Context, query string, writer DataWriter) error {
+	pong := func(ctx context.Context, query string, writer DataWriter, parameters []string) error {
 		return writer.Complete("OK")
 	}
 
@@ -103,7 +103,7 @@ func TestClientConnect(t *testing.T) {
 func TestServerWritingResult(t *testing.T) {
 	t.Parallel()
 
-	handler := func(ctx context.Context, query string, writer DataWriter) error {
+	handler := func(ctx context.Context, query string, writer DataWriter, parameters []string) error {
 		t.Log("serving query")
 
 		writer.Define(Columns{ //nolint:errcheck
@@ -215,7 +215,7 @@ func TestServerNULLValues(t *testing.T) {
 		nil,
 	}
 
-	handler := func(ctx context.Context, query string, writer DataWriter) error {
+	handler := func(ctx context.Context, query string, writer DataWriter, parameters []string) error {
 		t.Log("serving query")
 
 		writer.Define(Columns{ //nolint:errcheck

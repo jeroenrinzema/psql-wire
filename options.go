@@ -5,13 +5,23 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"errors"
+	"regexp"
+	"strconv"
 
 	"github.com/jackc/pgtype"
 	"github.com/lib/pq/oid"
 	"go.uber.org/zap"
 )
 
-type SimpleQueryFn func(ctx context.Context, query string, writer DataWriter) error
+// PositionalParameter represents the reserved character used to define a
+// positional parameter. Positional parameters are defined inside a query using
+// a dollar sign followed by a digit.
+// https://www.postgresql.org/docs/8.1/sql-syntax.html#:~:text=A%20dollar%20sign%20(%24)%20followed,a%20dollar%2Dquoted%20string%20constant.
+var PositionalParamter = regexp.MustCompile(`\$(\d+)`)
+
+// SimpleQueryFn represents a callback function called whenever an incoming
+// query is being executed.
+type SimpleQueryFn func(ctx context.Context, query string, writer DataWriter, parameters []string) error
 
 // ParseFn parses the given query and returns a prepared statement which could
 // be used to execute at a later point in time.
@@ -20,7 +30,7 @@ type ParseFn func(ctx context.Context, query string) (PreparedStatementFn, []oid
 // PreparedStatementFn represents a query of which a statement has been
 // prepared. The statement could be executed at any point in time with the given
 // arguments and data writer.
-type PreparedStatementFn func(ctx context.Context, writer DataWriter, parameters []any) error
+type PreparedStatementFn func(ctx context.Context, writer DataWriter, parameters []string) error
 
 // StatementCache represents a cache which could be used to store and retrieve
 // prepared statements bound to a name.
@@ -36,8 +46,8 @@ type StatementCache interface {
 // PortalCache represents a cache which could be used to bind and execute
 // prepared statements with parameters.
 type PortalCache interface {
-	Bind(ctx context.Context, name string, statement PreparedStatementFn) error
-	Execute(ctx context.Context, name string, writer DataWriter, parameters []any) error
+	Bind(ctx context.Context, name string, statement PreparedStatementFn, parameters []string) error
+	Execute(ctx context.Context, name string, writer DataWriter) error
 }
 
 type CloseFn func(ctx context.Context) error
@@ -54,11 +64,26 @@ func SimpleQuery(fn SimpleQueryFn) OptionFn {
 		}
 
 		srv.Parse = func(ctx context.Context, query string) (PreparedStatementFn, []oid.Oid, error) {
-			statement := func(ctx context.Context, writer DataWriter, parameters []any) error {
-				return fn(ctx, query, writer)
+			statement := func(ctx context.Context, writer DataWriter, parameters []string) error {
+				return fn(ctx, query, writer, parameters)
 			}
 
-			return statement, nil, nil
+			// NOTE(Jeroen): we have to lookup all unique positional parameters
+			// within the given query. We return a zero parameter oid for each
+			// positional parameter indicating that the given parameters could
+			// contain any type. We could safely ignore the err check while
+			// converting given parameters since ony positions are returned by
+			// the positional parameter regex.
+			positions := PositionalParamter.FindAllStringSubmatch(query, -1)
+			parameters := make([]oid.Oid, 0, len(positions))
+			for _, match := range positions {
+				position, _ := strconv.Atoi(match[1]) //nolint:errcheck
+				if position > len(parameters) {
+					parameters = parameters[:position]
+				}
+			}
+
+			return statement, parameters, nil
 		}
 
 		return nil
