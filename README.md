@@ -34,6 +34,7 @@ func main() {
 
 Thank you for your interest in contributing to psql-wire!
 Check out the open projects and/or issues and feel free to join any ongoing discussion.
+Feel free to checkout the [open TODO's](https://github.com/jeroenrinzema/psql-wire/issues?q=is%3Aissue+is%3Aopen+label%3Atodo) within the project.
 
 Everyone is welcome to contribute, whether it's in the form of code, documentation, bug reports, feature requests, or anything else. We encourage you to experiment with the project and make contributions to help evolve it to meet your needs!
 
