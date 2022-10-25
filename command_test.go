@@ -32,7 +32,7 @@ func TestMessageSizeExceeded(t *testing.T) {
 	client.Authenticate(t)
 	client.ReadyForQuery(t)
 
-	// NOTE(Jeroen): attempt to send a message twice the max buffer size
+	// NOTE: attempt to send a message twice the max buffer size
 	size := uint32(buffer.DefaultBufferSize * 2)
 	t.Logf("writing message of size: %d", size)
 

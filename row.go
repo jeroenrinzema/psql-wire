@@ -70,7 +70,20 @@ func (column Column) Define(ctx context.Context, writer *buffer.Writer) {
 	writer.AddInt16(column.AttrNo)
 	writer.AddInt32(int32(column.Oid))
 	writer.AddInt16(column.Width)
-	writer.AddInt32(-1) // TODO(Jeroen): type modifiers have not yet been fully implemented. Setting -1 to indicate a undefined value
+	// TODO: Support type for type modifiers
+	//
+	// Some types could be overridden using the type modifier field within a RowDescription.
+	// Type modifier (see pg_attribute.atttypmod). The meaning of the
+	// modifier is type-specific.
+	// Atttypmod records type-specific data supplied at table creation time (for
+	// example, the maximum length of a varchar column). It is passed to
+	// type-specific input functions and length coercion functions. The value
+	// will generally be -1 for types that do not need atttypmod.
+	//
+	// https://www.postgresql.org/docs/current/protocol-message-formats.html
+	// https://www.postgresql.org/docs/current/catalog-pg-attribute.html
+
+	writer.AddInt32(-1)
 	writer.AddInt16(int16(column.Format))
 }
 
@@ -103,7 +116,7 @@ func (column Column) Write(ctx context.Context, writer *buffer.Writer, src any) 
 		return err
 	}
 
-	// NOTE(Jeroen): The length of the column value, in bytes (this count does
+	// NOTE: The length of the column value, in bytes (this count does
 	// not include itself). Can be zero. As a special case, -1 indicates a NULL
 	// column value. No value bytes follow in the NULL case.
 	length := int32(len(bb))

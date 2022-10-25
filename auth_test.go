@@ -56,7 +56,7 @@ func TestClearTextPassword(t *testing.T) {
 	input := bytes.NewBuffer([]byte{})
 	incoming := buffer.NewWriter(input)
 
-	// NOTE(Jeroen): we could reuse the server buffered writer to write client messages
+	// NOTE: we could reuse the server buffered writer to write client messages
 	incoming.Start(types.ServerMessage(types.ClientPassword))
 	incoming.AddString(expected)
 	incoming.AddNullTerminate()

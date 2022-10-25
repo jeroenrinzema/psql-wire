@@ -89,7 +89,7 @@ func (srv *Server) Serve(listener net.Listener) error {
 
 	srv.wg.Add(1)
 
-	// NOTE(Jeroen): handle graceful shutdowns
+	// NOTE: handle graceful shutdowns
 	go func() {
 		defer srv.wg.Done()
 		<-srv.closer

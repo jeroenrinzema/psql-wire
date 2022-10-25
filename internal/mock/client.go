@@ -33,7 +33,7 @@ func (client *Client) Handshake(t *testing.T) {
 	version := make([]byte, 4)
 	binary.BigEndian.PutUint32(version, uint32(types.Version30))
 
-	// NOTE(Jeroen): the parameters consist out of keys and values. Each key and
+	// NOTE: the parameters consist out of keys and values. Each key and
 	// value is terminated using a nul byte and the end of all parameters is
 	// identified using a empty key value.
 	nul := byte(0)
@@ -42,7 +42,7 @@ func (client *Client) Handshake(t *testing.T) {
 	end := append([]byte(""), nul)
 	parameters := append(append(key, value...), end...)
 
-	// NOTE(Jeroen): we have to define the total message length inside the
+	// NOTE: we have to define the total message length inside the
 	// header by prefixing a unsigned 32 big-endian int.
 	header := make([]byte, 4)
 	binary.BigEndian.PutUint32(header, uint32(len(version)+len(parameters)+len(header)))
@@ -74,7 +74,7 @@ func (client *Client) Authenticate(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// NOTE(Jeroen): a status of 0 indicates that the connection has been authenticated
+	// NOTE: a status of 0 indicates that the connection has been authenticated
 	if status != 0 {
 		t.Fatalf("unexpected auth status: %d, expected auth ok", status)
 	}

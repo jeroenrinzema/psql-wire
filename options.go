@@ -68,7 +68,7 @@ func SimpleQuery(fn SimpleQueryFn) OptionFn {
 				return fn(ctx, query, writer, parameters)
 			}
 
-			// NOTE(Jeroen): we have to lookup all unique positional parameters
+			// NOTE: we have to lookup all unique positional parameters
 			// within the given query. We return a zero parameter oid for each
 			// positional parameter indicating that the given parameters could
 			// contain any type. We could safely ignore the err check while

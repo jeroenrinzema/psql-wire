@@ -24,7 +24,13 @@ func (srv *Server) Handshake(conn net.Conn) (_ net.Conn, version types.Version, 
 		return conn, version, reader, nil
 	}
 
-	// TODO(Jeroen): support GSS encryption
+	// TODO: support GSS encryption
+	//
+	// `psql-wire` currently does not support GSS encrypted connections. The GSS
+	// authentication API is supported inside the PostgreSQL wire protocol and
+	// API's should be made available to support these type of connections.
+	// https://www.postgresql.org/docs/current/gssapi-auth.html
+	// https://www.postgresql.org/docs/current/protocol-flow.html#id-1.10.6.7.13
 
 	conn, reader, version, err = srv.potentialConnUpgrade(conn, reader, version)
 	if err != nil {
@@ -152,7 +158,7 @@ func (srv *Server) potentialConnUpgrade(conn net.Conn, reader *buffer.Reader, ve
 		ClientCAs:    srv.ClientCAs,
 	}
 
-	// NOTE(Jeroen): initialize the TLS connection and construct a new buffered
+	// NOTE: initialize the TLS connection and construct a new buffered
 	// reader for the constructed TLS connection.
 	conn = tls.Server(conn, &tlsConfig)
 	reader = buffer.NewReader(conn, srv.BufferedMsgSize)

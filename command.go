@@ -38,7 +38,9 @@ func NewErrUnkownStatement(name string) error {
 func (srv *Server) consumeCommands(ctx context.Context, conn net.Conn, reader *buffer.Reader, writer *buffer.Writer) (err error) {
 	srv.logger.Debug("ready for query... starting to consume commands")
 
-	// TODO(Jeroen): include a identification value inside the context that
+	// TODO: Include a value to identify unique connections
+	//
+	// include a identification value inside the context that
 	// could be used to identify connections at a later stage.
 
 	for {
@@ -52,7 +54,7 @@ func (srv *Server) consumeCommands(ctx context.Context, conn net.Conn, reader *b
 			return nil
 		}
 
-		// NOTE(Jeroen): we could recover from this scenario
+		// NOTE: we could recover from this scenario
 		if errors.Is(err, buffer.ErrMessageSizeExceeded) {
 			err = srv.handleMessageSizeExceeded(reader, writer, err)
 			if err != nil {
@@ -112,7 +114,7 @@ func (srv *Server) handleCommand(ctx context.Context, conn net.Conn, t types.Cli
 
 	switch t {
 	case types.ClientSync:
-		// TODO(Jeroen): include the ability to catch sync messages in order to
+		// TODO: Include the ability to catch sync messages in order to
 		// close the current transaction.
 		//
 		// At completion of each series of extended-query messages, the frontend
@@ -136,7 +138,7 @@ func (srv *Server) handleCommand(ctx context.Context, conn net.Conn, t types.Cli
 	case types.ClientParse:
 		return srv.handleParse(ctx, reader, writer)
 	case types.ClientDescribe:
-		// TODO(Jeroen): the server should return the column types that will be
+		// TODO: Server should return the column types that will be
 		// returned for the given portal or statement.
 		//
 		// The Describe message (portal variant) specifies the name of an
@@ -161,8 +163,10 @@ func (srv *Server) handleCommand(ctx context.Context, conn net.Conn, t types.Cli
 	case types.ClientBind:
 		return srv.handleBind(ctx, reader, writer)
 	case types.ClientFlush:
-		// TODO(Jeroen): flush all remaining rows inside connection buffer if
-		// any are remaining. The Flush message does not cause any specific
+		// TODO: Flush all remaining rows inside connection buffer if
+		// any are remaining.
+		//
+		// The Flush message does not cause any specific
 		// output to be generated, but forces the backend to deliver any data
 		// pending in its output buffers. A Flush must be sent after any
 		// extended-query command except Sync, if the frontend wishes to examine
@@ -247,7 +251,7 @@ func (srv *Server) handleParse(ctx context.Context, reader *buffer.Reader, write
 		return err
 	}
 
-	// NOTE(Jeroen): the number of parameter data types specified (can be
+	// NOTE: the number of parameter data types specified (can be
 	// zero). Note that this is not an indication of the number of parameters
 	// that might appear in the query string, only the number that the frontend
 	// wants to prespecify types for.
@@ -257,9 +261,11 @@ func (srv *Server) handleParse(ctx context.Context, reader *buffer.Reader, write
 	}
 
 	for i := uint16(0); i < parameters; i++ {
-		// TODO(Jeroen): reader.GetUint32()
+		// TODO: Specifies the object ID of the parameter data type
+		//
 		// Specifies the object ID of the parameter data type. Placing a zero here
 		// is equivalent to leaving the type unspecified.
+		// `reader.GetUint32()`
 	}
 
 	statement, descriptions, err := srv.Parse(ctx, query)
@@ -328,7 +334,7 @@ func (srv *Server) handleBind(ctx context.Context, reader *buffer.Reader, writer
 // reader. The parameters are parsed and returned.
 // https://www.postgresql.org/docs/14/protocol-message-formats.html
 func (srv *Server) readParameters(ctx context.Context, reader *buffer.Reader) ([]string, error) {
-	// NOTE(Jeroen): read the total amount of parameter format codes that will
+	// NOTE: read the total amount of parameter format codes that will
 	// be send by the client.
 	length, err := reader.GetUint16()
 	if err != nil {
@@ -343,16 +349,20 @@ func (srv *Server) readParameters(ctx context.Context, reader *buffer.Reader) ([
 			return nil, err
 		}
 
-		// NOTE(Jeroen): the parameter format codes. Each must presently be zero (text) or one (binary).
+		// NOTE: the parameter format codes. Each must presently be zero (text) or one (binary).
 		// https://www.postgresql.org/docs/14/protocol-message-formats.html
 		if format != 0 {
 			return nil, errors.New("unsupported binary parameter format, only text formatted parameter types are currently supported")
 		}
 
-		// TODO(Jeroen): handle multiple parameter format codes.
+		// TODO: Handle multiple parameter format codes.
+		//
+		// We are currently only supporting string parameters. We have to
+		// include support for binary parameters in the future.
+		// https://www.postgresql.org/docs/14/protocol-message-formats.html
 	}
 
-	// NOTE(Jeroen): read the total amount of parameter values that will be send
+	// NOTE: read the total amount of parameter values that will be send
 	// by the client.
 	length, err = reader.GetUint16()
 	if err != nil {
@@ -377,7 +387,7 @@ func (srv *Server) readParameters(ctx context.Context, reader *buffer.Reader) ([
 		parameters[i] = string(value)
 	}
 
-	// NOTE(Jeroen): read the total amount of result-column format that will be
+	// NOTE: Read the total amount of result-column format that will be
 	// send by the client.
 	length, err = reader.GetUint16()
 	if err != nil {
@@ -387,7 +397,13 @@ func (srv *Server) readParameters(ctx context.Context, reader *buffer.Reader) ([
 	srv.logger.Debug("reading result-column format codes", zap.Uint16("length", length))
 
 	for i := uint16(0); i < length; i++ {
-		// TODO(Jeroen): handle incoming result-column format codes
+		// TODO: Handle incoming result-column format codes
+		//
+		// Incoming format codes are currently ignored and should be handled in
+		// the future. The result-column format codes. Each must presently be
+		// zero (text) or one (binary). These format codes should be returned
+		// and handled by the parent function to return the proper column formats.
+		// https://www.postgresql.org/docs/current/protocol-message-formats.html
 		_, err := reader.GetUint16()
 		if err != nil {
 			return nil, err
@@ -407,7 +423,9 @@ func (srv *Server) handleExecute(ctx context.Context, reader *buffer.Reader, wri
 		return err
 	}
 
-	// TODO(Jeroen): Maximum number of limit to return, if portal contains a
+	// TODO: Limit the maximum number of records to be returned.
+	//
+	// Maximum number of limit to return, if portal contains a
 	// query that returns limit (ignored otherwise). Zero denotes “no limit”.
 	limit, err := reader.GetUint32()
 	if err != nil {
