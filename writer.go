@@ -44,9 +44,6 @@ var ErrUndefinedColumns = errors.New("columns have not been defined")
 // client while data has already been written.
 var ErrDataWritten = errors.New("data has already been written")
 
-// ErrClosedWriter is thrown when the data writer has been closed
-var ErrClosedWriter = errors.New("closed writer")
-
 // NewDataWriter constructs a new data writer using the given context and buffer.
 func NewDataWriter(ctx context.Context, writer *buffer.Writer) DataWriter {
 	return &dataWriter{
@@ -60,15 +57,10 @@ type dataWriter struct {
 	columns Columns
 	ctx     context.Context
 	client  *buffer.Writer
-	closed  bool
-	written uint64
+	rows    uint64
 }
 
 func (writer *dataWriter) Define(columns Columns) error {
-	if writer.closed {
-		return ErrClosedWriter
-	}
-
 	if writer.columns != nil {
 		return ErrColumnsDefined
 	}
@@ -78,54 +70,43 @@ func (writer *dataWriter) Define(columns Columns) error {
 }
 
 func (writer *dataWriter) Row(values []any) error {
-	if writer.closed {
-		return ErrClosedWriter
-	}
-
 	if writer.columns == nil {
 		return ErrUndefinedColumns
 	}
 
-	writer.written++
+	writer.rows++
 
 	return writer.columns.Write(writer.ctx, writer.client, values)
 }
 
 func (writer *dataWriter) Empty() error {
-	if writer.closed {
-		return ErrClosedWriter
-	}
-
 	if writer.columns == nil {
 		return ErrUndefinedColumns
 	}
 
-	if writer.written != 0 {
+	if writer.rows != 0 {
 		return ErrDataWritten
 	}
 
-	defer writer.close()
+	defer writer.reset()
 	return emptyQuery(writer.client)
 }
 
 func (writer *dataWriter) Complete(description string) error {
-	if writer.closed {
-		return ErrClosedWriter
-	}
-
-	if writer.written == 0 && writer.columns != nil {
+	if writer.rows == 0 && writer.columns != nil {
 		err := writer.Empty()
 		if err != nil {
 			return err
 		}
 	}
 
-	defer writer.close()
+	defer writer.reset()
 	return commandComplete(writer.client, description)
 }
 
-func (writer *dataWriter) close() {
-	writer.closed = true
+func (writer *dataWriter) reset() {
+	writer.columns = nil
+	writer.rows = 0
 }
 
 // commandComplete announces that the requested command has successfully been executed.
