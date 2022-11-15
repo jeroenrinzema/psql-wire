@@ -2,13 +2,8 @@ package wire
 
 import (
 	"context"
-	"errors"
 	"sync"
 )
-
-// ErrStatementAlreadyExists is thrown whenever an prepared statement already
-// exists within the given statement cache.
-var ErrStatementAlreadyExists = errors.New("prepared statement already exists")
 
 type DefaultStatementCache struct {
 	statements map[string]PreparedStatementFn
@@ -23,11 +18,6 @@ func (cache *DefaultStatementCache) Set(ctx context.Context, name string, fn Pre
 
 	if cache.statements == nil {
 		cache.statements = map[string]PreparedStatementFn{}
-	}
-
-	_, has := cache.statements[name]
-	if has {
-		return ErrStatementAlreadyExists
 	}
 
 	cache.statements[name] = fn
