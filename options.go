@@ -13,11 +13,11 @@ import (
 	"go.uber.org/zap"
 )
 
-// PositionalParameter represents the reserved character used to define a
-// positional parameter. Positional parameters are defined inside a query using
-// a dollar sign followed by a digit.
+// QueryParameters represents a regex which could be used to identify and lookup
+// parameters defined inside a given query. Parameters could be defined as
+// positional parameters and un-positional parameters.
 // https://www.postgresql.org/docs/8.1/sql-syntax.html#:~:text=A%20dollar%20sign%20(%24)%20followed,a%20dollar%2Dquoted%20string%20constant.
-var PositionalParamter = regexp.MustCompile(`\$(\d+)`)
+var QueryParameters = regexp.MustCompile(`\$(\d+)|\?`)
 
 // SimpleQueryFn represents a callback function called whenever an incoming
 // query is being executed.
@@ -68,15 +68,23 @@ func SimpleQuery(fn SimpleQueryFn) OptionFn {
 				return fn(ctx, query, writer, parameters)
 			}
 
-			// NOTE: we have to lookup all unique positional parameters
-			// within the given query. We return a zero parameter oid for each
-			// positional parameter indicating that the given parameters could
-			// contain any type. We could safely ignore the err check while
-			// converting given parameters since ony positions are returned by
-			// the positional parameter regex.
-			positions := PositionalParamter.FindAllStringSubmatch(query, -1)
-			parameters := make([]oid.Oid, 0, len(positions))
-			for _, match := range positions {
+			// NOTE: we have to lookup all parameters within the given query.
+			// Parameters could represent positional parameters or anonymous
+			// parameters. We return a zero parameter oid for each parameter
+			// indicating that the given parameters could contain any type. We
+			// could safely ignore the err check while converting given
+			// parameters since ony matches are returned by the positional
+			// parameter regex.
+			matches := QueryParameters.FindAllStringSubmatch(query, -1)
+			parameters := make([]oid.Oid, 0, len(matches))
+			for _, match := range matches {
+				// NOTE: we have to check whether the returned match is a
+				// positional parameter or an un-positional parameter.
+				// SELECT * FROM users WHERE id = ?
+				if match[1] == "" {
+					parameters = append(parameters, 0)
+				}
+
 				position, _ := strconv.Atoi(match[1]) //nolint:errcheck
 				if position > len(parameters) {
 					parameters = parameters[:position]

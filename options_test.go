@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/lib/pq/oid"
+	"github.com/stretchr/testify/assert"
 )
 
 func TestInvalidOptions(t *testing.T) {
@@ -27,6 +28,39 @@ func TestInvalidOptions(t *testing.T) {
 			}
 
 			t.Error("unexpected pass")
+		})
+	}
+}
+
+func TestSimpleQueryParameters(t *testing.T) {
+	type test struct {
+		query      string
+		parameters []oid.Oid
+	}
+
+	tests := map[string]test{
+		"positional": {
+			query:      "SELECT * FROM users WHERE id = $1 AND age > $2",
+			parameters: []oid.Oid{0, 0},
+		},
+		"unpositional": {
+			query:      "SELECT * FROM users WHERE id = ? AND age > ?",
+			parameters: []oid.Oid{0, 0},
+		},
+	}
+
+	for name, test := range tests {
+		t.Run(name, func(t *testing.T) {
+			option := SimpleQuery(nil)
+
+			srv := &Server{}
+			err := option(srv)
+			assert.NoError(t, err)
+
+			statement, parameters, err := srv.Parse(context.Background(), test.query)
+			assert.NoError(t, err)
+			assert.NotNil(t, statement)
+			assert.Equal(t, test.parameters, parameters)
 		})
 	}
 }
