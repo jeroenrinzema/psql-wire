@@ -227,7 +227,6 @@ func TestServerHandlingMultipleConnections(t *testing.T) {
 	server, err := NewServer(SimpleQuery(handler), Logger(d))
 	require.NoError(t, err)
 	address := TListenAndServe(t, server)
-
 	databaseUrl := fmt.Sprintf("postgres://%s:%d", address.IP, address.Port)
 	conn, err := sql.Open("pgx", databaseUrl)
 	require.NoError(t, err)
@@ -281,7 +280,6 @@ func TestServerHandlingMultipleConnections(t *testing.T) {
 		require.True(t, rows.Next())
 		require.NoError(t, rows.Err())
 	})
-
 }
 
 func TestServerNULLValues(t *testing.T) {
