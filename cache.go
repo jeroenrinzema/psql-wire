@@ -2,7 +2,6 @@ package wire
 
 import (
 	"context"
-	"fmt"
 	"sync"
 )
 
@@ -73,6 +72,5 @@ func (cache *DefaultPortalCache) Execute(ctx context.Context, name string, write
 		return nil
 	}
 
-	fmt.Println(portal.statement, portal.parameters)
 	return portal.statement(ctx, writer, portal.parameters)
 }
