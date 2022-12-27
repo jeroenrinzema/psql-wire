@@ -43,12 +43,12 @@ func (srv *Server) consumeCommands(ctx context.Context, conn net.Conn, reader *b
 	// include a identification value inside the context that
 	// could be used to identify connections at a later stage.
 
-	for {
-		err = readyForQuery(writer, types.ServerIdle)
-		if err != nil {
-			return err
-		}
+	err = readyForQuery(writer, types.ServerIdle)
+	if err != nil {
+		return err
+	}
 
+	for {
 		t, length, err := reader.ReadTypedMsg()
 		if err == io.EOF {
 			return nil
@@ -112,25 +112,9 @@ func (srv *Server) handleCommand(ctx context.Context, conn net.Conn, t types.Cli
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
+	fmt.Println(string(t))
+
 	switch t {
-	case types.ClientSync:
-		// TODO: Include the ability to catch sync messages in order to
-		// close the current transaction.
-		//
-		// At completion of each series of extended-query messages, the frontend
-		// should issue a Sync message. This parameterless message causes the
-		// backend to close the current transaction if it's not inside a
-		// BEGIN/COMMIT transaction block (“close” meaning to commit if no
-		// error, or roll back if error). Then a ReadyForQuery response is
-		// issued. The purpose of Sync is to provide a resynchronization point
-		// for error recovery. When an error is detected while processing any
-		// extended-query message, the backend issues ErrorResponse, then reads
-		// and discards messages until a Sync is reached, then issues
-		// ReadyForQuery and returns to normal message processing. (But note
-		// that no skipping occurs if an error is detected while processing Sync
-		// — this ensures that there is one and only one ReadyForQuery sent for
-		// each Sync.)
-		// https://www.postgresql.org/docs/current/protocol-flow.html#PROTOCOL-FLOW-EXT-QUERY
 	case types.ClientSimpleQuery:
 		return srv.handleSimpleQuery(ctx, reader, writer)
 	case types.ClientExecute:
@@ -160,6 +144,25 @@ func (srv *Server) handleCommand(ctx context.Context, conn net.Conn, t types.Cli
 		// to the backend; the format code fields in the RowDescription message
 		// will be zeroes in this case.
 		// https://www.postgresql.org/docs/current/protocol-flow.html#PROTOCOL-FLOW-EXT-QUERY
+	case types.ClientSync:
+		// TODO: Include the ability to catch sync messages in order to
+		// close the current transaction.
+		//
+		// At completion of each series of extended-query messages, the frontend
+		// should issue a Sync message. This parameterless message causes the
+		// backend to close the current transaction if it's not inside a
+		// BEGIN/COMMIT transaction block (“close” meaning to commit if no
+		// error, or roll back if error). Then a ReadyForQuery response is
+		// issued. The purpose of Sync is to provide a resynchronization point
+		// for error recovery. When an error is detected while processing any
+		// extended-query message, the backend issues ErrorResponse, then reads
+		// and discards messages until a Sync is reached, then issues
+		// ReadyForQuery and returns to normal message processing. (But note
+		// that no skipping occurs if an error is detected while processing Sync
+		// — this ensures that there is one and only one ReadyForQuery sent for
+		// each Sync.)
+		// https://www.postgresql.org/docs/current/protocol-flow.html#PROTOCOL-FLOW-EXT-QUERY
+		return readyForQuery(writer, types.ServerIdle)
 	case types.ClientBind:
 		return srv.handleBind(ctx, reader, writer)
 	case types.ClientFlush:
@@ -174,13 +177,14 @@ func (srv *Server) handleCommand(ctx context.Context, conn net.Conn, t types.Cli
 		// Flush, messages returned by the backend will be combined into the
 		// minimum possible number of packets to minimize network overhead.
 		// https://www.postgresql.org/docs/current/protocol-flow.html#PROTOCOL-FLOW-EXT-QUERY
+		return readyForQuery(writer, types.ServerIdle)
 	case types.ClientCopyData, types.ClientCopyDone, types.ClientCopyFail:
 		// We're supposed to ignore these messages, per the protocol spec. This
 		// state will happen when an error occurs on the server-side during a copy
 		// operation: the server will send an error and a ready message back to
 		// the client, and must then ignore further copy messages. See:
 		// https://github.com/postgres/postgres/blob/6e1dd2773eb60a6ab87b27b8d9391b756e904ac3/src/backend/tcop/postgres.c#L4295
-		break
+		return readyForQuery(writer, types.ServerIdle)
 	case types.ClientClose:
 		err = srv.handleConnClose(ctx)
 		if err != nil {
@@ -233,7 +237,7 @@ func (srv *Server) handleSimpleQuery(ctx context.Context, reader *buffer.Reader,
 		return ErrorCode(writer, err)
 	}
 
-	return nil
+	return readyForQuery(writer, types.ServerIdle)
 }
 
 func (srv *Server) handleParse(ctx context.Context, reader *buffer.Reader, writer *buffer.Writer) error {

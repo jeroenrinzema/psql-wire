@@ -58,7 +58,8 @@ func (srv *Server) readVersion(reader *buffer.Reader) (_ types.Version, err erro
 }
 
 // readyForQuery indicates that the server is ready to receive queries.
-// The given server status is included inside the message to indicate the server status.
+// The given server status is included inside the message to indicate the server
+// status. This message should be written when a command cycle has been completed.
 func readyForQuery(writer *buffer.Writer, status types.ServerStatus) error {
 	writer.Start(types.ServerReady)
 	writer.AddByte(byte(status))
