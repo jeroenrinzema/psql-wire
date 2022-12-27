@@ -3,6 +3,7 @@ package buffer
 import (
 	"bytes"
 	"encoding/binary"
+	"fmt"
 	"io"
 
 	"github.com/jeroenrinzema/psql-wire/internal/types"
@@ -130,6 +131,7 @@ func (writer *Writer) End() error {
 	bytes := writer.frame.Bytes()
 	length := uint32(writer.frame.Len() - 1) // total message length minus the message type byte
 	binary.BigEndian.PutUint32(bytes[1:5], length)
+	fmt.Println("->>", bytes)
 	_, err := writer.Writer.Write(bytes)
 	return err
 }
