@@ -44,7 +44,6 @@ func TestMessageSizeExceeded(t *testing.T) {
 	}
 
 	client.Error(t)
-	client.ReadyForQuery(t)
 	client.Close(t)
 }
 
