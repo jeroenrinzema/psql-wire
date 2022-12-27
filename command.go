@@ -112,8 +112,6 @@ func (srv *Server) handleCommand(ctx context.Context, conn net.Conn, t types.Cli
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
-	fmt.Println(string(t))
-
 	switch t {
 	case types.ClientSimpleQuery:
 		return srv.handleSimpleQuery(ctx, reader, writer)
