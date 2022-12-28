@@ -32,6 +32,11 @@ type ParseFn func(ctx context.Context, query string) (PreparedStatementFn, []oid
 // arguments and data writer.
 type PreparedStatementFn func(ctx context.Context, writer DataWriter, parameters []string) error
 
+// SessionHandler represents a wrapper function defining the state of a single
+// session. This function allows the user to wrap additional metadata around the
+// shared context.
+type SessionHandler func(ctx context.Context) (context.Context, error)
+
 // StatementCache represents a cache which could be used to store and retrieve
 // prepared statements bound to a name.
 type StatementCache interface {
@@ -213,6 +218,32 @@ func Version(version string) OptionFn {
 func ExtendTypes(fn func(*pgtype.ConnInfo)) OptionFn {
 	return func(srv *Server) error {
 		fn(srv.types)
+		return nil
+	}
+}
+
+// Session sets the given session handler within the underlying server. The
+// session handler is called when a new connection is opened and authenticated
+// allowing for additional metadata to be wrapped around the connection context.
+func Session(fn SessionHandler) OptionFn {
+	return func(srv *Server) error {
+		if srv.Session == nil {
+			srv.Session = fn
+			return nil
+		}
+
+		wrapper := func(parent SessionHandler) SessionHandler {
+			return func(ctx context.Context) (context.Context, error) {
+				ctx, err := parent(ctx)
+				if err != nil {
+					return ctx, err
+				}
+
+				return fn(ctx)
+			}
+		}
+
+		srv.Session = wrapper(srv.Session)
 		return nil
 	}
 }
