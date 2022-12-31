@@ -64,3 +64,55 @@ func TestSimpleQueryParameters(t *testing.T) {
 		})
 	}
 }
+
+func TestNilSessionHandler(t *testing.T) {
+	srv, err := NewServer()
+	assert.NoError(t, err)
+	assert.NotNil(t, srv)
+
+	bg := context.Background()
+	ctx, err := srv.Session(bg)
+	assert.NoError(t, err)
+	assert.Equal(t, bg, ctx)
+}
+
+func TestSessionHandler(t *testing.T) {
+	t.Parallel()
+
+	type test []OptionFn
+
+	type key string
+	mock := key("key")
+	value := "Super Secret Session ID"
+
+	tests := map[string]test{
+		"single": {
+			Session(func(ctx context.Context) (context.Context, error) {
+				return context.WithValue(ctx, mock, value), nil
+			}),
+		},
+		"nested": {
+			Session(func(ctx context.Context) (context.Context, error) {
+				return ctx, nil
+			}),
+			Session(func(ctx context.Context) (context.Context, error) {
+				return context.WithValue(ctx, mock, value), nil
+			}),
+		},
+	}
+
+	for name, test := range tests {
+		t.Run(name, func(t *testing.T) {
+			srv, err := NewServer(test...)
+			assert.NoError(t, err)
+			assert.NotNil(t, srv)
+
+			ctx, err := srv.Session(context.Background())
+			assert.NoError(t, err)
+			assert.NotNil(t, ctx)
+
+			result := ctx.Value(mock)
+			assert.Equal(t, value, result)
+		})
+	}
+}

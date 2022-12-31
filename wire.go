@@ -35,6 +35,7 @@ func NewServer(options ...OptionFn) (*Server, error) {
 		types:      pgtype.NewConnInfo(),
 		Statements: &DefaultStatementCache{},
 		Portals:    &DefaultPortalCache{},
+		Session:    func(ctx context.Context) (context.Context, error) { return ctx, nil },
 	}
 
 	for _, option := range options {
@@ -59,6 +60,7 @@ type Server struct {
 	ClientCAs       *x509.CertPool
 	ClientAuth      tls.ClientAuthType
 	Parse           ParseFn
+	Session         SessionHandler
 	Statements      StatementCache
 	Portals         PortalCache
 	CloseConn       CloseFn
@@ -150,6 +152,11 @@ func (srv *Server) serve(ctx context.Context, conn net.Conn) error {
 	srv.logger.Debug("connection authenticated, writing server parameters")
 
 	ctx, err = srv.writeParameters(ctx, writer, srv.Parameters)
+	if err != nil {
+		return err
+	}
+
+	ctx, err = srv.Session(ctx)
 	if err != nil {
 		return err
 	}
