@@ -221,7 +221,7 @@ func TestServerHandlingMultipleConnections(t *testing.T) {
 		require.NoError(t, err)
 	})
 
-	t.Run("simple query execution", func(t *testing.T) {
+	t.Run("simple query execution should return rows", func(t *testing.T) {
 		rows, err := conn.Query("select age from person")
 		require.NoError(t, err)
 		t.Cleanup(func() {
@@ -231,36 +231,35 @@ func TestServerHandlingMultipleConnections(t *testing.T) {
 		require.NoError(t, rows.Err())
 	})
 
-	t.Run("prepared statement query execution using dollar parm style", func(t *testing.T) {
-		query := "select age from person where age > $1"
-		stmt, err := conn.Prepare(query)
-		require.NoError(t, err)
-		t.Cleanup(func() {
-			stmt.Close()
-		})
-		rows, err := stmt.Query(1)
-		require.NoError(t, err)
-		t.Cleanup(func() {
-			rows.Close()
-		})
-		require.True(t, rows.Next())
-		require.NoError(t, rows.Err())
-	})
-
-	t.Run("prepared statement query execution using question mark style", func(t *testing.T) {
-		query := "select age from person where age > ?"
-		stmt, err := conn.Prepare(query)
-		require.NoError(t, err)
-		t.Cleanup(func() {
-			stmt.Close()
-		})
-		rows, err := stmt.Query(1)
-		require.NoError(t, err)
-		t.Cleanup(func() {
-			rows.Close()
-		})
-		require.True(t, rows.Next())
-		require.NoError(t, rows.Err())
+	t.Run("prepared statement query execution should support all parameter styles", func(t *testing.T) {
+		type input struct {
+			query string
+		}
+		scenarios := map[string]input{
+			"dollar param style": {
+				query: "select age from person where age > $1",
+			},
+			"question mark param style": {
+				query: "select age from person where age > ?",
+			},
+		}
+		for name, testInput := range scenarios {
+			query := testInput.query
+			t.Run(name, func(t *testing.T) {
+				stmt, err := conn.Prepare(query)
+				require.NoError(t, err)
+				t.Cleanup(func() {
+					stmt.Close()
+				})
+				rows, err := stmt.Query(1)
+				require.NoError(t, err)
+				t.Cleanup(func() {
+					rows.Close()
+				})
+				require.True(t, rows.Next())
+				require.NoError(t, rows.Err())
+			})
+		}
 	})
 }
 
