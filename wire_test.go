@@ -210,8 +210,8 @@ func TestServerWritingResult(t *testing.T) {
 
 func TestServerHandlingMultipleConnections(t *testing.T) {
 	address := TOpenMockServer(t)
-	databaseUrl := fmt.Sprintf("postgres://%s:%d", address.IP, address.Port)
-	conn, err := sql.Open("pgx", databaseUrl)
+	connstr := fmt.Sprintf("postgres://%s:%d", address.IP, address.Port)
+	conn, err := sql.Open("pgx", connstr)
 	require.NoError(t, err)
 	t.Cleanup(func() {
 		_ = conn.Close()
