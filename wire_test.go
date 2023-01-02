@@ -11,6 +11,7 @@ import (
 	"github.com/lib/pq/oid"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
+	"go.uber.org/zap/zaptest"
 	"net"
 	"testing"
 )
@@ -279,9 +280,7 @@ func TConstructMockPsqlServer(t *testing.T) *net.TCPAddr {
 		writer.Row([]any{20}) //nolint:errcheck
 		return writer.Complete("OK")
 	}
-	d, err := zap.NewDevelopment()
-	require.NoError(t, err)
-	server, err := NewServer(SimpleQuery(handler), Logger(d))
+	server, err := NewServer(SimpleQuery(handler), Logger(zaptest.NewLogger(t)))
 	require.NoError(t, err)
 	address := TListenAndServe(t, server)
 	return address
