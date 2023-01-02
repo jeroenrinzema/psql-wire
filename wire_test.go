@@ -209,7 +209,7 @@ func TestServerWritingResult(t *testing.T) {
 }
 
 func TestServerHandlingMultipleConnections(t *testing.T) {
-	address := TConstructMockPsqlServer(t)
+	address := TOpenMockServer(t)
 	databaseUrl := fmt.Sprintf("postgres://%s:%d", address.IP, address.Port)
 	conn, err := sql.Open("pgx", databaseUrl)
 	require.NoError(t, err)
@@ -264,7 +264,7 @@ func TestServerHandlingMultipleConnections(t *testing.T) {
 	})
 }
 
-func TConstructMockPsqlServer(t *testing.T) *net.TCPAddr {
+func TOpenMockServer(t *testing.T) *net.TCPAddr {
 	t.Helper()
 	handler := func(ctx context.Context, query string, writer DataWriter, parameters []string) error {
 		t.Log("serving query")
