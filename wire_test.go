@@ -230,20 +230,13 @@ func TestServerHandlingMultipleConnections(t *testing.T) {
 	})
 
 	t.Run("prepared statements", func(t *testing.T) {
-		type input struct {
-			query string
+		testQueries := []string{
+			"select age from person where age > $1",
+			"select age from person where age > ?",
 		}
-		scenarios := map[string]input{
-			"dollar param style": {
-				query: "select age from person where age > $1",
-			},
-			"question mark param style": {
-				query: "select age from person where age > ?",
-			},
-		}
-		for name, testInput := range scenarios {
-			query := testInput.query
-			t.Run(name, func(t *testing.T) {
+
+		for _, query := range testQueries {
+			t.Run(query, func(t *testing.T) {
 				stmt, err := conn.Prepare(query)
 				require.NoError(t, err)
 				t.Cleanup(func() {
