@@ -219,7 +219,7 @@ func TestServerHandlingMultipleConnections(t *testing.T) {
 	err = conn.Ping()
 	require.NoError(t, err)
 
-	t.Run("simple query execution should return rows", func(t *testing.T) {
+	t.Run("simple query", func(t *testing.T) {
 		rows, err := conn.Query("select age from person")
 		require.NoError(t, err)
 		t.Cleanup(func() {
