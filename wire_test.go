@@ -229,7 +229,7 @@ func TestServerHandlingMultipleConnections(t *testing.T) {
 		require.NoError(t, rows.Err())
 	})
 
-	t.Run("prepared statement query execution should support all parameter styles", func(t *testing.T) {
+	t.Run("prepared statements", func(t *testing.T) {
 		type input struct {
 			query string
 		}
