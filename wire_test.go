@@ -4,18 +4,20 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
-	"net"
-	"testing"
-
 	"github.com/jackc/pgx/v5"
+	_ "github.com/jackc/pgx/v5/stdlib"
 	"github.com/jeroenrinzema/psql-wire/internal/mock"
 	_ "github.com/lib/pq"
 	"github.com/lib/pq/oid"
+	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
+	"go.uber.org/zap/zaptest"
+	"net"
+	"testing"
 )
 
 // TListenAndServe will open a new TCP listener on a unallocated port inside
-// the local network. The newly created listner is passed to the given server to
+// the local network. The newly created listener is passed to the given server to
 // start serving PostgreSQL connections. The full listener address is returned
 // for clients to interact with the newly created server.
 func TListenAndServe(t *testing.T, server *Server) *net.TCPAddr {
@@ -204,6 +206,74 @@ func TestServerWritingResult(t *testing.T) {
 			t.Fatal(err)
 		}
 	})
+}
+
+func TestServerHandlingMultipleConnections(t *testing.T) {
+	address := TOpenMockServer(t)
+	connstr := fmt.Sprintf("postgres://%s:%d", address.IP, address.Port)
+	conn, err := sql.Open("pgx", connstr)
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		_ = conn.Close()
+	})
+	err = conn.Ping()
+	require.NoError(t, err)
+
+	t.Run("simple query", func(t *testing.T) {
+		rows, err := conn.Query("select age from person")
+		require.NoError(t, err)
+		t.Cleanup(func() {
+			rows.Close()
+		})
+		require.True(t, rows.Next())
+		require.NoError(t, rows.Err())
+	})
+
+	t.Run("prepared statements", func(t *testing.T) {
+		testQueries := []string{
+			"select age from person where age > $1",
+			"select age from person where age > ?",
+		}
+
+		for _, query := range testQueries {
+			t.Run(query, func(t *testing.T) {
+				stmt, err := conn.Prepare(query)
+				require.NoError(t, err)
+				t.Cleanup(func() {
+					stmt.Close()
+				})
+				rows, err := stmt.Query(1)
+				require.NoError(t, err)
+				t.Cleanup(func() {
+					rows.Close()
+				})
+				require.True(t, rows.Next())
+				require.NoError(t, rows.Err())
+			})
+		}
+	})
+}
+
+func TOpenMockServer(t *testing.T) *net.TCPAddr {
+	t.Helper()
+	handler := func(ctx context.Context, query string, writer DataWriter, parameters []string) error {
+		t.Log("serving query")
+		writer.Define(Columns{ //nolint:errcheck
+			{
+				Table:  0,
+				Name:   "age",
+				Oid:    oid.T_int4,
+				Width:  1,
+				Format: TextFormat,
+			},
+		})
+		writer.Row([]any{20}) //nolint:errcheck
+		return writer.Complete("OK")
+	}
+	server, err := NewServer(SimpleQuery(handler), Logger(zaptest.NewLogger(t)))
+	require.NoError(t, err)
+	address := TListenAndServe(t, server)
+	return address
 }
 
 func TestServerNULLValues(t *testing.T) {

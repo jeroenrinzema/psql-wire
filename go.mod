@@ -8,6 +8,7 @@ require (
 	github.com/jackc/pgx/v5 v5.0.3
 	github.com/lib/pq v1.10.4
 	github.com/shopspring/decimal v1.2.0
+	github.com/stretchr/testify v1.8.0
 	go.uber.org/zap v1.19.1
 	golang.org/x/tools v0.1.11-0.20220316014157-77aa08bb151a
 )
@@ -143,7 +144,6 @@ require (
 	github.com/ssgreg/nlreturn/v2 v2.2.1 // indirect
 	github.com/stbenjam/no-sprintf-host-port v0.1.1 // indirect
 	github.com/stretchr/objx v0.4.0 // indirect
-	github.com/stretchr/testify v1.8.0 // indirect
 	github.com/subosito/gotenv v1.2.0 // indirect
 	github.com/sylvia7788/contextcheck v1.0.4 // indirect
 	github.com/tdakkota/asciicheck v0.1.1 // indirect
