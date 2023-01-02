@@ -208,25 +208,7 @@ func TestServerWritingResult(t *testing.T) {
 }
 
 func TestServerHandlingMultipleConnections(t *testing.T) {
-	handler := func(ctx context.Context, query string, writer DataWriter, parameters []string) error {
-		t.Log("serving query")
-		writer.Define(Columns{ //nolint:errcheck
-			{
-				Table:  0,
-				Name:   "age",
-				Oid:    oid.T_int4,
-				Width:  1,
-				Format: TextFormat,
-			},
-		})
-		writer.Row([]any{20}) //nolint:errcheck
-		return writer.Complete("OK")
-	}
-	d, err := zap.NewDevelopment()
-	require.NoError(t, err)
-	server, err := NewServer(SimpleQuery(handler), Logger(d))
-	require.NoError(t, err)
-	address := TListenAndServe(t, server)
+	address := TConstructMockPsqlServer(t)
 	databaseUrl := fmt.Sprintf("postgres://%s:%d", address.IP, address.Port)
 	conn, err := sql.Open("pgx", databaseUrl)
 	require.NoError(t, err)
@@ -280,6 +262,30 @@ func TestServerHandlingMultipleConnections(t *testing.T) {
 		require.True(t, rows.Next())
 		require.NoError(t, rows.Err())
 	})
+}
+
+func TConstructMockPsqlServer(t *testing.T) *net.TCPAddr {
+	t.Helper()
+	handler := func(ctx context.Context, query string, writer DataWriter, parameters []string) error {
+		t.Log("serving query")
+		writer.Define(Columns{ //nolint:errcheck
+			{
+				Table:  0,
+				Name:   "age",
+				Oid:    oid.T_int4,
+				Width:  1,
+				Format: TextFormat,
+			},
+		})
+		writer.Row([]any{20}) //nolint:errcheck
+		return writer.Complete("OK")
+	}
+	d, err := zap.NewDevelopment()
+	require.NoError(t, err)
+	server, err := NewServer(SimpleQuery(handler), Logger(d))
+	require.NoError(t, err)
+	address := TListenAndServe(t, server)
+	return address
 }
 
 func TestServerNULLValues(t *testing.T) {
