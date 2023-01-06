@@ -24,7 +24,9 @@ const (
 	errFieldConstraintName errFieldType = 'n'
 )
 
-// ErrorCode writes a error message as response to a command with the given severity and error message
+// ErrorCode writes a error message as response to a command with the given
+// severity and error message. A ready for query message is written back to the
+// client once the error has been written indicating the end of a command cycle.
 // https://www.postgresql.org/docs/current/static/protocol-error-fields.html
 func ErrorCode(writer *buffer.Writer, err error) error {
 	desc := psqlerr.Flatten(err)
@@ -68,5 +70,12 @@ func ErrorCode(writer *buffer.Writer, err error) error {
 	}
 
 	writer.AddNullTerminate()
-	return writer.End()
+	err = writer.End()
+	if err != nil {
+		return err
+	}
+
+	// NOTE: we are writing a ready for query message to indicate the end of a
+	// command cycle.
+	return readyForQuery(writer, types.ServerIdle)
 }

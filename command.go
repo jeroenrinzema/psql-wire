@@ -71,7 +71,7 @@ func (srv *Server) consumeCommands(ctx context.Context, conn net.Conn, reader *b
 		}
 
 		err = srv.handleCommand(ctx, conn, t, reader, writer)
-		if err == io.EOF {
+		if errors.Is(err, io.EOF) {
 			return nil
 		}
 
@@ -435,7 +435,12 @@ func (srv *Server) handleExecute(ctx context.Context, reader *buffer.Reader, wri
 	}
 
 	srv.logger.Debug("executing", zap.String("name", name), zap.Uint32("limit", limit))
-	return srv.Portals.Execute(ctx, name, NewDataWriter(ctx, writer))
+	err = srv.Portals.Execute(ctx, name, NewDataWriter(ctx, writer))
+	if err != nil {
+		return ErrorCode(writer, err)
+	}
+
+	return nil
 }
 
 func (srv *Server) handleConnClose(ctx context.Context) error {
