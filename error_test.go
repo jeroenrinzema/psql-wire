@@ -38,6 +38,10 @@ func TestErrorCode(t *testing.T) {
 	})
 
 	t.Run("jackc/pgx", func(t *testing.T) {
+		// TODO: we have disabled the pgx tests for now until
+		// https://github.com/jackc/pgx/discussions/1466 has been resolved
+		t.Skip()
+
 		ctx := context.Background()
 		connstr := fmt.Sprintf("postgres://%s:%d", address.IP, address.Port)
 		conn, err := pgx.Connect(ctx, connstr)
