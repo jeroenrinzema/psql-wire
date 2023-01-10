@@ -38,8 +38,8 @@ func TestErrorCode(t *testing.T) {
 	})
 
 	t.Run("jackc/pgx", func(t *testing.T) {
-		// TODO: we have disabled the pgx tests for now until
-		// https://github.com/jackc/pgx/discussions/1466 has been resolved
+		// TODO: Enable the jackc/pgx error code tests
+		// We have disabled the pgx tests for now until https://github.com/jackc/pgx/discussions/1466 has been resolved.
 		t.Skip()
 
 		ctx := context.Background()
