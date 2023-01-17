@@ -11,7 +11,6 @@ import (
 	"github.com/jeroenrinzema/psql-wire/codes"
 	psqlerr "github.com/jeroenrinzema/psql-wire/errors"
 	"github.com/stretchr/testify/assert"
-	"go.uber.org/zap"
 )
 
 func TestErrorCode(t *testing.T) {
@@ -19,8 +18,7 @@ func TestErrorCode(t *testing.T) {
 		return psqlerr.WithSeverity(psqlerr.WithCode(errors.New("unimplemented feature"), codes.FeatureNotSupported), psqlerr.LevelFatal)
 	}
 
-	d, _ := zap.NewDevelopment()
-	server, err := NewServer(SimpleQuery(handler), Logger(d))
+	server, err := NewServer(SimpleQuery(handler))
 	assert.NoError(t, err)
 
 	address := TListenAndServe(t, server)
