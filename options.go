@@ -20,7 +20,9 @@ import (
 var QueryParameters = regexp.MustCompile(`\$(\d+)|\?`)
 
 // SimpleQueryFn represents a callback function called whenever an incoming
-// query is being executed.
+// query is executed. The passed writer should be handled with caution as it is
+// not safe for concurrent use. Concurrent access to the same data without
+// proper synchronization can result in unexpected behavior and data corruption.
 type SimpleQueryFn func(ctx context.Context, query string, writer DataWriter, parameters []string) error
 
 // ParseFn parses the given query and returns a prepared statement which could

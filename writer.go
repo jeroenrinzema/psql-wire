@@ -47,7 +47,10 @@ var ErrDataWritten = errors.New("data has already been written")
 // ErrClosedWriter is thrown when the data writer has been closed
 var ErrClosedWriter = errors.New("closed writer")
 
-// NewDataWriter constructs a new data writer using the given context and buffer.
+// NewDataWriter constructs a new data writer using the given context and
+// buffer. The returned writer should be handled with caution as it is not safe
+// for concurrent use. Concurrent access to the same data without proper
+// synchronization can result in unexpected behavior and data corruption.
 func NewDataWriter(ctx context.Context, writer *buffer.Writer) DataWriter {
 	return &dataWriter{
 		ctx:    ctx,
