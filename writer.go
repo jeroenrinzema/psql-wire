@@ -32,10 +32,6 @@ type DataWriter interface {
 	Complete(description string) error
 }
 
-// ErrColumnsDefined is thrown when columns already have been defined inside the
-// given data writer.
-var ErrColumnsDefined = errors.New("columns have already been defined")
-
 // ErrUndefinedColumns is thrown when the columns inside the data writer have not
 // yet been defined.
 var ErrUndefinedColumns = errors.New("columns have not been defined")
@@ -70,10 +66,6 @@ type dataWriter struct {
 func (writer *dataWriter) Define(columns Columns) error {
 	if writer.closed {
 		return ErrClosedWriter
-	}
-
-	if writer.columns != nil {
-		return ErrColumnsDefined
 	}
 
 	writer.columns = columns
