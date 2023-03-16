@@ -188,6 +188,15 @@ func ClientAuth(authType tls.ClientAuthType) OptionFn {
 	}
 }
 
+// SessionAuthStrategy sets the given authentication strategy within the given
+// server. The authentication strategy is called when a handshake is initiated.
+func SessionAuthStrategy(fn AuthStrategy) OptionFn {
+	return func(srv *Server) error {
+		srv.Auth = fn
+		return nil
+	}
+}
+
 // GlobalParameters sets the server parameters which are send back to the
 // front-end (client) once a handshake has been established.
 func GlobalParameters(params Parameters) OptionFn {
