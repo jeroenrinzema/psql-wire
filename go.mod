@@ -1,6 +1,6 @@
 module github.com/jeroenrinzema/psql-wire
 
-go 1.18
+go 1.20
 
 require (
 	github.com/golangci/golangci-lint v1.52.2
