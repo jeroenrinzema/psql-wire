@@ -28,7 +28,7 @@ jobs:
       run: make build
     
     - name: Cache bin
-      uses: actions/cache@v2
+      uses: actions/cache@v3
       with:
         path: ./bin
         key: ${{ runner.os }}-bin-${{ hashFiles('**/go.sum') }}
