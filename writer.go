@@ -23,6 +23,9 @@ type DataWriter interface {
 	// values are encoded as NULL values.
 	Row([]any) error
 
+	// Written returns the number of rows written to the client.
+	Written() uint64
+
 	// Empty announces to the client a empty response and that no data rows should
 	// be expected.
 	Empty() error
@@ -100,7 +103,11 @@ func (writer *dataWriter) Empty() error {
 	}
 
 	defer writer.close()
-	return emptyQuery(writer.client)
+	return nil
+}
+
+func (writer *dataWriter) Written() uint64 {
+	return writer.written
 }
 
 func (writer *dataWriter) Complete(description string) error {
@@ -130,11 +137,5 @@ func commandComplete(writer *buffer.Writer, description string) error {
 	writer.Start(types.ServerCommandComplete)
 	writer.AddString(description)
 	writer.AddNullTerminate()
-	return writer.End()
-}
-
-// emptyQuery indicates a empty query response by sending a emptyQuery message.
-func emptyQuery(writer *buffer.Writer) error {
-	writer.Start(types.ServerEmptyQuery)
 	return writer.End()
 }

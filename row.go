@@ -17,6 +17,10 @@ type Columns []Column
 // columns. The headers have to be written before any data rows could be send back
 // to the client.
 func (columns Columns) Define(ctx context.Context, writer *buffer.Writer) error {
+	if len(columns) == 0 {
+		return nil
+	}
+
 	writer.Start(types.ServerRowDescription)
 	writer.AddInt16(int16(len(columns)))
 

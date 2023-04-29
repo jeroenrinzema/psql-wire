@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"strings"
 
 	"github.com/jeroenrinzema/psql-wire/codes"
 	psqlerr "github.com/jeroenrinzema/psql-wire/errors"
@@ -221,6 +222,20 @@ func (srv *Server) handleSimpleQuery(ctx context.Context, reader *buffer.Reader,
 
 	srv.logger.Debug("incoming simple query", zap.String("query", query))
 
+	// NOTE: If a completely empty (no contents other than whitespace) query
+	// string is received, the response is EmptyQueryResponse followed by
+	// ReadyForQuery.
+	// https://www.postgresql.org/docs/current/protocol-flow.html#PROTOCOL-FLOW-EXT-QUERY
+	if strings.TrimSpace(query) == "" {
+		writer.Start(types.ServerEmptyQuery)
+		err = writer.End()
+		if err != nil {
+			return err
+		}
+
+		return readyForQuery(writer, types.ServerIdle)
+	}
+
 	statement, _, err := srv.Parse(ctx, query)
 	if err != nil {
 		return err
@@ -292,6 +307,10 @@ func (srv *Server) handleParse(ctx context.Context, reader *buffer.Reader, write
 }
 
 func (srv *Server) writeParameterDescriptions(writer *buffer.Writer, parameters []oid.Oid) error {
+	if len(parameters) == 0 {
+		return nil
+	}
+
 	writer.Start(types.ServerParameterDescription)
 	writer.AddInt16(int16(len(parameters)))
 
