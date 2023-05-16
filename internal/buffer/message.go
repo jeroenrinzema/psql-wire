@@ -3,7 +3,8 @@ package buffer
 import "math"
 
 // ServerErrFieldType represents the error fields.
-//go:generate stringer -type=ServerErrFieldType
+//
+//go:generate source ../../.bingo/variables.env && ${STRINGER} -type=ServerErrFieldType
 type ServerErrFieldType byte
 
 // http://www.postgresql.org/docs/current/static/protocol-error-fields.html
@@ -20,7 +21,8 @@ const (
 )
 
 // PrepareType represents a subtype for prepare messages.
-//go:generate stringer -type=PrepareType
+//
+//go:generate source ../../.bingo/variables.env && ${STRINGER} -type=PrepareType
 type PrepareType byte
 
 const (
