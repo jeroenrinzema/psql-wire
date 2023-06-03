@@ -11,11 +11,6 @@ import (
 // DataWriter represents a writer interface for writing columns and data rows
 // using the Postgres wire to the connected client.
 type DataWriter interface {
-	// Define writes the column headers containing their type definitions, width
-	// type oid, etc. to the underlaying Postgres client. The column headers
-	// could only be written once. An error will be returned whenever this
-	// method is called twice.
-	Define(Columns) error
 	// Row writes a single data row containing the values inside the given slice to
 	// the underlaying Postgres client. The column headers have to be written before
 	// sending rows. Each item inside the slice represents a single column value.
@@ -35,10 +30,6 @@ type DataWriter interface {
 	Complete(description string) error
 }
 
-// ErrUndefinedColumns is thrown when the columns inside the data writer have not
-// yet been defined.
-var ErrUndefinedColumns = errors.New("columns have not been defined")
-
 // ErrDataWritten is thrown when an empty result is attempted to be send to the
 // client while data has already been written.
 var ErrDataWritten = errors.New("data has already been written")
@@ -50,10 +41,11 @@ var ErrClosedWriter = errors.New("closed writer")
 // buffer. The returned writer should be handled with caution as it is not safe
 // for concurrent use. Concurrent access to the same data without proper
 // synchronization can result in unexpected behavior and data corruption.
-func NewDataWriter(ctx context.Context, writer *buffer.Writer) DataWriter {
+func NewDataWriter(ctx context.Context, columns Columns, writer *buffer.Writer) DataWriter {
 	return &dataWriter{
-		ctx:    ctx,
-		client: writer,
+		ctx:     ctx,
+		columns: columns,
+		client:  writer,
 	}
 }
 
@@ -80,10 +72,6 @@ func (writer *dataWriter) Row(values []any) error {
 		return ErrClosedWriter
 	}
 
-	if writer.columns == nil {
-		return ErrUndefinedColumns
-	}
-
 	writer.written++
 
 	return writer.columns.Write(writer.ctx, writer.client, values)
@@ -92,10 +80,6 @@ func (writer *dataWriter) Row(values []any) error {
 func (writer *dataWriter) Empty() error {
 	if writer.closed {
 		return ErrClosedWriter
-	}
-
-	if writer.columns == nil {
-		return ErrUndefinedColumns
 	}
 
 	if writer.written != 0 {

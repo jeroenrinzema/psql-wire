@@ -134,7 +134,7 @@ func (client *Client) Close(t *testing.T) {
 	t.Log("closing the client!")
 	defer t.Log("client closed")
 
-	client.Start(types.ClientClose)
+	client.Start(types.ClientTerminate)
 	err := client.End()
 	if err != nil {
 		t.Fatal(err)

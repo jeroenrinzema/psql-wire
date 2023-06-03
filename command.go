@@ -143,6 +143,7 @@ func (srv *Server) handleCommand(ctx context.Context, conn net.Conn, t types.Cli
 		// to the backend; the format code fields in the RowDescription message
 		// will be zeroes in this case.
 		// https://www.postgresql.org/docs/current/protocol-flow.html#PROTOCOL-FLOW-EXT-QUERY
+		return srv.handleDescribe(ctx, reader, writer)
 	case types.ClientSync:
 		// TODO: Include the ability to catch sync messages in order to
 		// close the current transaction.
@@ -185,12 +186,10 @@ func (srv *Server) handleCommand(ctx context.Context, conn net.Conn, t types.Cli
 		// https://github.com/postgres/postgres/blob/6e1dd2773eb60a6ab87b27b8d9391b756e904ac3/src/backend/tcop/postgres.c#L4295
 		return readyForQuery(writer, types.ServerIdle)
 	case types.ClientClose:
-		err = srv.handleConnClose(ctx)
-		if err != nil {
-			return err
-		}
-
-		return conn.Close()
+		// TODO: close the statement or portal
+		writer.Start(types.ServerCloseComplete) //nolint:errcheck
+		writer.End()                            //nolint:errcheck
+		return readyForQuery(writer, types.ServerIdle)
 	case types.ClientTerminate:
 		err = srv.handleConnTerminate(ctx)
 		if err != nil {
@@ -206,12 +205,10 @@ func (srv *Server) handleCommand(ctx context.Context, conn net.Conn, t types.Cli
 	default:
 		return ErrorCode(writer, NewErrUnimplementedMessageType(t))
 	}
-
-	return nil
 }
 
 func (srv *Server) handleSimpleQuery(ctx context.Context, reader *buffer.Reader, writer *buffer.Writer) error {
-	if srv.Parse == nil {
+	if srv.parse == nil {
 		return ErrorCode(writer, NewErrUnimplementedMessageType(types.ClientSimpleQuery))
 	}
 
@@ -236,7 +233,7 @@ func (srv *Server) handleSimpleQuery(ctx context.Context, reader *buffer.Reader,
 		return readyForQuery(writer, types.ServerIdle)
 	}
 
-	statement, _, err := srv.Parse(ctx, query)
+	statement, _, columns, err := srv.parse(ctx, query)
 	if err != nil {
 		return err
 	}
@@ -245,7 +242,13 @@ func (srv *Server) handleSimpleQuery(ctx context.Context, reader *buffer.Reader,
 		return ErrorCode(writer, err)
 	}
 
-	err = statement(ctx, NewDataWriter(ctx, writer), nil)
+	// NOTE: we have to define the column definitions before executing a simple query
+	err = columns.Define(ctx, writer)
+	if err != nil {
+		return ErrorCode(writer, err)
+	}
+
+	err = statement(ctx, NewDataWriter(ctx, columns, writer), nil)
 	if err != nil {
 		return ErrorCode(writer, err)
 	}
@@ -254,7 +257,7 @@ func (srv *Server) handleSimpleQuery(ctx context.Context, reader *buffer.Reader,
 }
 
 func (srv *Server) handleParse(ctx context.Context, reader *buffer.Reader, writer *buffer.Writer) error {
-	if srv.Parse == nil || srv.Statements == nil {
+	if srv.parse == nil || srv.Statements == nil {
 		return ErrorCode(writer, NewErrUnimplementedMessageType(types.ClientParse))
 	}
 
@@ -285,19 +288,14 @@ func (srv *Server) handleParse(ctx context.Context, reader *buffer.Reader, write
 		// `reader.GetUint32()`
 	}
 
-	statement, descriptions, err := srv.Parse(ctx, query)
+	statement, params, columns, err := srv.parse(ctx, query)
 	if err != nil {
 		return ErrorCode(writer, err)
 	}
 
-	srv.logger.Debug("incoming extended query", zap.String("query", query), zap.String("name", name), zap.Int("parameters", len(descriptions)))
+	srv.logger.Debug("incoming extended query", zap.String("query", query), zap.String("name", name), zap.Int("parameters", len(params)))
 
-	err = srv.writeParameterDescriptions(writer, descriptions)
-	if err != nil {
-		return err
-	}
-
-	err = srv.Statements.Set(ctx, name, statement)
+	err = srv.Statements.Set(ctx, name, statement, params, columns)
 	if err != nil {
 		return ErrorCode(writer, err)
 	}
@@ -306,16 +304,78 @@ func (srv *Server) handleParse(ctx context.Context, reader *buffer.Reader, write
 	return writer.End()
 }
 
-func (srv *Server) writeParameterDescriptions(writer *buffer.Writer, parameters []oid.Oid) error {
-	if len(parameters) == 0 {
-		return nil
+func (srv *Server) handleDescribe(ctx context.Context, reader *buffer.Reader, writer *buffer.Writer) error {
+	d, err := reader.GetBytes(1)
+	if err != nil {
+		return err
 	}
 
+	name, err := reader.GetString()
+	if err != nil {
+		return err
+	}
+
+	var statement *Statement
+
+	switch d[0] {
+	case 'S':
+		statement, err = srv.Statements.Get(ctx, name)
+		if err != nil {
+			return err
+		}
+	case 'P':
+		statement, err = srv.Portals.Get(ctx, name)
+		if err != nil {
+			return err
+		}
+	}
+
+	if statement == nil {
+		return ErrorCode(writer, errors.New("unknown statement"))
+	}
+
+	err = srv.writeParameterDescription(writer, statement.parameters)
+	if err != nil {
+		return err
+	}
+
+	return srv.writeColumnDescription(writer, statement.columns)
+}
+
+// https://www.postgresql.org/docs/15/protocol-message-formats.html
+func (srv *Server) writeParameterDescription(writer *buffer.Writer, parameters []oid.Oid) error {
 	writer.Start(types.ServerParameterDescription)
 	writer.AddInt16(int16(len(parameters)))
 
 	for _, parameter := range parameters {
 		writer.AddInt32(int32(parameter))
+	}
+
+	return writer.End()
+}
+
+// writeColumnDescription attempts to write the statement column descriptions
+// back to the writer buffer. Information about the returned columns is written
+// to the client.
+// https://www.postgresql.org/docs/15/protocol-message-formats.html
+func (srv *Server) writeColumnDescription(writer *buffer.Writer, columns Columns) error {
+	if len(columns) == 0 {
+		writer.Start(types.ServerNoData)
+		return writer.End()
+	}
+
+	writer.Start(types.ServerRowDescription)
+	writer.AddInt16(int16(len(columns)))
+
+	for _, column := range columns {
+		writer.AddString(column.Name)
+		writer.AddNullTerminate()
+		writer.AddInt32(column.ID)
+		writer.AddInt16(column.Attr)
+		writer.AddInt32(int32(column.Oid))
+		writer.AddInt16(column.Width)
+		writer.AddInt32(column.TypeModifier)
+		writer.AddInt16(0) // NOTE: the format code is not known yet and will always be zero
 	}
 
 	return writer.End()
@@ -337,12 +397,12 @@ func (srv *Server) handleBind(ctx context.Context, reader *buffer.Reader, writer
 		return err
 	}
 
-	fn, err := srv.Statements.Get(ctx, statement)
+	stmt, err := srv.Statements.Get(ctx, statement)
 	if err != nil {
 		return err
 	}
 
-	err = srv.Portals.Bind(ctx, name, fn, parameters)
+	err = srv.Portals.Bind(ctx, name, stmt, parameters)
 	if err != nil {
 		return err
 	}
@@ -454,20 +514,12 @@ func (srv *Server) handleExecute(ctx context.Context, reader *buffer.Reader, wri
 	}
 
 	srv.logger.Debug("executing", zap.String("name", name), zap.Uint32("limit", limit))
-	err = srv.Portals.Execute(ctx, name, NewDataWriter(ctx, writer))
+	err = srv.Portals.Execute(ctx, name, writer)
 	if err != nil {
 		return ErrorCode(writer, err)
 	}
 
 	return nil
-}
-
-func (srv *Server) handleConnClose(ctx context.Context) error {
-	if srv.CloseConn == nil {
-		return nil
-	}
-
-	return srv.CloseConn(ctx)
 }
 
 func (srv *Server) handleConnTerminate(ctx context.Context) error {

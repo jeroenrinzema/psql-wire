@@ -18,8 +18,8 @@ import (
 // default configurations. The given handler function is used to handle simple
 // queries. This method should be used to construct a simple Postgres server for
 // testing purposes or simple use cases.
-func ListenAndServe(address string, handler SimpleQueryFn) error {
-	server, err := NewServer(SimpleQuery(handler))
+func ListenAndServe(address string, handler ParseFn) error {
+	server, err := NewServer(handler)
 	if err != nil {
 		return err
 	}
@@ -28,8 +28,9 @@ func ListenAndServe(address string, handler SimpleQueryFn) error {
 }
 
 // NewServer constructs a new Postgres server using the given address and server options.
-func NewServer(options ...OptionFn) (*Server, error) {
+func NewServer(parse ParseFn, options ...OptionFn) (*Server, error) {
 	srv := &Server{
+		parse:      parse,
 		logger:     zap.NewNop(),
 		closer:     make(chan struct{}),
 		types:      pgtype.NewConnInfo(),
@@ -59,7 +60,7 @@ type Server struct {
 	Certificates    []tls.Certificate
 	ClientCAs       *x509.CertPool
 	ClientAuth      tls.ClientAuthType
-	Parse           ParseFn
+	parse           ParseFn
 	Session         SessionHandler
 	Statements      StatementCache
 	Portals         PortalCache
@@ -138,7 +139,7 @@ func (srv *Server) serve(ctx context.Context, conn net.Conn) error {
 
 	srv.logger.Debug("handshake successfull, validating authentication")
 
-	writer := buffer.NewWriter(conn)
+	writer := buffer.NewWriter(srv.logger, conn)
 	ctx, err = srv.readClientParameters(ctx, reader)
 	if err != nil {
 		return err

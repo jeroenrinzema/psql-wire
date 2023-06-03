@@ -8,6 +8,7 @@ import (
 	"unsafe"
 
 	"github.com/jeroenrinzema/psql-wire/internal/types"
+	"go.uber.org/zap"
 )
 
 // DefaultBufferSize represents the default buffer size whenever the buffer size
@@ -23,6 +24,7 @@ type BufferedReader interface {
 
 // Reader provides a convenient way to read pgwire protocol messages
 type Reader struct {
+	logger         *zap.Logger
 	Buffer         BufferedReader
 	Msg            []byte
 	MaxMessageSize int
@@ -30,7 +32,7 @@ type Reader struct {
 }
 
 // NewReader constructs a new Postgres wire buffer for the given io.Reader
-func NewReader(reader io.Reader, bufferSize int) *Reader {
+func NewReader(logger *zap.Logger, reader io.Reader, bufferSize int) *Reader {
 	if reader == nil {
 		return nil
 	}
@@ -40,6 +42,7 @@ func NewReader(reader io.Reader, bufferSize int) *Reader {
 	}
 
 	return &Reader{
+		logger:         logger,
 		Buffer:         bufio.NewReaderSize(reader, bufferSize),
 		MaxMessageSize: bufferSize,
 	}
@@ -78,6 +81,7 @@ func (reader *Reader) ReadTypedMsg() (types.ClientMessage, int, error) {
 		return 0, 0, err
 	}
 
+	reader.logger.Debug("reading typed message", zap.String("type", string(b)))
 	return types.ClientMessage(b), n, nil
 }
 

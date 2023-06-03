@@ -12,11 +12,11 @@ import (
 	"github.com/jeroenrinzema/psql-wire/internal/types"
 	"github.com/lib/pq/oid"
 	"github.com/stretchr/testify/assert"
-	"go.uber.org/zap"
+	"go.uber.org/zap/zaptest"
 )
 
 func TestMessageSizeExceeded(t *testing.T) {
-	server, err := NewServer()
+	server, err := NewServer(nil, Logger(zaptest.NewLogger(t)))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -50,36 +50,39 @@ func TestMessageSizeExceeded(t *testing.T) {
 func TestBindMessageParameters(t *testing.T) {
 	t.Parallel()
 
-	handler := func(ctx context.Context, query string, writer DataWriter, parameters []string) error {
-		t.Log("serving query")
-
-		writer.Define(Columns{ //nolint:errcheck
-			{
-				Table:  0,
-				Name:   "full_name",
-				Oid:    oid.T_text,
-				Width:  256,
-				Format: TextFormat,
-			},
-			{
-				Table:  0,
-				Name:   "answer_to_life_the_universe_and_everything",
-				Oid:    oid.T_text,
-				Width:  256,
-				Format: TextFormat,
-			},
-		})
-
-		if len(parameters) != 2 {
-			return fmt.Errorf("unexpected amount of parameters %d, expected 2", len(parameters))
-		}
-
-		writer.Row([]any{parameters[0], parameters[1]}) //nolint:errcheck
-		return writer.Complete("OK")
+	columns := Columns{
+		{
+			Table:  0,
+			Name:   "full_name",
+			Oid:    oid.T_text,
+			Width:  256,
+			Format: TextFormat,
+		},
+		{
+			Table:  0,
+			Name:   "answer_to_life_the_universe_and_everything",
+			Oid:    oid.T_text,
+			Width:  256,
+			Format: TextFormat,
+		},
 	}
 
-	d, _ := zap.NewDevelopment()
-	server, err := NewServer(SimpleQuery(handler), Logger(d))
+	handler := func(ctx context.Context, query string) (PreparedStatementFn, []oid.Oid, Columns, error) {
+		statement := func(ctx context.Context, writer DataWriter, parameters []string) error {
+			t.Log("serving query")
+
+			if len(parameters) != 2 {
+				return fmt.Errorf("unexpected amount of parameters %d, expected 2", len(parameters))
+			}
+
+			writer.Row([]any{parameters[0], parameters[1]}) //nolint:errcheck
+			return writer.Complete("SELECT 1")
+		}
+
+		return statement, ParseParameters(query), columns, nil
+	}
+
+	server, err := NewServer(handler, Logger(zaptest.NewLogger(t)))
 	if err != nil {
 		t.Fatal(err)
 	}

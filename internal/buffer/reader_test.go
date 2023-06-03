@@ -9,10 +9,11 @@ import (
 	"testing"
 
 	"github.com/jeroenrinzema/psql-wire/internal/types"
+	"go.uber.org/zap"
 )
 
 func TestNewReaderNil(t *testing.T) {
-	reader := NewReader(nil, 0)
+	reader := NewReader(zap.NewNop(), nil, 0)
 	if reader != nil {
 		t.Fatalf("unexpected result, expected reader to be nil %+v", reader)
 	}
@@ -31,7 +32,7 @@ func TestReadTypedMsg(t *testing.T) {
 	buffer.Write(size)
 	buffer.Write(_text)
 
-	reader := NewReader(buffer, DefaultBufferSize)
+	reader := NewReader(zap.NewNop(), buffer, DefaultBufferSize)
 
 	ty, ln, err := reader.ReadTypedMsg()
 	if err != nil {
@@ -57,7 +58,7 @@ func TestReadUntypedMsg(t *testing.T) {
 	buffer.Write(size)
 	buffer.Write(_text)
 
-	reader := NewReader(buffer, DefaultBufferSize)
+	reader := NewReader(zap.NewNop(), buffer, DefaultBufferSize)
 
 	ln, err := reader.ReadUntypedMsg()
 	if err != nil {
@@ -89,7 +90,7 @@ func TestReadUntypedMsgParameters(t *testing.T) {
 	buffer := msg.Bytes()
 	binary.BigEndian.PutUint32(buffer, uint32(msg.Len()))
 
-	reader := NewReader(bytes.NewReader(buffer), DefaultBufferSize)
+	reader := NewReader(zap.NewNop(), bytes.NewReader(buffer), DefaultBufferSize)
 	ln, err := reader.ReadUntypedMsg()
 	if err != nil {
 		t.Fatal(err)

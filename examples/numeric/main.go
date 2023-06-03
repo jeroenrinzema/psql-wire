@@ -20,7 +20,7 @@ func main() {
 		})
 	})
 
-	srv, err := wire.NewServer(types, wire.SimpleQuery(handle))
+	srv, err := wire.NewServer(handler, types)
 	if err != nil {
 		panic(err)
 	}
@@ -39,15 +39,18 @@ var table = wire.Columns{
 	},
 }
 
-func handle(ctx context.Context, query string, writer wire.DataWriter, parameters []string) error {
+func handler(ctx context.Context, query string) (wire.PreparedStatementFn, []oid.Oid, wire.Columns, error) {
 	log.Println("incoming SQL query:", query)
 
-	balance, err := decimal.NewFromString("256.23")
-	if err != nil {
-		return err
+	statement := func(ctx context.Context, writer wire.DataWriter, parameters []string) error {
+		balance, err := decimal.NewFromString("256.23")
+		if err != nil {
+			return err
+		}
+
+		writer.Row([]any{balance})
+		return writer.Complete("SELECT 1")
 	}
 
-	writer.Define(table)
-	writer.Row([]any{balance})
-	return writer.Complete("OK")
+	return statement, wire.ParseParameters(query), table, nil
 }

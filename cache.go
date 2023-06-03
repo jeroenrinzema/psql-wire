@@ -3,30 +3,44 @@ package wire
 import (
 	"context"
 	"sync"
+
+	"github.com/jeroenrinzema/psql-wire/internal/buffer"
+	"github.com/lib/pq/oid"
 )
 
+type Statement struct {
+	fn         PreparedStatementFn
+	parameters []oid.Oid
+	columns    Columns
+}
+
 type DefaultStatementCache struct {
-	statements map[string]PreparedStatementFn
+	statements map[string]*Statement
 	mu         sync.RWMutex
 }
 
 // Set attempts to bind the given statement to the given name. Any
 // previously defined statement is overridden.
-func (cache *DefaultStatementCache) Set(ctx context.Context, name string, fn PreparedStatementFn) error {
+func (cache *DefaultStatementCache) Set(ctx context.Context, name string, fn PreparedStatementFn, parameters []oid.Oid, columns Columns) error {
 	cache.mu.Lock()
 	defer cache.mu.Unlock()
 
 	if cache.statements == nil {
-		cache.statements = map[string]PreparedStatementFn{}
+		cache.statements = map[string]*Statement{}
 	}
 
-	cache.statements[name] = fn
+	cache.statements[name] = &Statement{
+		fn:         fn,
+		parameters: parameters,
+		columns:    columns,
+	}
+
 	return nil
 }
 
 // Get attempts to get the prepared statement for the given name. An error
 // is returned when no statement has been found.
-func (cache *DefaultStatementCache) Get(ctx context.Context, name string) (PreparedStatementFn, error) {
+func (cache *DefaultStatementCache) Get(ctx context.Context, name string) (*Statement, error) {
 	cache.mu.RLock()
 	defer cache.mu.RUnlock()
 
@@ -34,11 +48,16 @@ func (cache *DefaultStatementCache) Get(ctx context.Context, name string) (Prepa
 		return nil, nil
 	}
 
-	return cache.statements[name], nil
+	stmt, has := cache.statements[name]
+	if !has {
+		return nil, nil
+	}
+
+	return stmt, nil
 }
 
 type portal struct {
-	statement  PreparedStatementFn
+	statement  *Statement
 	parameters []string
 }
 
@@ -47,7 +66,7 @@ type DefaultPortalCache struct {
 	mu      sync.RWMutex
 }
 
-func (cache *DefaultPortalCache) Bind(ctx context.Context, name string, fn PreparedStatementFn, parametes []string) error {
+func (cache *DefaultPortalCache) Bind(ctx context.Context, name string, stmt *Statement, parameters []string) error {
 	cache.mu.Lock()
 	defer cache.mu.Unlock()
 
@@ -56,14 +75,30 @@ func (cache *DefaultPortalCache) Bind(ctx context.Context, name string, fn Prepa
 	}
 
 	cache.portals[name] = portal{
-		statement:  fn,
-		parameters: parametes,
+		statement:  stmt,
+		parameters: parameters,
 	}
 
 	return nil
 }
 
-func (cache *DefaultPortalCache) Execute(ctx context.Context, name string, writer DataWriter) error {
+func (cache *DefaultPortalCache) Get(ctx context.Context, name string) (*Statement, error) {
+	cache.mu.Lock()
+	defer cache.mu.Unlock()
+
+	if cache.portals == nil {
+		return nil, nil
+	}
+
+	portal, has := cache.portals[name]
+	if !has {
+		return nil, nil
+	}
+
+	return portal.statement, nil
+}
+
+func (cache *DefaultPortalCache) Execute(ctx context.Context, name string, writer *buffer.Writer) error {
 	cache.mu.Lock()
 	defer cache.mu.Unlock()
 
@@ -72,5 +107,5 @@ func (cache *DefaultPortalCache) Execute(ctx context.Context, name string, write
 		return nil
 	}
 
-	return portal.statement(ctx, writer, portal.parameters)
+	return portal.statement.fn(ctx, NewDataWriter(ctx, portal.statement.columns, writer), portal.parameters)
 }

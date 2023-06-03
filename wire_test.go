@@ -4,16 +4,16 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"net"
+	"testing"
+
 	"github.com/jackc/pgx/v5"
 	_ "github.com/jackc/pgx/v5/stdlib"
 	"github.com/jeroenrinzema/psql-wire/internal/mock"
 	_ "github.com/lib/pq"
 	"github.com/lib/pq/oid"
 	"github.com/stretchr/testify/require"
-	"go.uber.org/zap"
 	"go.uber.org/zap/zaptest"
-	"net"
-	"testing"
 )
 
 // TListenAndServe will open a new TCP listener on a unallocated port inside
@@ -40,11 +40,16 @@ func TListenAndServe(t *testing.T, server *Server) *net.TCPAddr {
 func TestClientConnect(t *testing.T) {
 	t.Parallel()
 
-	pong := func(ctx context.Context, query string, writer DataWriter, parameters []string) error {
-		return writer.Complete("OK")
+	handler := func(ctx context.Context, query string) (PreparedStatementFn, []oid.Oid, Columns, error) {
+		statement := func(ctx context.Context, writer DataWriter, parameters []string) error {
+			t.Log("serving query")
+			return writer.Complete("OK")
+		}
+
+		return statement, nil, nil, nil
 	}
 
-	server, err := NewServer(SimpleQuery(pong))
+	server, err := NewServer(handler, Logger(zaptest.NewLogger(t)))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -102,13 +107,94 @@ func TestClientConnect(t *testing.T) {
 	})
 }
 
+func TestClientParameters(t *testing.T) {
+	t.Parallel()
+
+	handler := func(ctx context.Context, query string) (PreparedStatementFn, []oid.Oid, Columns, error) {
+		statement := func(ctx context.Context, writer DataWriter, parameters []string) error {
+			writer.Row([]any{"John Doe"}) //nolint:errcheck
+			return writer.Complete("SELECT 1")
+		}
+
+		parameters := ParseParameters(query)
+		columns := Columns{
+			{
+				Table:  0,
+				Name:   "full_name",
+				Oid:    oid.T_text,
+				Width:  256,
+				Format: TextFormat,
+			},
+		}
+
+		return statement, parameters, columns, nil
+	}
+
+	server, err := NewServer(handler, Logger(zaptest.NewLogger(t)))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	address := TListenAndServe(t, server)
+
+	t.Run("lib/pq", func(t *testing.T) {
+		connstr := fmt.Sprintf("host=%s port=%d sslmode=disable", address.IP, address.Port)
+		conn, err := sql.Open("postgres", connstr)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		rows, err := conn.Query("SELECT * FROM users WHERE age > ?", 50)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		err = rows.Close()
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		err = conn.Close()
+		if err != nil {
+			t.Fatal(err)
+		}
+	})
+
+	t.Run("jackc/pgx", func(t *testing.T) {
+		ctx := context.Background()
+		connstr := fmt.Sprintf("postgres://%s:%d", address.IP, address.Port)
+		conn, err := pgx.Connect(ctx, connstr)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		rows, err := conn.Query(ctx, "SELECT * FROM users WHERE age > ?", 50)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		rows.Close()
+
+		err = conn.Close(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+	})
+}
+
 func TestServerWritingResult(t *testing.T) {
 	t.Parallel()
 
-	handler := func(ctx context.Context, query string, writer DataWriter, parameters []string) error {
-		t.Log("serving query")
+	handler := func(ctx context.Context, query string) (PreparedStatementFn, []oid.Oid, Columns, error) {
+		statement := func(ctx context.Context, writer DataWriter, parameters []string) error {
+			t.Log("serving query")
+			writer.Row([]any{"John", true, 28})   //nolint:errcheck
+			writer.Row([]any{"Marry", false, 21}) //nolint:errcheck
+			return writer.Complete("SELECT 2")
+		}
 
-		writer.Define(Columns{ //nolint:errcheck
+		parameters := ParseParameters(query)
+		columns := Columns{ //nolint:errcheck
 			{
 				Table:  0,
 				Name:   "name",
@@ -130,15 +216,12 @@ func TestServerWritingResult(t *testing.T) {
 				Width:  1,
 				Format: TextFormat,
 			},
-		})
+		}
 
-		writer.Row([]any{"John", true, 28})   //nolint:errcheck
-		writer.Row([]any{"Marry", false, 21}) //nolint:errcheck
-		return writer.Complete("OK")
+		return statement, parameters, columns, nil
 	}
 
-	d, _ := zap.NewDevelopment()
-	server, err := NewServer(SimpleQuery(handler), Logger(d))
+	server, err := NewServer(handler, Logger(zaptest.NewLogger(t)))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -256,9 +339,15 @@ func TestServerHandlingMultipleConnections(t *testing.T) {
 
 func TOpenMockServer(t *testing.T) *net.TCPAddr {
 	t.Helper()
-	handler := func(ctx context.Context, query string, writer DataWriter, parameters []string) error {
-		t.Log("serving query")
-		writer.Define(Columns{ //nolint:errcheck
+	handler := func(ctx context.Context, query string) (PreparedStatementFn, []oid.Oid, Columns, error) {
+		statement := func(ctx context.Context, writer DataWriter, parameters []string) error {
+			t.Log("serving query")
+			writer.Row([]any{20}) //nolint:errcheck
+			return writer.Complete("SELECT 1")
+		}
+
+		parameters := ParseParameters(query)
+		columns := Columns{
 			{
 				Table:  0,
 				Name:   "age",
@@ -266,11 +355,12 @@ func TOpenMockServer(t *testing.T) *net.TCPAddr {
 				Width:  1,
 				Format: TextFormat,
 			},
-		})
-		writer.Row([]any{20}) //nolint:errcheck
-		return writer.Complete("OK")
+		}
+
+		return statement, parameters, columns, nil
 	}
-	server, err := NewServer(SimpleQuery(handler), Logger(zaptest.NewLogger(t)))
+
+	server, err := NewServer(handler, Logger(zaptest.NewLogger(t)))
 	require.NoError(t, err)
 	address := TListenAndServe(t, server)
 	return address
@@ -285,10 +375,16 @@ func TestServerNULLValues(t *testing.T) {
 		nil,
 	}
 
-	handler := func(ctx context.Context, query string, writer DataWriter, parameters []string) error {
-		t.Log("serving query")
+	handler := func(ctx context.Context, query string) (PreparedStatementFn, []oid.Oid, Columns, error) {
+		statement := func(ctx context.Context, writer DataWriter, parameters []string) error {
+			t.Log("serving query")
+			writer.Row([]any{"John"}) //nolint:errcheck
+			writer.Row([]any{nil})    //nolint:errcheck
+			return writer.Complete("SELECT 2")
+		}
 
-		writer.Define(Columns{ //nolint:errcheck
+		parameters := ParseParameters(query)
+		columns := Columns{
 			{
 				Table:  0,
 				Name:   "name",
@@ -296,14 +392,12 @@ func TestServerNULLValues(t *testing.T) {
 				Width:  256,
 				Format: TextFormat,
 			},
-		})
+		}
 
-		writer.Row([]any{"John"}) //nolint:errcheck
-		writer.Row([]any{nil})    //nolint:errcheck
-		return writer.Complete("OK")
+		return statement, parameters, columns, nil
 	}
 
-	server, err := NewServer(SimpleQuery(handler))
+	server, err := NewServer(handler, Logger(zaptest.NewLogger(t)))
 	if err != nil {
 		t.Fatal(err)
 	}

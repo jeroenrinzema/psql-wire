@@ -4,7 +4,7 @@
 [![Go Reference](https://pkg.go.dev/badge/github.com/jeroenrinzema/psql-wire.svg)](https://pkg.go.dev/github.com/jeroenrinzema/psql-wire) [![Latest release](https://img.shields.io/github/release/jeroenrinzema/psql-wire.svg)](https://github.com/jeroenrinzema/psql-wire/releases) [![Go Report Card](https://goreportcard.com/badge/github.com/jeroenrinzema/psql-wire)](https://goreportcard.com/report/github.com/jeroenrinzema/psql-wire)
 
 A pure Go [PostgreSQL](https://www.postgresql.org/) server wire protocol implementation.
-Build your own PostgreSQL server with 15 lines of code.
+Build your own PostgreSQL server within a few lines of code.
 This project attempts to make it as straight forward as possible to set-up and configure your own PSQL server.
 Feel free to check out the [examples](https://github.com/jeroenrinzema/psql-wire/tree/main/examples) directory for various ways on how to configure/set-up your own server.
 
@@ -21,10 +21,17 @@ import (
 )
 
 func main() {
-	wire.ListenAndServe("127.0.0.1:5432", func(ctx context.Context, query string, writer wire.DataWriter, parameters []string) error {
-		fmt.Println(query)
+	wire.ListenAndServe("127.0.0.1:5432", handler)
+}
+
+func handler(ctx context.Context, query string) (wire.PreparedStatementFn, []oid.Oid, wire.Columns, error) {
+	fmt.Println(query)
+
+	statement := func(ctx context.Context, writer wire.DataWriter, parameters []string) error {
 		return writer.Complete("OK")
-	})
+	}
+
+	return statement, nil, nil, nil
 }
 ```
 

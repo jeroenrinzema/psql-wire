@@ -10,15 +10,20 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jeroenrinzema/psql-wire/codes"
 	psqlerr "github.com/jeroenrinzema/psql-wire/errors"
+	"github.com/lib/pq/oid"
 	"github.com/stretchr/testify/assert"
+	"go.uber.org/zap/zaptest"
 )
 
 func TestErrorCode(t *testing.T) {
-	handler := func(ctx context.Context, query string, writer DataWriter, parameters []string) error {
-		return psqlerr.WithSeverity(psqlerr.WithCode(errors.New("unimplemented feature"), codes.FeatureNotSupported), psqlerr.LevelFatal)
+	handler := func(ctx context.Context, query string) (PreparedStatementFn, []oid.Oid, Columns, error) {
+		statement := func(ctx context.Context, writer DataWriter, parameters []string) error {
+			return psqlerr.WithSeverity(psqlerr.WithCode(errors.New("unimplemented feature"), codes.FeatureNotSupported), psqlerr.LevelFatal)
+		}
+		return statement, nil, nil, nil
 	}
 
-	server, err := NewServer(SimpleQuery(handler))
+	server, err := NewServer(handler, Logger(zaptest.NewLogger(t)))
 	assert.NoError(t, err)
 
 	address := TListenAndServe(t, server)

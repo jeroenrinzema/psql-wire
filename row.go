@@ -56,6 +56,8 @@ func (columns Columns) Write(ctx context.Context, writer *buffer.Writer, srcs []
 // https://www.postgresql.org/docs/8.3/catalog-pg-attribute.html
 type Column struct {
 	Table        int32  // table id
+	ID           int32  // column identifier
+	Attr         int16  // column attribute number
 	Name         string // column name
 	AttrNo       int16  // column attribute no (optional)
 	Oid          oid.Oid

@@ -17,8 +17,8 @@ func TestDefaultHandleAuth(t *testing.T) {
 	sink := bytes.NewBuffer([]byte{})
 
 	ctx := context.Background()
-	reader := buffer.NewReader(input, buffer.DefaultBufferSize)
-	writer := buffer.NewWriter(sink)
+	reader := buffer.NewReader(zap.NewNop(), input, buffer.DefaultBufferSize)
+	writer := buffer.NewWriter(zap.NewNop(), sink)
 
 	server := &Server{logger: zap.NewNop()}
 	err := server.handleAuth(ctx, reader, writer)
@@ -26,7 +26,7 @@ func TestDefaultHandleAuth(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	result := buffer.NewReader(sink, buffer.DefaultBufferSize)
+	result := buffer.NewReader(zap.NewNop(), sink, buffer.DefaultBufferSize)
 	ty, ln, err := result.ReadTypedMsg()
 	if err != nil {
 		t.Fatal(err)
@@ -54,7 +54,7 @@ func TestClearTextPassword(t *testing.T) {
 	expected := "password"
 
 	input := bytes.NewBuffer([]byte{})
-	incoming := buffer.NewWriter(input)
+	incoming := buffer.NewWriter(zap.NewNop(), input)
 
 	// NOTE: we could reuse the server buffered writer to write client messages
 	incoming.Start(types.ServerMessage(types.ClientPassword))
@@ -73,8 +73,8 @@ func TestClearTextPassword(t *testing.T) {
 	sink := bytes.NewBuffer([]byte{})
 
 	ctx := context.Background()
-	reader := buffer.NewReader(input, buffer.DefaultBufferSize)
-	writer := buffer.NewWriter(sink)
+	reader := buffer.NewReader(zap.NewNop(), input, buffer.DefaultBufferSize)
+	writer := buffer.NewWriter(zap.NewNop(), sink)
 
 	server := &Server{logger: zap.NewNop(), Auth: ClearTextPassword(validate)}
 	err := server.handleAuth(ctx, reader, writer)

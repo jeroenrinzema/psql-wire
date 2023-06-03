@@ -1,9 +1,9 @@
 package types
 
-//ClientMessage represents a client pgwire message.
+// ClientMessage represents a client pgwire message.
 type ClientMessage byte
 
-//ServerMessage represents a server pgwire message.
+// ServerMessage represents a server pgwire message.
 type ServerMessage byte
 
 // http://www.postgresql.org/docs/9.4/static/protocol-message-formats.html

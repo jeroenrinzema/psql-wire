@@ -5,7 +5,7 @@ import (
 	"testing"
 )
 
-func TestMessageSizeExceeded(t *testing.T) {
+func TestErrMessageSizeExceeded(t *testing.T) {
 	max := DefaultBufferSize
 	size := max + 1024
 

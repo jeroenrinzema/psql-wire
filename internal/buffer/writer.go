@@ -6,19 +6,22 @@ import (
 	"io"
 
 	"github.com/jeroenrinzema/psql-wire/internal/types"
+	"go.uber.org/zap"
 )
 
 // Writer provides a convenient way to write pgwire protocol messages
 type Writer struct {
 	io.Writer
+	logger *zap.Logger
 	frame  bytes.Buffer
 	putbuf [64]byte // buffer used to construct messages which could be written to the writer frame buffer
 	err    error
 }
 
 // NewWriter constructs a new Postgres buffered message writer for the given io.Writer
-func NewWriter(writer io.Writer) *Writer {
+func NewWriter(logger *zap.Logger, writer io.Writer) *Writer {
 	return &Writer{
+		logger: logger,
 		Writer: writer,
 	}
 }
@@ -131,6 +134,8 @@ func (writer *Writer) End() error {
 	length := uint32(writer.frame.Len() - 1) // total message length minus the message type byte
 	binary.BigEndian.PutUint32(bytes[1:5], length)
 	_, err := writer.Writer.Write(bytes)
+
+	writer.logger.Debug("writing message", zap.String("type", string(bytes[0])))
 	return err
 }
 

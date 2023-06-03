@@ -3,8 +3,10 @@ package main
 import (
 	"context"
 	"crypto/tls"
+	"log"
 
 	wire "github.com/jeroenrinzema/psql-wire"
+	"github.com/lib/pq/oid"
 	"go.uber.org/zap"
 )
 
@@ -27,7 +29,7 @@ func run() error {
 	}
 
 	certs := []tls.Certificate{cert}
-	server, err := wire.NewServer(wire.SimpleQuery(handle), wire.Certificates(certs), wire.Logger(logger), wire.MessageBufferSize(100))
+	server, err := wire.NewServer(handler, wire.Certificates(certs), wire.Logger(logger), wire.MessageBufferSize(100))
 	if err != nil {
 		return err
 	}
@@ -36,6 +38,12 @@ func run() error {
 	return server.ListenAndServe("127.0.0.1:5432")
 }
 
-func handle(ctx context.Context, query string, writer wire.DataWriter, parameters []string) error {
-	return writer.Complete("OK")
+func handler(ctx context.Context, query string) (wire.PreparedStatementFn, []oid.Oid, wire.Columns, error) {
+	log.Println("incoming SQL query:", query)
+
+	statement := func(ctx context.Context, writer wire.DataWriter, parameters []string) error {
+		return writer.Complete("OK")
+	}
+
+	return statement, wire.ParseParameters(query), nil, nil
 }
