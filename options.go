@@ -197,7 +197,7 @@ func Session(fn SessionHandler) OptionFn {
 // QueryParameters represents a regex which could be used to identify and lookup
 // parameters defined inside a given query. Parameters could be defined as
 // positional parameters and un-positional parameters.
-// https://www.postgresql.org/docs/8.1/sql-syntax.html#:~:text=A%20dollar%20sign%20(%24)%20followed,a%20dollar%2Dquoted%20string%20constant.
+// https://www.postgresql.org/docs/15/sql-expressions.html#SQL-EXPRESSIONS-PARAMETERS-POSITIONAL
 var QueryParameters = regexp.MustCompile(`\$(\d+)|\?`)
 
 // ParseParameters attempts ot parse the parameters in the given string and
