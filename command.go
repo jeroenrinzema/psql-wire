@@ -235,7 +235,7 @@ func (srv *Server) handleSimpleQuery(ctx context.Context, reader *buffer.Reader,
 
 	statement, _, columns, err := srv.parse(ctx, query)
 	if err != nil {
-		return err
+		return ErrorCode(writer, err)
 	}
 
 	if err != nil {
