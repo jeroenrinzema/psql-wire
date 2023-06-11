@@ -9,6 +9,7 @@ import (
 
 	"github.com/jeroenrinzema/psql-wire/internal/buffer"
 	"github.com/jeroenrinzema/psql-wire/internal/types"
+	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
 )
 
@@ -21,16 +22,12 @@ func TestDefaultHandleAuth(t *testing.T) {
 	writer := buffer.NewWriter(zap.NewNop(), sink)
 
 	server := &Server{logger: zap.NewNop()}
-	err := server.handleAuth(ctx, reader, writer)
-	if err != nil {
-		t.Fatal(err)
-	}
+	ctx, err := server.handleAuth(ctx, reader, writer)
+	require.NoError(t, err)
 
 	result := buffer.NewReader(zap.NewNop(), sink, buffer.DefaultBufferSize)
 	ty, ln, err := result.ReadTypedMsg()
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 
 	if ln == 0 {
 		t.Error("unexpected length, expected typed message length to be greater then 0")
@@ -41,9 +38,7 @@ func TestDefaultHandleAuth(t *testing.T) {
 	}
 
 	status, err := result.GetUint32()
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 
 	if authType(status) != authOK {
 		t.Errorf("unexpected auth status %d, expected OK", status)
@@ -62,12 +57,12 @@ func TestClearTextPassword(t *testing.T) {
 	incoming.AddNullTerminate()
 	incoming.End() //nolint:errcheck
 
-	validate := func(username, password string) (bool, error) {
+	validate := func(ctx context.Context, username, password string) (context.Context, bool, error) {
 		if password != expected {
-			return false, fmt.Errorf("unexpected password: %s", password)
+			return ctx, false, fmt.Errorf("unexpected password: %s", password)
 		}
 
-		return true, nil
+		return ctx, true, nil
 	}
 
 	sink := bytes.NewBuffer([]byte{})
@@ -77,8 +72,7 @@ func TestClearTextPassword(t *testing.T) {
 	writer := buffer.NewWriter(zap.NewNop(), sink)
 
 	server := &Server{logger: zap.NewNop(), Auth: ClearTextPassword(validate)}
-	err := server.handleAuth(ctx, reader, writer)
-	if err != nil {
-		t.Error("unexpected error:", err)
-	}
+	out, err := server.handleAuth(ctx, reader, writer)
+	require.NoError(t, err)
+	require.Equal(t, ctx, out)
 }

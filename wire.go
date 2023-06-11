@@ -145,7 +145,7 @@ func (srv *Server) serve(ctx context.Context, conn net.Conn) error {
 		return err
 	}
 
-	err = srv.handleAuth(ctx, reader, writer)
+	ctx, err = srv.handleAuth(ctx, reader, writer)
 	if err != nil {
 		return err
 	}
