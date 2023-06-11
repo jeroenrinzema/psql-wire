@@ -22,7 +22,7 @@ func TestDefaultHandleAuth(t *testing.T) {
 	writer := buffer.NewWriter(zap.NewNop(), sink)
 
 	server := &Server{logger: zap.NewNop()}
-	ctx, err := server.handleAuth(ctx, reader, writer)
+	_, err := server.handleAuth(ctx, reader, writer)
 	require.NoError(t, err)
 
 	result := buffer.NewReader(zap.NewNop(), sink, buffer.DefaultBufferSize)
