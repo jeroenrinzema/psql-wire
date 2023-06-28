@@ -177,19 +177,19 @@ func (srv *Server) handleCommand(ctx context.Context, conn net.Conn, t types.Cli
 		// Flush, messages returned by the backend will be combined into the
 		// minimum possible number of packets to minimize network overhead.
 		// https://www.postgresql.org/docs/current/protocol-flow.html#PROTOCOL-FLOW-EXT-QUERY
-		return readyForQuery(writer, types.ServerIdle)
+		return nil
 	case types.ClientCopyData, types.ClientCopyDone, types.ClientCopyFail:
 		// We're supposed to ignore these messages, per the protocol spec. This
 		// state will happen when an error occurs on the server-side during a copy
 		// operation: the server will send an error and a ready message back to
 		// the client, and must then ignore further copy messages. See:
 		// https://github.com/postgres/postgres/blob/6e1dd2773eb60a6ab87b27b8d9391b756e904ac3/src/backend/tcop/postgres.c#L4295
-		return readyForQuery(writer, types.ServerIdle)
+		return nil
 	case types.ClientClose:
 		// TODO: close the statement or portal
 		writer.Start(types.ServerCloseComplete) //nolint:errcheck
 		writer.End()                            //nolint:errcheck
-		return readyForQuery(writer, types.ServerIdle)
+		return nil
 	case types.ClientTerminate:
 		err = srv.handleConnTerminate(ctx)
 		if err != nil {
@@ -339,11 +339,15 @@ func (srv *Server) handleDescribe(ctx context.Context, reader *buffer.Reader, wr
 		return err
 	}
 
-	return srv.writeColumnDescription(writer, statement.columns)
+	return srv.writeColumnDescription(ctx, writer, statement.columns)
 }
 
 // https://www.postgresql.org/docs/15/protocol-message-formats.html
 func (srv *Server) writeParameterDescription(writer *buffer.Writer, parameters []oid.Oid) error {
+	if len(parameters) == 0 {
+		return nil
+	}
+
 	writer.Start(types.ServerParameterDescription)
 	writer.AddInt16(int16(len(parameters)))
 
@@ -358,27 +362,13 @@ func (srv *Server) writeParameterDescription(writer *buffer.Writer, parameters [
 // back to the writer buffer. Information about the returned columns is written
 // to the client.
 // https://www.postgresql.org/docs/15/protocol-message-formats.html
-func (srv *Server) writeColumnDescription(writer *buffer.Writer, columns Columns) error {
+func (srv *Server) writeColumnDescription(ctx context.Context, writer *buffer.Writer, columns Columns) error {
 	if len(columns) == 0 {
 		writer.Start(types.ServerNoData)
 		return writer.End()
 	}
 
-	writer.Start(types.ServerRowDescription)
-	writer.AddInt16(int16(len(columns)))
-
-	for _, column := range columns {
-		writer.AddString(column.Name)
-		writer.AddNullTerminate()
-		writer.AddInt32(column.ID)
-		writer.AddInt16(column.Attr)
-		writer.AddInt32(int32(column.Oid))
-		writer.AddInt16(column.Width)
-		writer.AddInt32(column.TypeModifier)
-		writer.AddInt16(0) // NOTE: the format code is not known yet and will always be zero
-	}
-
-	return writer.End()
+	return columns.Define(ctx, writer)
 }
 
 func (srv *Server) handleBind(ctx context.Context, reader *buffer.Reader, writer *buffer.Writer) error {
