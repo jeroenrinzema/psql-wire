@@ -109,10 +109,7 @@ func (srv *Server) Serve(listener net.Listener) error {
 			return err
 		}
 
-		srv.wg.Add(1)
-
 		go func() {
-			defer srv.wg.Done()
 			ctx := context.Background()
 			err = srv.serve(ctx, conn)
 			if err != nil {

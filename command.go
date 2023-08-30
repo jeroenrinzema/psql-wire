@@ -71,6 +71,7 @@ func (srv *Server) consumeCommands(ctx context.Context, conn net.Conn, reader *b
 			return err
 		}
 
+		srv.wg.Add(1)
 		err = srv.handleCommand(ctx, conn, t, reader, writer)
 		if errors.Is(err, io.EOF) {
 			return nil
@@ -112,6 +113,8 @@ func (srv *Server) handleMessageSizeExceeded(reader *buffer.Reader, writer *buff
 func (srv *Server) handleCommand(ctx context.Context, conn net.Conn, t types.ClientMessage, reader *buffer.Reader, writer *buffer.Writer) (err error) {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
+
+	defer srv.wg.Done()
 
 	switch t {
 	case types.ClientSimpleQuery:
