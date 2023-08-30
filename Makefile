@@ -19,7 +19,7 @@ $(BUILD_DIR):
 $(BIN):
 	@mkdir -p $@
 $(BIN)/%: | $(BIN) ; $(info $(M) building $(@F)…)
-	$Q GOBIN=$(BIN) $(GO) install $(shell $(GO) list -tags=tools -f '{{ join .Imports "\n" }}' ./tools | grep $(@F))
+	$Q GOBIN=$(BIN) $(GO) install $(shell $(GO) list -e -tags=tools -f '{{ join .Imports "\n" }}' ./tools | grep $(@F))
 
 GOLANGCI_LINT = $(BIN)/golangci-lint
 STRINGER = $(BIN)/stringer
