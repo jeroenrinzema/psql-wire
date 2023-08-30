@@ -71,7 +71,6 @@ func (srv *Server) consumeCommands(ctx context.Context, conn net.Conn, reader *b
 			return err
 		}
 
-		srv.wg.Add(1)
 		err = srv.handleCommand(ctx, conn, t, reader, writer)
 		if errors.Is(err, io.EOF) {
 			return nil
@@ -114,6 +113,9 @@ func (srv *Server) handleCommand(ctx context.Context, conn net.Conn, t types.Cli
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
+	// NOTE: we increase the wait group by one in order to make sure that idle
+	// connections are not blocking a close.
+	srv.wg.Add(1)
 	defer srv.wg.Done()
 
 	switch t {
