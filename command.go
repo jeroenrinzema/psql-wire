@@ -115,8 +115,15 @@ func (srv *Server) handleCommand(ctx context.Context, conn net.Conn, t types.Cli
 
 	// NOTE: we increase the wait group by one in order to make sure that idle
 	// connections are not blocking a close.
+	srv.mu.Lock()
 	srv.wg.Add(1)
-	defer srv.wg.Done()
+	srv.mu.Unlock()
+
+	defer func() {
+		srv.mu.Lock()
+		srv.wg.Done()
+		srv.mu.Unlock()
+	}()
 
 	switch t {
 	case types.ClientSimpleQuery:

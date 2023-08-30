@@ -52,6 +52,7 @@ func NewServer(parse ParseFn, options ...OptionFn) (*Server, error) {
 // Server contains options for listening to an address.
 type Server struct {
 	wg              sync.WaitGroup
+	mu              sync.Mutex
 	logger          *zap.Logger
 	types           *pgtype.ConnInfo
 	Auth            AuthStrategy
@@ -165,6 +166,8 @@ func (srv *Server) serve(ctx context.Context, conn net.Conn) error {
 // Close gracefully closes the underlaying Postgres server.
 func (srv *Server) Close() error {
 	close(srv.closer)
+	srv.mu.Lock()
 	srv.wg.Wait()
+	srv.mu.Unlock()
 	return nil
 }
