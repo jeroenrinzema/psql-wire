@@ -417,7 +417,7 @@ func (srv *Server) readParameters(ctx context.Context, reader *buffer.Reader) ([
 		return nil, err
 	}
 
-	srv.logger.Debug("reading parameters format codes", slog.Int("length", int(length)))
+	srv.logger.Debug("reading parameters format codes", slog.Uint64("length", uint64(length)))
 
 	for i := uint16(0); i < length; i++ {
 		format, err := reader.GetUint16()
@@ -445,7 +445,7 @@ func (srv *Server) readParameters(ctx context.Context, reader *buffer.Reader) ([
 		return nil, err
 	}
 
-	srv.logger.Debug("reading parameters values", slog.Int("length", int(length)))
+	srv.logger.Debug("reading parameters values", slog.Uint64("length", uint64(length)))
 
 	parameters := make([]string, length)
 	for i := uint16(0); i < length; i++ {
@@ -470,7 +470,7 @@ func (srv *Server) readParameters(ctx context.Context, reader *buffer.Reader) ([
 		return nil, err
 	}
 
-	srv.logger.Debug("reading result-column format codes", slog.Int("length", int(length)))
+	srv.logger.Debug("reading result-column format codes", slog.Uint64("length", uint64(length)))
 
 	for i := uint16(0); i < length; i++ {
 		// TODO: Handle incoming result-column format codes
@@ -508,7 +508,7 @@ func (srv *Server) handleExecute(ctx context.Context, reader *buffer.Reader, wri
 		return err
 	}
 
-	srv.logger.Debug("executing", slog.String("name", name), slog.Int("limit", int(limit)))
+	srv.logger.Debug("executing", slog.String("name", name), slog.Uint64("limit", uint64(limit)))
 	err = srv.Portals.Execute(ctx, name, writer)
 	if err != nil {
 		return ErrorCode(writer, err)
