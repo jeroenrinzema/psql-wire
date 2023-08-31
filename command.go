@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net"
 	"strings"
 
@@ -13,7 +14,6 @@ import (
 	"github.com/jeroenrinzema/psql-wire/internal/buffer"
 	"github.com/jeroenrinzema/psql-wire/internal/types"
 	"github.com/lib/pq/oid"
-	"go.uber.org/zap"
 )
 
 // NewErrUnimplementedMessageType is called whenever a unimplemented message
@@ -65,7 +65,7 @@ func (srv *Server) consumeCommands(ctx context.Context, conn net.Conn, reader *b
 			continue
 		}
 
-		srv.logger.Debug("incoming command", zap.Int("length", length), zap.String("type", string(t)))
+		srv.logger.Debug("incoming command", slog.Int("length", length), slog.String("type", string(t)))
 
 		if err != nil {
 			return err
@@ -222,7 +222,7 @@ func (srv *Server) handleSimpleQuery(ctx context.Context, reader *buffer.Reader,
 		return err
 	}
 
-	srv.logger.Debug("incoming simple query", zap.String("query", query))
+	srv.logger.Debug("incoming simple query", slog.String("query", query))
 
 	// NOTE: If a completely empty (no contents other than whitespace) query
 	// string is received, the response is EmptyQueryResponse followed by
@@ -298,7 +298,7 @@ func (srv *Server) handleParse(ctx context.Context, reader *buffer.Reader, write
 		return ErrorCode(writer, err)
 	}
 
-	srv.logger.Debug("incoming extended query", zap.String("query", query), zap.String("name", name), zap.Int("parameters", len(params)))
+	srv.logger.Debug("incoming extended query", slog.String("query", query), slog.String("name", name), slog.Int("parameters", len(params)))
 
 	err = srv.Statements.Set(ctx, name, statement, params, columns)
 	if err != nil {
@@ -417,7 +417,7 @@ func (srv *Server) readParameters(ctx context.Context, reader *buffer.Reader) ([
 		return nil, err
 	}
 
-	srv.logger.Debug("reading parameters format codes", zap.Uint16("length", length))
+	srv.logger.Debug("reading parameters format codes", slog.Int("length", int(length)))
 
 	for i := uint16(0); i < length; i++ {
 		format, err := reader.GetUint16()
@@ -445,7 +445,7 @@ func (srv *Server) readParameters(ctx context.Context, reader *buffer.Reader) ([
 		return nil, err
 	}
 
-	srv.logger.Debug("reading parameters values", zap.Uint16("length", length))
+	srv.logger.Debug("reading parameters values", slog.Int("length", int(length)))
 
 	parameters := make([]string, length)
 	for i := uint16(0); i < length; i++ {
@@ -459,7 +459,7 @@ func (srv *Server) readParameters(ctx context.Context, reader *buffer.Reader) ([
 			return nil, err
 		}
 
-		srv.logger.Debug("incoming parameter", zap.String("value", string(value)))
+		srv.logger.Debug("incoming parameter", slog.String("value", string(value)))
 		parameters[i] = string(value)
 	}
 
@@ -470,7 +470,7 @@ func (srv *Server) readParameters(ctx context.Context, reader *buffer.Reader) ([
 		return nil, err
 	}
 
-	srv.logger.Debug("reading result-column format codes", zap.Uint16("length", length))
+	srv.logger.Debug("reading result-column format codes", slog.Int("length", int(length)))
 
 	for i := uint16(0); i < length; i++ {
 		// TODO: Handle incoming result-column format codes
@@ -508,7 +508,7 @@ func (srv *Server) handleExecute(ctx context.Context, reader *buffer.Reader, wri
 		return err
 	}
 
-	srv.logger.Debug("executing", zap.String("name", name), zap.Uint32("limit", limit))
+	srv.logger.Debug("executing", slog.String("name", name), slog.Int("limit", int(limit)))
 	err = srv.Portals.Execute(ctx, name, writer)
 	if err != nil {
 		return ErrorCode(writer, err)

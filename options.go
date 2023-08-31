@@ -7,10 +7,11 @@ import (
 	"regexp"
 	"strconv"
 
+	"log/slog"
+
 	"github.com/jackc/pgtype"
 	"github.com/jeroenrinzema/psql-wire/internal/buffer"
 	"github.com/lib/pq/oid"
-	"go.uber.org/zap"
 )
 
 // ParseFn parses the given query and returns a prepared statement which could
@@ -142,7 +143,7 @@ func GlobalParameters(params Parameters) OptionFn {
 }
 
 // Logger sets the given zap logger as the default logger for the given server.
-func Logger(logger *zap.Logger) OptionFn {
+func Logger(logger *slog.Logger) OptionFn {
 	return func(srv *Server) error {
 		srv.logger = logger
 		return nil

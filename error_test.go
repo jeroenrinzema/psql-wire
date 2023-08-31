@@ -11,8 +11,8 @@ import (
 	"github.com/jeroenrinzema/psql-wire/codes"
 	psqlerr "github.com/jeroenrinzema/psql-wire/errors"
 	"github.com/lib/pq/oid"
+	"github.com/neilotoole/slogt"
 	"github.com/stretchr/testify/assert"
-	"go.uber.org/zap/zaptest"
 )
 
 func TestErrorCode(t *testing.T) {
@@ -23,7 +23,7 @@ func TestErrorCode(t *testing.T) {
 		return statement, nil, nil, nil
 	}
 
-	server, err := NewServer(handler, Logger(zaptest.NewLogger(t)))
+	server, err := NewServer(handler, Logger(slogt.New(t)))
 	assert.NoError(t, err)
 
 	address := TListenAndServe(t, server)

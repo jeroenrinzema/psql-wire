@@ -5,8 +5,8 @@ import (
 	"testing"
 
 	"github.com/lib/pq/oid"
+	"github.com/neilotoole/slogt"
 	"github.com/stretchr/testify/assert"
-	"go.uber.org/zap/zaptest"
 )
 
 func TestParseParameters(t *testing.T) {
@@ -35,7 +35,7 @@ func TestParseParameters(t *testing.T) {
 }
 
 func TestNilSessionHandler(t *testing.T) {
-	srv, err := NewServer(nil, Logger(zaptest.NewLogger(t)))
+	srv, err := NewServer(nil, Logger(slogt.New(t)))
 	assert.NoError(t, err)
 	assert.NotNil(t, srv)
 
@@ -72,7 +72,7 @@ func TestSessionHandler(t *testing.T) {
 
 	for name, test := range tests {
 		t.Run(name, func(t *testing.T) {
-			test = append(test, Logger(zaptest.NewLogger(t)))
+			test = append(test, Logger(slogt.New(t)))
 			srv, err := NewServer(nil, test...)
 			assert.NoError(t, err)
 			assert.NotNil(t, srv)

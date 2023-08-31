@@ -12,8 +12,8 @@ import (
 	"github.com/jeroenrinzema/psql-wire/internal/mock"
 	_ "github.com/lib/pq"
 	"github.com/lib/pq/oid"
+	"github.com/neilotoole/slogt"
 	"github.com/stretchr/testify/require"
-	"go.uber.org/zap/zaptest"
 )
 
 // TListenAndServe will open a new TCP listener on a unallocated port inside
@@ -49,7 +49,7 @@ func TestClientConnect(t *testing.T) {
 		return statement, nil, nil, nil
 	}
 
-	server, err := NewServer(handler, Logger(zaptest.NewLogger(t)))
+	server, err := NewServer(handler, Logger(slogt.New(t)))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -62,7 +62,7 @@ func TestClientConnect(t *testing.T) {
 			t.Fatal(err)
 		}
 
-		client := mock.NewClient(conn)
+		client := mock.NewClient(t, conn)
 		client.Handshake(t)
 		client.Authenticate(t)
 		client.ReadyForQuery(t)
@@ -130,7 +130,7 @@ func TestClientParameters(t *testing.T) {
 		return statement, parameters, columns, nil
 	}
 
-	server, err := NewServer(handler, Logger(zaptest.NewLogger(t)))
+	server, err := NewServer(handler, Logger(slogt.New(t)))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -221,7 +221,7 @@ func TestServerWritingResult(t *testing.T) {
 		return statement, parameters, columns, nil
 	}
 
-	server, err := NewServer(handler, Logger(zaptest.NewLogger(t)))
+	server, err := NewServer(handler, Logger(slogt.New(t)))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -360,7 +360,7 @@ func TOpenMockServer(t *testing.T) *net.TCPAddr {
 		return statement, parameters, columns, nil
 	}
 
-	server, err := NewServer(handler, Logger(zaptest.NewLogger(t)))
+	server, err := NewServer(handler, Logger(slogt.New(t)))
 	require.NoError(t, err)
 	address := TListenAndServe(t, server)
 	return address
@@ -397,7 +397,7 @@ func TestServerNULLValues(t *testing.T) {
 		return statement, parameters, columns, nil
 	}
 
-	server, err := NewServer(handler, Logger(zaptest.NewLogger(t)))
+	server, err := NewServer(handler, Logger(slogt.New(t)))
 	if err != nil {
 		t.Fatal(err)
 	}

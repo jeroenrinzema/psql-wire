@@ -9,8 +9,8 @@ import (
 
 	"github.com/jeroenrinzema/psql-wire/internal/buffer"
 	"github.com/jeroenrinzema/psql-wire/internal/types"
+	"github.com/neilotoole/slogt"
 	"github.com/stretchr/testify/require"
-	"go.uber.org/zap"
 )
 
 func TestDefaultHandleAuth(t *testing.T) {
@@ -18,14 +18,14 @@ func TestDefaultHandleAuth(t *testing.T) {
 	sink := bytes.NewBuffer([]byte{})
 
 	ctx := context.Background()
-	reader := buffer.NewReader(zap.NewNop(), input, buffer.DefaultBufferSize)
-	writer := buffer.NewWriter(zap.NewNop(), sink)
+	reader := buffer.NewReader(slogt.New(t), input, buffer.DefaultBufferSize)
+	writer := buffer.NewWriter(slogt.New(t), sink)
 
-	server := &Server{logger: zap.NewNop()}
+	server := &Server{logger: slogt.New(t)}
 	_, err := server.handleAuth(ctx, reader, writer)
 	require.NoError(t, err)
 
-	result := buffer.NewReader(zap.NewNop(), sink, buffer.DefaultBufferSize)
+	result := buffer.NewReader(slogt.New(t), sink, buffer.DefaultBufferSize)
 	ty, ln, err := result.ReadTypedMsg()
 	require.NoError(t, err)
 
@@ -49,7 +49,7 @@ func TestClearTextPassword(t *testing.T) {
 	expected := "password"
 
 	input := bytes.NewBuffer([]byte{})
-	incoming := buffer.NewWriter(zap.NewNop(), input)
+	incoming := buffer.NewWriter(slogt.New(t), input)
 
 	// NOTE: we could reuse the server buffered writer to write client messages
 	incoming.Start(types.ServerMessage(types.ClientPassword))
@@ -68,10 +68,10 @@ func TestClearTextPassword(t *testing.T) {
 	sink := bytes.NewBuffer([]byte{})
 
 	ctx := context.Background()
-	reader := buffer.NewReader(zap.NewNop(), input, buffer.DefaultBufferSize)
-	writer := buffer.NewWriter(zap.NewNop(), sink)
+	reader := buffer.NewReader(slogt.New(t), input, buffer.DefaultBufferSize)
+	writer := buffer.NewWriter(slogt.New(t), sink)
 
-	server := &Server{logger: zap.NewNop(), Auth: ClearTextPassword(validate)}
+	server := &Server{logger: slogt.New(t), Auth: ClearTextPassword(validate)}
 	out, err := server.handleAuth(ctx, reader, writer)
 	require.NoError(t, err)
 	require.Equal(t, ctx, out)

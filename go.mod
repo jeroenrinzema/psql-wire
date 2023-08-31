@@ -7,9 +7,9 @@ require (
 	github.com/jackc/pgtype v1.8.1
 	github.com/jackc/pgx/v5 v5.0.3
 	github.com/lib/pq v1.10.7
+	github.com/neilotoole/slogt v1.1.0
 	github.com/shopspring/decimal v1.2.0
 	github.com/stretchr/testify v1.8.2
-	go.uber.org/zap v1.25.0
 	golang.org/x/tools v0.8.0
 )
 
@@ -28,7 +28,6 @@ require (
 	github.com/alingse/asasalint v0.0.11 // indirect
 	github.com/ashanbrown/forbidigo v1.5.1 // indirect
 	github.com/ashanbrown/makezero v1.1.1 // indirect
-	github.com/benbjohnson/clock v1.3.0 // indirect
 	github.com/beorn7/perks v1.0.1 // indirect
 	github.com/bkielbasa/cyclop v1.2.0 // indirect
 	github.com/blizzy78/varnamelen v0.8.0 // indirect
@@ -169,6 +168,7 @@ require (
 	github.com/yeya24/promlinter v0.2.0 // indirect
 	gitlab.com/bosi/decorder v0.2.3 // indirect
 	go.uber.org/multierr v1.11.0 // indirect
+	go.uber.org/zap v1.25.0 // indirect
 	golang.org/x/crypto v0.5.0 // indirect
 	golang.org/x/exp v0.0.0-20230425010034-47ecfdc1ba53 // indirect
 	golang.org/x/exp/typeparams v0.0.0-20230425010034-47ecfdc1ba53 // indirect

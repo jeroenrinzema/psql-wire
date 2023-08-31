@@ -11,12 +11,12 @@ import (
 	"github.com/jeroenrinzema/psql-wire/internal/mock"
 	"github.com/jeroenrinzema/psql-wire/internal/types"
 	"github.com/lib/pq/oid"
+	"github.com/neilotoole/slogt"
 	"github.com/stretchr/testify/assert"
-	"go.uber.org/zap/zaptest"
 )
 
 func TestMessageSizeExceeded(t *testing.T) {
-	server, err := NewServer(nil, Logger(zaptest.NewLogger(t)))
+	server, err := NewServer(nil, Logger(slogt.New(t)))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -27,7 +27,7 @@ func TestMessageSizeExceeded(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	client := mock.NewClient(conn)
+	client := mock.NewClient(t, conn)
 	client.Handshake(t)
 	client.Authenticate(t)
 	client.ReadyForQuery(t)
@@ -82,7 +82,7 @@ func TestBindMessageParameters(t *testing.T) {
 		return statement, ParseParameters(query), columns, nil
 	}
 
-	server, err := NewServer(handler, Logger(zaptest.NewLogger(t)))
+	server, err := NewServer(handler, Logger(slogt.New(t)))
 	if err != nil {
 		t.Fatal(err)
 	}

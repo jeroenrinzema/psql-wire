@@ -8,11 +8,11 @@ import (
 	"github.com/jeroenrinzema/psql-wire/internal/types"
 )
 
-func NewClient(conn net.Conn) *Client {
+func NewClient(t *testing.T, conn net.Conn) *Client {
 	return &Client{
 		conn:   conn,
-		Writer: NewWriter(conn),
-		Reader: NewReader(conn),
+		Writer: NewWriter(t, conn),
+		Reader: NewReader(t, conn),
 	}
 }
 

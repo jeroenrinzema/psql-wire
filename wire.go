@@ -8,10 +8,11 @@ import (
 	"net"
 	"sync"
 
+	"log/slog"
+
 	"github.com/jackc/pgtype"
 	"github.com/jeroenrinzema/psql-wire/internal/buffer"
 	"github.com/jeroenrinzema/psql-wire/internal/types"
-	"go.uber.org/zap"
 )
 
 // ListenAndServe opens a new Postgres server using the given address and
@@ -31,7 +32,7 @@ func ListenAndServe(address string, handler ParseFn) error {
 func NewServer(parse ParseFn, options ...OptionFn) (*Server, error) {
 	srv := &Server{
 		parse:      parse,
-		logger:     zap.NewNop(),
+		logger:     slog.Default(),
 		closer:     make(chan struct{}),
 		types:      pgtype.NewConnInfo(),
 		Statements: &DefaultStatementCache{},
@@ -52,7 +53,7 @@ func NewServer(parse ParseFn, options ...OptionFn) (*Server, error) {
 // Server contains options for listening to an address.
 type Server struct {
 	wg              sync.WaitGroup
-	logger          *zap.Logger
+	logger          *slog.Logger
 	types           *pgtype.ConnInfo
 	Auth            AuthStrategy
 	BufferedMsgSize int
@@ -88,7 +89,7 @@ func (srv *Server) Serve(listener net.Listener) error {
 	defer listener.Close()
 	defer srv.logger.Info("closing server")
 
-	srv.logger.Info("serving incoming connections", zap.String("addr", listener.Addr().String()))
+	srv.logger.Info("serving incoming connections", slog.String("addr", listener.Addr().String()))
 
 	srv.wg.Add(1)
 
@@ -99,7 +100,7 @@ func (srv *Server) Serve(listener net.Listener) error {
 
 		err := listener.Close()
 		if err != nil {
-			srv.logger.Error("unexpected error while attempting to close the net listener", zap.Error(err))
+			srv.logger.Error("unexpected error while attempting to close the net listener", "err", err)
 		}
 	}()
 
@@ -113,7 +114,7 @@ func (srv *Server) Serve(listener net.Listener) error {
 			ctx := context.Background()
 			err = srv.serve(ctx, conn)
 			if err != nil {
-				srv.logger.Error("an unexpected error got returned while serving a client connection", zap.Error(err))
+				srv.logger.Error("an unexpected error got returned while serving a client connectio", "err", err)
 			}
 		}()
 	}

@@ -7,16 +7,16 @@ import (
 	"testing"
 
 	"github.com/jeroenrinzema/psql-wire/internal/types"
-	"go.uber.org/zap"
+	"github.com/neilotoole/slogt"
 )
 
 func TestNewWriterNil(t *testing.T) {
-	NewWriter(zap.NewNop(), nil)
+	NewWriter(slogt.New(t), nil)
 }
 
 func TestWriteMsg(t *testing.T) {
 	buffer := bytes.NewBuffer([]byte{})
-	writer := NewWriter(zap.NewNop(), buffer)
+	writer := NewWriter(slogt.New(t), buffer)
 
 	writer.Start(types.ServerDataRow)
 	writer.AddString("John Doe")
@@ -39,7 +39,7 @@ func TestWriteMsgErr(t *testing.T) {
 	expected := errors.New("unexpected error")
 
 	buffer := bytes.NewBuffer([]byte{})
-	writer := NewWriter(zap.NewNop(), buffer)
+	writer := NewWriter(slogt.New(t), buffer)
 
 	writer.Start(types.ServerDataRow)
 	writer.err = expected
@@ -62,7 +62,7 @@ func TestWriteMsgErr(t *testing.T) {
 
 func TestWriteTypes(t *testing.T) {
 	buffer := bytes.NewBuffer([]byte{})
-	writer := NewWriter(zap.NewNop(), buffer)
+	writer := NewWriter(slogt.New(t), buffer)
 
 	t.Run("byte", func(t *testing.T) {
 		writer.AddByte(byte(types.ServerAuth))
@@ -105,7 +105,7 @@ func TestWriteTypesErr(t *testing.T) {
 	expected := errors.New("unexpected error")
 
 	buffer := bytes.NewBuffer([]byte{})
-	writer := NewWriter(zap.NewNop(), buffer)
+	writer := NewWriter(slogt.New(t), buffer)
 	writer.err = expected
 
 	t.Run("byte", func(t *testing.T) {

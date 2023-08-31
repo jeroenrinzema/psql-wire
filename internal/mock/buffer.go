@@ -2,15 +2,16 @@ package mock
 
 import (
 	"io"
+	"testing"
 
 	"github.com/jeroenrinzema/psql-wire/internal/buffer"
 	"github.com/jeroenrinzema/psql-wire/internal/types"
-	"go.uber.org/zap"
+	"github.com/neilotoole/slogt"
 )
 
 // NewWriter constructs a new PostgreSQL wire protocol writer.
-func NewWriter(writer io.Writer) *Writer {
-	return &Writer{buffer.NewWriter(zap.NewNop(), writer)}
+func NewWriter(t *testing.T, writer io.Writer) *Writer {
+	return &Writer{buffer.NewWriter(slogt.New(t), writer)}
 }
 
 // Writer represents a low level PostgreSQL client writer allowing a user to
@@ -29,8 +30,8 @@ func (buffer *Writer) Start(t types.ClientMessage) {
 
 // NewReader constructs a new PostgreSQL wire protocol reader using the default
 // buffer size.
-func NewReader(reader io.Reader) *Reader {
-	return &Reader{buffer.NewReader(zap.NewNop(), reader, buffer.DefaultBufferSize)}
+func NewReader(t *testing.T, reader io.Reader) *Reader {
+	return &Reader{buffer.NewReader(slogt.New(t), reader, buffer.DefaultBufferSize)}
 }
 
 // Reader represents a low level PostgreSQL client reader allowing a user to

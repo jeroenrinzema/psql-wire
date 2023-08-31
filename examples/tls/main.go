@@ -3,11 +3,11 @@ package main
 import (
 	"context"
 	"crypto/tls"
-	"log"
+
+	"log/slog"
 
 	wire "github.com/jeroenrinzema/psql-wire"
 	"github.com/lib/pq/oid"
-	"go.uber.org/zap"
 )
 
 func main() {
@@ -18,11 +18,7 @@ func main() {
 }
 
 func run() error {
-	logger, err := zap.NewDevelopment()
-	if err != nil {
-		return err
-	}
-
+	logger := slog.Default()
 	cert, err := tls.LoadX509KeyPair("./psql.crt", "./psql.key")
 	if err != nil {
 		return err
@@ -39,7 +35,7 @@ func run() error {
 }
 
 func handler(ctx context.Context, query string) (wire.PreparedStatementFn, []oid.Oid, wire.Columns, error) {
-	log.Println("incoming SQL query:", query)
+	slog.Info("incoming SQL query", slog.String("query", query))
 
 	statement := func(ctx context.Context, writer wire.DataWriter, parameters []string) error {
 		return writer.Complete("OK")

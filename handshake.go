@@ -4,11 +4,11 @@ import (
 	"context"
 	"crypto/tls"
 	"errors"
+	"log/slog"
 	"net"
 
 	"github.com/jeroenrinzema/psql-wire/internal/buffer"
 	"github.com/jeroenrinzema/psql-wire/internal/types"
-	"go.uber.org/zap"
 )
 
 // Handshake performs the connection handshake and returns the connection
@@ -90,7 +90,7 @@ func (srv *Server) readClientParameters(ctx context.Context, reader *buffer.Read
 			return nil, err
 		}
 
-		srv.logger.Debug("client parameter", zap.String("key", key), zap.String("value", value))
+		srv.logger.Debug("client parameter", slog.String("key", key), slog.String("value", value))
 		meta[ParameterStatus(key)] = value
 	}
 
@@ -117,7 +117,7 @@ func (srv *Server) writeParameters(ctx context.Context, writer *buffer.Writer, p
 	params[ParamSessionAuthorization] = AuthenticatedUsername(ctx)
 
 	for key, value := range params {
-		srv.logger.Debug("server parameter", zap.String("key", string(key)), zap.String("value", value))
+		srv.logger.Debug("server parameter", slog.String("key", string(key)), slog.String("value", value))
 
 		writer.Start(types.ServerParameterStatus)
 		writer.AddString(string(key))
