@@ -81,7 +81,6 @@ func (reader *Reader) ReadTypedMsg() (types.ClientMessage, int, error) {
 		return 0, 0, err
 	}
 
-	reader.logger.Debug("reading typed message", slog.String("type", string(b)))
 	return types.ClientMessage(b), n, nil
 }
 
