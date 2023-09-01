@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net"
 	"sync"
+	"sync/atomic"
 
 	"log/slog"
 
@@ -52,6 +53,7 @@ func NewServer(parse ParseFn, options ...OptionFn) (*Server, error) {
 
 // Server contains options for listening to an address.
 type Server struct {
+	closing         atomic.Bool
 	wg              sync.WaitGroup
 	logger          *slog.Logger
 	types           *pgtype.ConnInfo
@@ -165,6 +167,11 @@ func (srv *Server) serve(ctx context.Context, conn net.Conn) error {
 
 // Close gracefully closes the underlaying Postgres server.
 func (srv *Server) Close() error {
+	if srv.closing.Load() {
+		return nil
+	}
+
+	srv.closing.Store(true)
 	close(srv.closer)
 	srv.wg.Wait()
 	return nil

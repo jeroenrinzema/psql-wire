@@ -69,6 +69,10 @@ func (srv *Server) consumeCommands(ctx context.Context, conn net.Conn, reader *b
 			return err
 		}
 
+		if srv.closing.Load() {
+			return nil
+		}
+
 		// NOTE: we increase the wait group by one in order to make sure that idle
 		// connections are not blocking a close.
 		srv.wg.Add(1)
