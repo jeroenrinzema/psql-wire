@@ -72,6 +72,7 @@ func (srv *Server) consumeCommands(ctx context.Context, conn net.Conn, reader *b
 		// NOTE: we increase the wait group by one in order to make sure that idle
 		// connections are not blocking a close.
 		srv.wg.Add(1)
+		defer srv.wg.Done()
 
 		srv.logger.Debug("incoming command", slog.Int("length", length), slog.String("type", string(t)))
 		err = srv.handleCommand(ctx, conn, t, reader, writer)
@@ -113,7 +114,6 @@ func (srv *Server) handleMessageSizeExceeded(reader *buffer.Reader, writer *buff
 // indecates a action executed by the client.
 // https://www.postgresql.org/docs/14/protocol-message-formats.html
 func (srv *Server) handleCommand(ctx context.Context, conn net.Conn, t types.ClientMessage, reader *buffer.Reader, writer *buffer.Writer) (err error) {
-	defer srv.wg.Done()
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
