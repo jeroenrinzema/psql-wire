@@ -37,6 +37,8 @@ func handler(ctx context.Context, query string) (wire.PreparedStatementFn, []oid
 
 ---
 
+> 🚧 When wanting to debug issues and or inspect the PostgreSQL wire protocol please check out the [psql-proxy](https://github.com/cloudproud/psql-proxy) cli
+
 ## Contributing
 
 Thank you for your interest in contributing to psql-wire!
