@@ -330,6 +330,11 @@ func (srv *Server) handleDescribe(ctx context.Context, reader *buffer.Reader, wr
 		if err != nil {
 			return err
 		}
+
+		err = srv.writeParameterDescription(writer, statement.parameters)
+		if err != nil {
+			return err
+		}
 	case 'P':
 		statement, err = srv.Portals.Get(ctx, name)
 		if err != nil {
@@ -339,11 +344,6 @@ func (srv *Server) handleDescribe(ctx context.Context, reader *buffer.Reader, wr
 
 	if statement == nil {
 		return ErrorCode(writer, errors.New("unknown statement"))
-	}
-
-	err = srv.writeParameterDescription(writer, statement.parameters)
-	if err != nil {
-		return err
 	}
 
 	return srv.writeColumnDescription(ctx, writer, statement.columns)
