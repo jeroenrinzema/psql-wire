@@ -6,7 +6,7 @@ import (
 	"math"
 	"testing"
 
-	"github.com/jeroenrinzema/psql-wire/internal/types"
+	"github.com/jeroenrinzema/psql-wire/pkg/types"
 	"github.com/neilotoole/slogt"
 )
 

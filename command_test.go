@@ -7,9 +7,9 @@ import (
 	"testing"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/jeroenrinzema/psql-wire/internal/buffer"
-	"github.com/jeroenrinzema/psql-wire/internal/mock"
-	"github.com/jeroenrinzema/psql-wire/internal/types"
+	"github.com/jeroenrinzema/psql-wire/pkg/buffer"
+	"github.com/jeroenrinzema/psql-wire/pkg/mock"
+	"github.com/jeroenrinzema/psql-wire/pkg/types"
 	"github.com/lib/pq/oid"
 	"github.com/neilotoole/slogt"
 	"github.com/stretchr/testify/assert"

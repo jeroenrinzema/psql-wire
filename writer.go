@@ -4,8 +4,8 @@ import (
 	"context"
 	"errors"
 
-	"github.com/jeroenrinzema/psql-wire/internal/buffer"
-	"github.com/jeroenrinzema/psql-wire/internal/types"
+	"github.com/jeroenrinzema/psql-wire/pkg/buffer"
+	"github.com/jeroenrinzema/psql-wire/pkg/types"
 )
 
 // DataWriter represents a writer interface for writing columns and data rows

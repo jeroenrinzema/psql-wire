@@ -9,7 +9,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	_ "github.com/jackc/pgx/v5/stdlib"
-	"github.com/jeroenrinzema/psql-wire/internal/mock"
+	"github.com/jeroenrinzema/psql-wire/pkg/mock"
 	_ "github.com/lib/pq"
 	"github.com/lib/pq/oid"
 	"github.com/neilotoole/slogt"

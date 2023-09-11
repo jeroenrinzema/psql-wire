@@ -6,8 +6,8 @@ import (
 
 	"github.com/jeroenrinzema/psql-wire/codes"
 	pgerror "github.com/jeroenrinzema/psql-wire/errors"
-	"github.com/jeroenrinzema/psql-wire/internal/buffer"
-	"github.com/jeroenrinzema/psql-wire/internal/types"
+	"github.com/jeroenrinzema/psql-wire/pkg/buffer"
+	"github.com/jeroenrinzema/psql-wire/pkg/types"
 )
 
 // authType represents the manner in which a client is able to authenticate

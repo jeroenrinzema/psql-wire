@@ -7,8 +7,8 @@ import (
 	"log/slog"
 	"net"
 
-	"github.com/jeroenrinzema/psql-wire/internal/buffer"
-	"github.com/jeroenrinzema/psql-wire/internal/types"
+	"github.com/jeroenrinzema/psql-wire/pkg/buffer"
+	"github.com/jeroenrinzema/psql-wire/pkg/types"
 )
 
 // Handshake performs the connection handshake and returns the connection

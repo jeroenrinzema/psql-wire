@@ -12,8 +12,8 @@ import (
 	"log/slog"
 
 	"github.com/jackc/pgtype"
-	"github.com/jeroenrinzema/psql-wire/internal/buffer"
-	"github.com/jeroenrinzema/psql-wire/internal/types"
+	"github.com/jeroenrinzema/psql-wire/pkg/buffer"
+	"github.com/jeroenrinzema/psql-wire/pkg/types"
 )
 
 // ListenAndServe opens a new Postgres server using the given address and

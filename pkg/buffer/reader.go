@@ -8,7 +8,7 @@ import (
 	"log/slog"
 	"unsafe"
 
-	"github.com/jeroenrinzema/psql-wire/internal/types"
+	"github.com/jeroenrinzema/psql-wire/pkg/types"
 )
 
 // DefaultBufferSize represents the default buffer size whenever the buffer size

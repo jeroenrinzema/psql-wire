@@ -7,7 +7,7 @@ import (
 
 	"log/slog"
 
-	"github.com/jeroenrinzema/psql-wire/internal/types"
+	"github.com/jeroenrinzema/psql-wire/pkg/types"
 )
 
 // Writer provides a convenient way to write pgwire protocol messages
