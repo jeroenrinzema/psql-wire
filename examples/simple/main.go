@@ -37,14 +37,15 @@ var table = wire.Columns{
 	},
 }
 
-func handler(ctx context.Context, query string) (wire.PreparedStatementFn, []oid.Oid, wire.Columns, error) {
+func handler(ctx context.Context, query string) (*wire.PreparedStatement, error) {
 	log.Println("incoming SQL query:", query)
 
-	statement := func(ctx context.Context, writer wire.DataWriter, parameters []string) error {
+	statement := wire.NewPreparedStatement(func(ctx context.Context, writer wire.DataWriter, parameters []wire.Parameter) error {
 		writer.Row([]any{"John", true, 29})
 		writer.Row([]any{"Marry", false, 21})
 		return writer.Complete("SELECT 2")
-	}
+	})
 
-	return statement, wire.ParseParameters(query), table, nil
+	statement.WithColumns(table)
+	return statement, nil
 }

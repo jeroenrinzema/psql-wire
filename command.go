@@ -240,7 +240,7 @@ func (srv *Server) handleSimpleQuery(ctx context.Context, reader *buffer.Reader,
 		return readyForQuery(writer, types.ServerIdle)
 	}
 
-	statement, _, columns, err := srv.parse(ctx, query)
+	statement, err := srv.parse(ctx, query)
 	if err != nil {
 		return ErrorCode(writer, err)
 	}
@@ -250,12 +250,12 @@ func (srv *Server) handleSimpleQuery(ctx context.Context, reader *buffer.Reader,
 	}
 
 	// NOTE: we have to define the column definitions before executing a simple query
-	err = columns.Define(ctx, writer)
+	err = statement.columns.Define(ctx, writer)
 	if err != nil {
 		return ErrorCode(writer, err)
 	}
 
-	err = statement(ctx, NewDataWriter(ctx, columns, writer), nil)
+	err = statement.fn(ctx, NewDataWriter(ctx, statement.columns, writer), nil)
 	if err != nil {
 		return ErrorCode(writer, err)
 	}
@@ -295,14 +295,14 @@ func (srv *Server) handleParse(ctx context.Context, reader *buffer.Reader, write
 		// `reader.GetUint32()`
 	}
 
-	statement, params, columns, err := srv.parse(ctx, query)
+	statement, err := srv.parse(ctx, query)
 	if err != nil {
 		return ErrorCode(writer, err)
 	}
 
-	srv.logger.Debug("incoming extended query", slog.String("query", query), slog.String("name", name), slog.Int("parameters", len(params)))
+	srv.logger.Debug("incoming extended query", slog.String("query", query), slog.String("name", name), slog.Int("parameters", len(statement.parameters)))
 
-	err = srv.Statements.Set(ctx, name, statement, params, columns)
+	err = srv.Statements.Set(ctx, name, statement)
 	if err != nil {
 		return ErrorCode(writer, err)
 	}
@@ -411,9 +411,12 @@ func (srv *Server) handleBind(ctx context.Context, reader *buffer.Reader, writer
 // readParameters attempts to read all incoming parameters from the given
 // reader. The parameters are parsed and returned.
 // https://www.postgresql.org/docs/14/protocol-message-formats.html
-func (srv *Server) readParameters(ctx context.Context, reader *buffer.Reader) ([]string, error) {
-	// NOTE: read the total amount of parameter format codes that will
-	// be send by the client.
+func (srv *Server) readParameters(ctx context.Context, reader *buffer.Reader) ([]Parameter, error) {
+	// NOTE: read the total amount of parameter format length that will be send
+	// by the client. This can be zero to indicate that there are no parameters
+	// or that the parameters all use the default format (text); or one, in
+	// which case the specified format code is applied to all parameters; or it
+	// can equal the actual number of parameters.
 	length, err := reader.GetUint16()
 	if err != nil {
 		return nil, err
@@ -421,23 +424,22 @@ func (srv *Server) readParameters(ctx context.Context, reader *buffer.Reader) ([
 
 	srv.logger.Debug("reading parameters format codes", slog.Uint64("length", uint64(length)))
 
+	defaultFormat := TextFormat
+	formats := make([]FormatCode, length)
 	for i := uint16(0); i < length; i++ {
+		// NOTE: we have to set the default format code to the given format code
+		// if only one is given according to the protocol specs.
+		if length == 1 {
+			defaultFormat = FormatCode(i)
+			break
+		}
+
 		format, err := reader.GetUint16()
 		if err != nil {
 			return nil, err
 		}
 
-		// NOTE: the parameter format codes. Each must presently be zero (text) or one (binary).
-		// https://www.postgresql.org/docs/14/protocol-message-formats.html
-		if format != 0 {
-			return nil, errors.New("unsupported binary parameter format, only text formatted parameter types are currently supported")
-		}
-
-		// TODO: Handle multiple parameter format codes.
-		//
-		// We are currently only supporting string parameters. We have to
-		// include support for binary parameters in the future.
-		// https://www.postgresql.org/docs/14/protocol-message-formats.html
+		formats[i] = FormatCode(format)
 	}
 
 	// NOTE: read the total amount of parameter values that will be send
@@ -449,8 +451,8 @@ func (srv *Server) readParameters(ctx context.Context, reader *buffer.Reader) ([
 
 	srv.logger.Debug("reading parameters values", slog.Uint64("length", uint64(length)))
 
-	parameters := make([]string, length)
-	for i := uint16(0); i < length; i++ {
+	parameters := make([]Parameter, length)
+	for i := 0; i < int(length); i++ {
 		length, err := reader.GetUint32()
 		if err != nil {
 			return nil, err
@@ -462,7 +464,13 @@ func (srv *Server) readParameters(ctx context.Context, reader *buffer.Reader) ([
 		}
 
 		srv.logger.Debug("incoming parameter", slog.String("value", string(value)))
-		parameters[i] = string(value)
+
+		format := defaultFormat
+		if len(formats) > int(i) {
+			format = formats[i]
+		}
+
+		parameters[i] = NewParameter(format, value)
 	}
 
 	// NOTE: Read the total amount of result-column format that will be

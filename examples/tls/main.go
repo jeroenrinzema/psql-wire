@@ -7,7 +7,6 @@ import (
 	"log/slog"
 
 	wire "github.com/jeroenrinzema/psql-wire"
-	"github.com/lib/pq/oid"
 )
 
 func main() {
@@ -34,12 +33,12 @@ func run() error {
 	return server.ListenAndServe("127.0.0.1:5432")
 }
 
-func handler(ctx context.Context, query string) (wire.PreparedStatementFn, []oid.Oid, wire.Columns, error) {
+func handler(ctx context.Context, query string) (*wire.PreparedStatement, error) {
 	slog.Info("incoming SQL query", slog.String("query", query))
 
-	statement := func(ctx context.Context, writer wire.DataWriter, parameters []string) error {
+	statement := wire.NewPreparedStatement(func(ctx context.Context, writer wire.DataWriter, parameters []wire.Parameter) error {
 		return writer.Complete("OK")
-	}
+	})
 
-	return statement, wire.ParseParameters(query), nil, nil
+	return statement, nil
 }

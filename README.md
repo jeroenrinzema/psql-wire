@@ -24,14 +24,14 @@ func main() {
 	wire.ListenAndServe("127.0.0.1:5432", handler)
 }
 
-func handler(ctx context.Context, query string) (wire.PreparedStatementFn, []oid.Oid, wire.Columns, error) {
+func handler(ctx context.Context, query string) (*wire.PreparedStatement, error) {
 	fmt.Println(query)
 
-	statement := func(ctx context.Context, writer wire.DataWriter, parameters []string) error {
+	statement := wire.NewPreparedStatement(func(ctx context.Context, writer wire.DataWriter, parameters []wire.Parameter) error {
 		return writer.Complete("OK")
-	}
+	})
 
-	return statement, nil, nil, nil
+	return statement, nil
 }
 ```
 

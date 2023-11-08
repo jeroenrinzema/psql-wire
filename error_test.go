@@ -10,17 +10,17 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jeroenrinzema/psql-wire/codes"
 	psqlerr "github.com/jeroenrinzema/psql-wire/errors"
-	"github.com/lib/pq/oid"
 	"github.com/neilotoole/slogt"
 	"github.com/stretchr/testify/assert"
 )
 
 func TestErrorCode(t *testing.T) {
-	handler := func(ctx context.Context, query string) (PreparedStatementFn, []oid.Oid, Columns, error) {
-		statement := func(ctx context.Context, writer DataWriter, parameters []string) error {
+	handler := func(ctx context.Context, query string) (*PreparedStatement, error) {
+		statement := NewPreparedStatement(func(ctx context.Context, writer DataWriter, parameters []Parameter) error {
 			return psqlerr.WithSeverity(psqlerr.WithCode(errors.New("unimplemented feature"), codes.FeatureNotSupported), psqlerr.LevelFatal)
-		}
-		return statement, nil, nil, nil
+		})
+
+		return statement, nil
 	}
 
 	server, err := NewServer(handler, Logger(slogt.New(t)))

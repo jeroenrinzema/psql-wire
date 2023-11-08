@@ -21,7 +21,7 @@ type DefaultStatementCache struct {
 
 // Set attempts to bind the given statement to the given name. Any
 // previously defined statement is overridden.
-func (cache *DefaultStatementCache) Set(ctx context.Context, name string, fn PreparedStatementFn, parameters []oid.Oid, columns Columns) error {
+func (cache *DefaultStatementCache) Set(ctx context.Context, name string, stmt *PreparedStatement) error {
 	cache.mu.Lock()
 	defer cache.mu.Unlock()
 
@@ -30,9 +30,9 @@ func (cache *DefaultStatementCache) Set(ctx context.Context, name string, fn Pre
 	}
 
 	cache.statements[name] = &Statement{
-		fn:         fn,
-		parameters: parameters,
-		columns:    columns,
+		fn:         stmt.fn,
+		parameters: stmt.parameters,
+		columns:    stmt.columns,
 	}
 
 	return nil
@@ -58,7 +58,7 @@ func (cache *DefaultStatementCache) Get(ctx context.Context, name string) (*Stat
 
 type portal struct {
 	statement  *Statement
-	parameters []string
+	parameters []Parameter
 }
 
 type DefaultPortalCache struct {
@@ -66,7 +66,7 @@ type DefaultPortalCache struct {
 	mu      sync.RWMutex
 }
 
-func (cache *DefaultPortalCache) Bind(ctx context.Context, name string, stmt *Statement, parameters []string) error {
+func (cache *DefaultPortalCache) Bind(ctx context.Context, name string, stmt *Statement, parameters []Parameter) error {
 	cache.mu.Lock()
 	defer cache.mu.Unlock()
 

@@ -40,13 +40,13 @@ func TListenAndServe(t *testing.T, server *Server) *net.TCPAddr {
 func TestClientConnect(t *testing.T) {
 	t.Parallel()
 
-	handler := func(ctx context.Context, query string) (PreparedStatementFn, []oid.Oid, Columns, error) {
-		statement := func(ctx context.Context, writer DataWriter, parameters []string) error {
+	handler := func(ctx context.Context, query string) (*PreparedStatement, error) {
+		statement := NewPreparedStatement(func(ctx context.Context, writer DataWriter, parameters []Parameter) error {
 			t.Log("serving query")
 			return writer.Complete("OK")
-		}
+		})
 
-		return statement, nil, nil, nil
+		return statement, nil
 	}
 
 	server, err := NewServer(handler, Logger(slogt.New(t)))
@@ -110,14 +110,14 @@ func TestClientConnect(t *testing.T) {
 func TestClientParameters(t *testing.T) {
 	t.Parallel()
 
-	handler := func(ctx context.Context, query string) (PreparedStatementFn, []oid.Oid, Columns, error) {
-		statement := func(ctx context.Context, writer DataWriter, parameters []string) error {
+	handler := func(ctx context.Context, query string) (*PreparedStatement, error) {
+		statement := NewPreparedStatement(func(ctx context.Context, writer DataWriter, parameters []Parameter) error {
 			writer.Row([]any{"John Doe"}) //nolint:errcheck
 			return writer.Complete("SELECT 1")
-		}
+		})
 
-		parameters := ParseParameters(query)
-		columns := Columns{
+		statement.WithParameters(ParseParameters(query))
+		statement.WithColumns(Columns{
 			{
 				Table:  0,
 				Name:   "full_name",
@@ -125,9 +125,9 @@ func TestClientParameters(t *testing.T) {
 				Width:  256,
 				Format: TextFormat,
 			},
-		}
+		})
 
-		return statement, parameters, columns, nil
+		return statement, nil
 	}
 
 	server, err := NewServer(handler, Logger(slogt.New(t)))
@@ -185,16 +185,16 @@ func TestClientParameters(t *testing.T) {
 func TestServerWritingResult(t *testing.T) {
 	t.Parallel()
 
-	handler := func(ctx context.Context, query string) (PreparedStatementFn, []oid.Oid, Columns, error) {
-		statement := func(ctx context.Context, writer DataWriter, parameters []string) error {
+	handler := func(ctx context.Context, query string) (*PreparedStatement, error) {
+		statement := NewPreparedStatement(func(ctx context.Context, writer DataWriter, parameters []Parameter) error {
 			t.Log("serving query")
 			writer.Row([]any{"John", true, 28})   //nolint:errcheck
 			writer.Row([]any{"Marry", false, 21}) //nolint:errcheck
 			return writer.Complete("SELECT 2")
-		}
+		})
 
-		parameters := ParseParameters(query)
-		columns := Columns{ //nolint:errcheck
+		statement.WithParameters(ParseParameters(query))
+		statement.WithColumns(Columns{ //nolint:errcheck
 			{
 				Table:  0,
 				Name:   "name",
@@ -216,9 +216,9 @@ func TestServerWritingResult(t *testing.T) {
 				Width:  1,
 				Format: TextFormat,
 			},
-		}
+		})
 
-		return statement, parameters, columns, nil
+		return statement, nil
 	}
 
 	server, err := NewServer(handler, Logger(slogt.New(t)))
@@ -296,9 +296,11 @@ func TestServerHandlingMultipleConnections(t *testing.T) {
 	connstr := fmt.Sprintf("postgres://%s:%d", address.IP, address.Port)
 	conn, err := sql.Open("pgx", connstr)
 	require.NoError(t, err)
+
 	t.Cleanup(func() {
 		_ = conn.Close()
 	})
+
 	err = conn.Ping()
 	require.NoError(t, err)
 
@@ -313,12 +315,12 @@ func TestServerHandlingMultipleConnections(t *testing.T) {
 	})
 
 	t.Run("prepared statements", func(t *testing.T) {
-		testQueries := []string{
+		tests := []string{
 			"select age from person where age > $1",
 			"select age from person where age > ?",
 		}
 
-		for _, query := range testQueries {
+		for _, query := range tests {
 			t.Run(query, func(t *testing.T) {
 				stmt, err := conn.Prepare(query)
 				require.NoError(t, err)
@@ -339,15 +341,15 @@ func TestServerHandlingMultipleConnections(t *testing.T) {
 
 func TOpenMockServer(t *testing.T) *net.TCPAddr {
 	t.Helper()
-	handler := func(ctx context.Context, query string) (PreparedStatementFn, []oid.Oid, Columns, error) {
-		statement := func(ctx context.Context, writer DataWriter, parameters []string) error {
+	handler := func(ctx context.Context, query string) (*PreparedStatement, error) {
+		statement := NewPreparedStatement(func(ctx context.Context, writer DataWriter, parameters []Parameter) error {
 			t.Log("serving query")
 			writer.Row([]any{20}) //nolint:errcheck
 			return writer.Complete("SELECT 1")
-		}
+		})
 
-		parameters := ParseParameters(query)
-		columns := Columns{
+		statement.WithParameters(ParseParameters(query))
+		statement.WithColumns(Columns{
 			{
 				Table:  0,
 				Name:   "age",
@@ -355,9 +357,9 @@ func TOpenMockServer(t *testing.T) *net.TCPAddr {
 				Width:  1,
 				Format: TextFormat,
 			},
-		}
+		})
 
-		return statement, parameters, columns, nil
+		return statement, nil
 	}
 
 	server, err := NewServer(handler, Logger(slogt.New(t)))
@@ -375,16 +377,16 @@ func TestServerNULLValues(t *testing.T) {
 		nil,
 	}
 
-	handler := func(ctx context.Context, query string) (PreparedStatementFn, []oid.Oid, Columns, error) {
-		statement := func(ctx context.Context, writer DataWriter, parameters []string) error {
+	handler := func(ctx context.Context, query string) (*PreparedStatement, error) {
+		statement := NewPreparedStatement(func(ctx context.Context, writer DataWriter, parameters []Parameter) error {
 			t.Log("serving query")
 			writer.Row([]any{"John"}) //nolint:errcheck
 			writer.Row([]any{nil})    //nolint:errcheck
 			return writer.Complete("SELECT 2")
-		}
+		})
 
-		parameters := ParseParameters(query)
-		columns := Columns{
+		statement.WithParameters(ParseParameters(query))
+		statement.WithColumns(Columns{
 			{
 				Table:  0,
 				Name:   "name",
@@ -392,9 +394,9 @@ func TestServerNULLValues(t *testing.T) {
 				Width:  256,
 				Format: TextFormat,
 			},
-		}
+		})
 
-		return statement, parameters, columns, nil
+		return statement, nil
 	}
 
 	server, err := NewServer(handler, Logger(slogt.New(t)))

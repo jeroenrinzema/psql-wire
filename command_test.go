@@ -13,6 +13,7 @@ import (
 	"github.com/lib/pq/oid"
 	"github.com/neilotoole/slogt"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestMessageSizeExceeded(t *testing.T) {
@@ -67,19 +68,24 @@ func TestBindMessageParameters(t *testing.T) {
 		},
 	}
 
-	handler := func(ctx context.Context, query string) (PreparedStatementFn, []oid.Oid, Columns, error) {
-		statement := func(ctx context.Context, writer DataWriter, parameters []string) error {
+	handler := func(ctx context.Context, query string) (*PreparedStatement, error) {
+		statement := NewPreparedStatement(func(ctx context.Context, writer DataWriter, parameters []Parameter) error {
 			t.Log("serving query")
 
 			if len(parameters) != 2 {
 				return fmt.Errorf("unexpected amount of parameters %d, expected 2", len(parameters))
 			}
 
-			writer.Row([]any{parameters[0], parameters[1]}) //nolint:errcheck
-			return writer.Complete("SELECT 1")
-		}
+			first := string(parameters[0].value)
+			second := string(parameters[1].value)
 
-		return statement, ParseParameters(query), columns, nil
+			writer.Row([]any{first, second}) //nolint:errcheck
+			return writer.Complete("SELECT 1")
+		})
+
+		statement.WithParameters(ParseParameters(query))
+		statement.WithColumns(columns)
+		return statement, nil
 	}
 
 	server, err := NewServer(handler, Logger(slogt.New(t)))
@@ -111,9 +117,7 @@ func TestBindMessageParameters(t *testing.T) {
 		var answer string
 
 		err = rows.Scan(&name, &answer)
-		if err != nil {
-			t.Fatal(err)
-		}
+		require.NoError(t, err)
 
 		t.Logf("scan result: %s, %s", name, answer)
 

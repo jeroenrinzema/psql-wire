@@ -8,7 +8,6 @@ import (
 	wire "github.com/jeroenrinzema/psql-wire"
 	"github.com/jeroenrinzema/psql-wire/codes"
 	psqlerr "github.com/jeroenrinzema/psql-wire/errors"
-	"github.com/lib/pq/oid"
 )
 
 func main() {
@@ -16,11 +15,12 @@ func main() {
 	wire.ListenAndServe("127.0.0.1:5432", handler)
 }
 
-func handler(ctx context.Context, query string) (wire.PreparedStatementFn, []oid.Oid, wire.Columns, error) {
+func handler(ctx context.Context, query string) (*wire.PreparedStatement, error) {
 	log.Println("incoming SQL query:", query)
 
 	err := errors.New("unimplemented feature")
 	err = psqlerr.WithCode(err, codes.FeatureNotSupported)
 	err = psqlerr.WithSeverity(err, psqlerr.LevelFatal)
-	return nil, nil, nil, err
+
+	return nil, err
 }

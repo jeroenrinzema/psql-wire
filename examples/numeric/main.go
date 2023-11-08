@@ -39,10 +39,10 @@ var table = wire.Columns{
 	},
 }
 
-func handler(ctx context.Context, query string) (wire.PreparedStatementFn, []oid.Oid, wire.Columns, error) {
+func handler(ctx context.Context, query string) (*wire.PreparedStatement, error) {
 	log.Println("incoming SQL query:", query)
 
-	statement := func(ctx context.Context, writer wire.DataWriter, parameters []string) error {
+	statement := wire.NewPreparedStatement(func(ctx context.Context, writer wire.DataWriter, parameters []wire.Parameter) error {
 		balance, err := decimal.NewFromString("256.23")
 		if err != nil {
 			return err
@@ -50,7 +50,8 @@ func handler(ctx context.Context, query string) (wire.PreparedStatementFn, []oid
 
 		writer.Row([]any{balance})
 		return writer.Complete("SELECT 1")
-	}
+	})
 
-	return statement, wire.ParseParameters(query), table, nil
+	statement.WithColumns(table)
+	return statement, nil
 }

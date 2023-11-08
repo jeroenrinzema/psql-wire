@@ -7,7 +7,6 @@ import (
 	"sync"
 
 	wire "github.com/jeroenrinzema/psql-wire"
-	"github.com/lib/pq/oid"
 )
 
 func main() {
@@ -33,13 +32,13 @@ func session(ctx context.Context) (context.Context, error) {
 	return context.WithValue(ctx, id, counter), nil
 }
 
-func handler(ctx context.Context, query string) (wire.PreparedStatementFn, []oid.Oid, wire.Columns, error) {
+func handler(ctx context.Context, query string) (*wire.PreparedStatement, error) {
 	log.Println("incoming SQL query:", query)
 
-	statement := func(ctx context.Context, writer wire.DataWriter, parameters []string) error {
+	statement := wire.NewPreparedStatement(func(ctx context.Context, writer wire.DataWriter, parameters []wire.Parameter) error {
 		session := ctx.Value(id).(int)
 		return writer.Complete(fmt.Sprintf("OK, session: %d", session))
-	}
+	})
 
-	return statement, wire.ParseParameters(query), nil, nil
+	return statement, nil
 }

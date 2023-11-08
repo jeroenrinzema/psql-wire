@@ -16,12 +16,32 @@ import (
 
 // ParseFn parses the given query and returns a prepared statement which could
 // be used to execute at a later point in time.
-type ParseFn func(ctx context.Context, query string) (PreparedStatementFn, []oid.Oid, Columns, error)
+type ParseFn func(ctx context.Context, query string) (*PreparedStatement, error)
 
 // PreparedStatementFn represents a query of which a statement has been
 // prepared. The statement could be executed at any point in time with the given
 // arguments and data writer.
-type PreparedStatementFn func(ctx context.Context, writer DataWriter, parameters []string) error
+type PreparedStatementFn func(ctx context.Context, writer DataWriter, parameters []Parameter) error
+
+func NewPreparedStatement(fn PreparedStatementFn) *PreparedStatement {
+	return &PreparedStatement{
+		fn: fn,
+	}
+}
+
+type PreparedStatement struct {
+	fn         PreparedStatementFn
+	parameters []oid.Oid
+	columns    Columns
+}
+
+func (stmt *PreparedStatement) WithParameters(parameters []oid.Oid) {
+	stmt.parameters = parameters
+}
+
+func (stmt *PreparedStatement) WithColumns(columns Columns) {
+	stmt.columns = columns
+}
 
 // SessionHandler represents a wrapper function defining the state of a single
 // session. This function allows the user to wrap additional metadata around the
@@ -33,7 +53,7 @@ type SessionHandler func(ctx context.Context) (context.Context, error)
 type StatementCache interface {
 	// Set attempts to bind the given statement to the given name. Any
 	// previously defined statement is overridden.
-	Set(ctx context.Context, name string, fn PreparedStatementFn, params []oid.Oid, columns Columns) error
+	Set(ctx context.Context, name string, fn *PreparedStatement) error
 	// Get attempts to get the prepared statement for the given name. An error
 	// is returned when no statement has been found.
 	Get(ctx context.Context, name string) (*Statement, error)
@@ -42,7 +62,7 @@ type StatementCache interface {
 // PortalCache represents a cache which could be used to bind and execute
 // prepared statements with parameters.
 type PortalCache interface {
-	Bind(ctx context.Context, name string, statement *Statement, parameters []string) error
+	Bind(ctx context.Context, name string, statement *Statement, parameters []Parameter) error
 	Get(ctx context.Context, name string) (*Statement, error)
 	Execute(ctx context.Context, name string, writer *buffer.Writer) error
 }
