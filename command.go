@@ -399,6 +399,10 @@ func (srv *Server) handleBind(ctx context.Context, reader *buffer.Reader, writer
 		return err
 	}
 
+	if stmt == nil {
+		return NewErrUnkownStatement(statement)
+	}
+
 	err = srv.Portals.Bind(ctx, name, stmt, parameters)
 	if err != nil {
 		return err

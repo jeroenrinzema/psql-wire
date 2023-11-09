@@ -102,6 +102,10 @@ func (cache *DefaultPortalCache) Execute(ctx context.Context, name string, write
 	cache.mu.Lock()
 	defer cache.mu.Unlock()
 
+	if cache.portals == nil {
+		return nil
+	}
+
 	portal, has := cache.portals[name]
 	if !has {
 		return nil

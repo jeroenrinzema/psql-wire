@@ -23,6 +23,7 @@ type ParseFn func(ctx context.Context, query string) (*PreparedStatement, error)
 // arguments and data writer.
 type PreparedStatementFn func(ctx context.Context, writer DataWriter, parameters []Parameter) error
 
+// NewPreparedStatement constructs a new prepared statement for the given function.
 func NewPreparedStatement(fn PreparedStatementFn) *PreparedStatement {
 	return &PreparedStatement{
 		fn: fn,
