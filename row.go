@@ -101,23 +101,13 @@ func (column Column) Write(ctx context.Context, writer *buffer.Writer, src any) 
 		return ctx.Err()
 	}
 
-	ci := TypeInfo(ctx)
-	if ci == nil {
+	tm := TypeMap(ctx)
+	if tm == nil {
 		return errors.New("postgres connection info has not been defined inside the given context")
 	}
 
-	typed, has := ci.DataTypeForOID(uint32(column.Oid))
-	if !has {
-		return fmt.Errorf("unknown data type: %T", column)
-	}
-
-	err = typed.Value.Set(src)
-	if err != nil {
-		return err
-	}
-
-	encoder := column.Format.Encoder(typed)
-	bb, err := encoder(ci, nil)
+	bb := make([]byte, 0)
+	bb, err = tm.Encode(uint32(column.Oid), int16(column.Format), src, bb)
 	if err != nil {
 		return err
 	}

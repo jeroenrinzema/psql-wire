@@ -474,7 +474,7 @@ func (srv *Server) readParameters(ctx context.Context, reader *buffer.Reader) ([
 			format = formats[i]
 		}
 
-		parameters[i] = NewParameter(format, value)
+		parameters[i] = NewParameter(TypeMap(ctx), format, value)
 	}
 
 	// NOTE: Read the total amount of result-column format that will be

@@ -4,11 +4,9 @@ go 1.21
 
 require (
 	github.com/golangci/golangci-lint v1.54.2
-	github.com/jackc/pgtype v1.8.1
 	github.com/jackc/pgx/v5 v5.0.3
 	github.com/lib/pq v1.10.9
 	github.com/neilotoole/slogt v1.1.0
-	github.com/shopspring/decimal v1.2.0
 	github.com/stretchr/testify v1.8.4
 	golang.org/x/tools v0.12.0
 )
@@ -86,7 +84,6 @@ require (
 	github.com/hashicorp/hcl v1.0.0 // indirect
 	github.com/hexops/gotextdiff v1.0.3 // indirect
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect
-	github.com/jackc/pgio v1.0.0 // indirect
 	github.com/jackc/pgpassfile v1.0.0 // indirect
 	github.com/jackc/pgservicefile v0.0.0-20200714003250-2b9c44734f2b // indirect
 	github.com/jgautheron/goconst v1.5.1 // indirect

@@ -3,31 +3,31 @@ package wire
 import (
 	"context"
 
-	"github.com/jackc/pgtype"
+	"github.com/jackc/pgx/v5/pgtype"
 )
 
 type ctxKey int
 
 const (
-	ctxTypeInfo ctxKey = iota
+	ctxTypeMap ctxKey = iota
 	ctxClientMetadata
 	ctxServerMetadata
 )
 
 // setTypeInfo constructs a new Postgres type connection info for the given value
-func setTypeInfo(ctx context.Context, info *pgtype.ConnInfo) context.Context {
-	return context.WithValue(ctx, ctxTypeInfo, info)
+func setTypeInfo(ctx context.Context, info *pgtype.Map) context.Context {
+	return context.WithValue(ctx, ctxTypeMap, info)
 }
 
-// TypeInfo returns the Postgres type connection info if it has been set inside
+// TypeMap returns the Postgres type connection info if it has been set inside
 // the given context.
-func TypeInfo(ctx context.Context) *pgtype.ConnInfo {
-	val := ctx.Value(ctxTypeInfo)
+func TypeMap(ctx context.Context) *pgtype.Map {
+	val := ctx.Value(ctxTypeMap)
 	if val == nil {
 		return nil
 	}
 
-	return val.(*pgtype.ConnInfo)
+	return val.(*pgtype.Map)
 }
 
 // Parameters represents a parameters collection of parameter status keys and

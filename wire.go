@@ -11,7 +11,7 @@ import (
 
 	"log/slog"
 
-	"github.com/jackc/pgtype"
+	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jeroenrinzema/psql-wire/pkg/buffer"
 	"github.com/jeroenrinzema/psql-wire/pkg/types"
 )
@@ -35,7 +35,7 @@ func NewServer(parse ParseFn, options ...OptionFn) (*Server, error) {
 		parse:      parse,
 		logger:     slog.Default(),
 		closer:     make(chan struct{}),
-		types:      pgtype.NewConnInfo(),
+		types:      pgtype.NewMap(),
 		Statements: &DefaultStatementCache{},
 		Portals:    &DefaultPortalCache{},
 		Session:    func(ctx context.Context) (context.Context, error) { return ctx, nil },
@@ -56,7 +56,7 @@ type Server struct {
 	closing         atomic.Bool
 	wg              sync.WaitGroup
 	logger          *slog.Logger
-	types           *pgtype.ConnInfo
+	types           *pgtype.Map
 	Auth            AuthStrategy
 	BufferedMsgSize int
 	Parameters      Parameters

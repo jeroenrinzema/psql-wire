@@ -9,7 +9,7 @@ import (
 
 	"log/slog"
 
-	"github.com/jackc/pgtype"
+	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jeroenrinzema/psql-wire/pkg/buffer"
 	"github.com/lib/pq/oid"
 )
@@ -183,7 +183,7 @@ func Version(version string) OptionFn {
 // ExtendTypes provides the ability to extend the underlying connection types.
 // Types registered inside the given pgtype.ConnInfo are registered to all
 // incoming connections.
-func ExtendTypes(fn func(*pgtype.ConnInfo)) OptionFn {
+func ExtendTypes(fn func(*pgtype.Map)) OptionFn {
 	return func(srv *Server) error {
 		fn(srv.types)
 		return nil
