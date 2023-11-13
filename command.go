@@ -418,6 +418,7 @@ func (srv *Server) handleBind(ctx context.Context, reader *buffer.Reader, writer
 // reader. The parameters are parsed and returned.
 // https://www.postgresql.org/docs/14/protocol-message-formats.html
 func (srv *Server) readParameters(ctx context.Context, reader *buffer.Reader) ([]Parameter, error) {
+	// [0 1, 0 0 0 1 0 0 0 3 98 111 120 0 2 0 1 0 0]
 	// NOTE: read the total amount of parameter format length that will be send
 	// by the client. This can be zero to indicate that there are no parameters
 	// or that the parameters all use the default format (text); or one, in
@@ -433,16 +434,16 @@ func (srv *Server) readParameters(ctx context.Context, reader *buffer.Reader) ([
 	defaultFormat := TextFormat
 	formats := make([]FormatCode, length)
 	for i := uint16(0); i < length; i++ {
-		// NOTE: we have to set the default format code to the given format code
-		// if only one is given according to the protocol specs.
-		if length == 1 {
-			defaultFormat = FormatCode(i)
-			break
-		}
-
 		format, err := reader.GetUint16()
 		if err != nil {
 			return nil, err
+		}
+
+		// NOTE: we have to set the default format code to the given format code
+		// if only one is given according to the protocol specs. The for loop
+		// should not be aborted since the formats slice is buffered.
+		if length == 1 {
+			defaultFormat = FormatCode(format)
 		}
 
 		formats[i] = FormatCode(format)
