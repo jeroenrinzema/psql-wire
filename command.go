@@ -287,6 +287,8 @@ func (srv *Server) handleParse(ctx context.Context, reader *buffer.Reader, write
 		return err
 	}
 
+	srv.logger.Debug("predefined parameters", slog.Int("parameters", int(parameters)))
+
 	for i := uint16(0); i < parameters; i++ {
 		// TODO: Specifies the object ID of the parameter data type
 		//
