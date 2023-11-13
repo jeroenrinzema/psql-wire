@@ -92,7 +92,6 @@ func (srv *Server) Serve(listener net.Listener) error {
 	defer srv.logger.Info("closing server")
 
 	srv.logger.Info("serving incoming connections", slog.String("addr", listener.Addr().String()))
-
 	srv.wg.Add(1)
 
 	// NOTE: handle graceful shutdowns
@@ -112,7 +111,10 @@ func (srv *Server) Serve(listener net.Listener) error {
 			return err
 		}
 
+		srv.wg.Add(1)
+
 		go func() {
+			defer srv.wg.Done()
 			ctx := context.Background()
 			err = srv.serve(ctx, conn)
 			if err != nil {
