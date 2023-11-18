@@ -25,9 +25,8 @@ func main() {
 }
 
 func handler(ctx context.Context, query string) (*wire.PreparedStatement, error) {
-	fmt.Println(query)
-
 	statement := wire.NewPreparedStatement(func(ctx context.Context, writer wire.DataWriter, parameters []wire.Parameter) error {
+		fmt.Println(query)
 		return writer.Complete("OK")
 	})
 
