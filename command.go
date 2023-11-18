@@ -333,6 +333,10 @@ func (srv *Server) handleDescribe(ctx context.Context, reader *buffer.Reader, wr
 			return err
 		}
 
+		if statement == nil {
+			return ErrorCode(writer, errors.New("unknown statement"))
+		}
+
 		err = srv.writeParameterDescription(writer, statement.parameters)
 		if err != nil {
 			return err
@@ -353,10 +357,6 @@ func (srv *Server) handleDescribe(ctx context.Context, reader *buffer.Reader, wr
 
 // https://www.postgresql.org/docs/15/protocol-message-formats.html
 func (srv *Server) writeParameterDescription(writer *buffer.Writer, parameters []oid.Oid) error {
-	if len(parameters) == 0 {
-		return nil
-	}
-
 	writer.Start(types.ServerParameterDescription)
 	writer.AddInt16(int16(len(parameters)))
 
