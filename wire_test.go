@@ -13,6 +13,7 @@ import (
 	_ "github.com/lib/pq"
 	"github.com/lib/pq/oid"
 	"github.com/neilotoole/slogt"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -119,11 +120,10 @@ func TestClientParameters(t *testing.T) {
 		statement.WithParameters(ParseParameters(query))
 		statement.WithColumns(Columns{
 			{
-				Table:  0,
-				Name:   "full_name",
-				Oid:    oid.T_text,
-				Width:  256,
-				Format: TextFormat,
+				Table: 0,
+				Name:  "full_name",
+				Oid:   oid.T_text,
+				Width: 256,
 			},
 		})
 
@@ -196,25 +196,22 @@ func TestServerWritingResult(t *testing.T) {
 		statement.WithParameters(ParseParameters(query))
 		statement.WithColumns(Columns{ //nolint:errcheck
 			{
-				Table:  0,
-				Name:   "name",
-				Oid:    oid.T_text,
-				Width:  256,
-				Format: TextFormat,
+				Table: 0,
+				Name:  "name",
+				Oid:   oid.T_text,
+				Width: 256,
 			},
 			{
-				Table:  0,
-				Name:   "member",
-				Oid:    oid.T_bool,
-				Width:  1,
-				Format: TextFormat,
+				Table: 0,
+				Name:  "member",
+				Oid:   oid.T_bool,
+				Width: 1,
 			},
 			{
-				Table:  0,
-				Name:   "age",
-				Oid:    oid.T_int4,
-				Width:  1,
-				Format: TextFormat,
+				Table: 0,
+				Name:  "age",
+				Oid:   oid.T_int4,
+				Width: 1,
 			},
 		})
 
@@ -310,7 +307,7 @@ func TestServerHandlingMultipleConnections(t *testing.T) {
 		t.Cleanup(func() {
 			rows.Close()
 		})
-		require.True(t, rows.Next())
+		assert.True(t, rows.Next())
 		require.NoError(t, rows.Err())
 	})
 
@@ -351,11 +348,10 @@ func TOpenMockServer(t *testing.T) *net.TCPAddr {
 		statement.WithParameters(ParseParameters(query))
 		statement.WithColumns(Columns{
 			{
-				Table:  0,
-				Name:   "age",
-				Oid:    oid.T_int4,
-				Width:  1,
-				Format: TextFormat,
+				Table: 0,
+				Name:  "age",
+				Oid:   oid.T_int4,
+				Width: 1,
 			},
 		})
 
@@ -388,11 +384,10 @@ func TestServerNULLValues(t *testing.T) {
 		statement.WithParameters(ParseParameters(query))
 		statement.WithColumns(Columns{
 			{
-				Table:  0,
-				Name:   "name",
-				Oid:    oid.T_text,
-				Width:  256,
-				Format: TextFormat,
+				Table: 0,
+				Name:  "name",
+				Oid:   oid.T_text,
+				Width: 256,
 			},
 		})
 

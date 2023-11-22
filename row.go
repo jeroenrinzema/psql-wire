@@ -13,10 +13,12 @@ import (
 // Columns represent a collection of columns
 type Columns []Column
 
-// Define writes the table RowDescription headers for the given table and the containing
-// columns. The headers have to be written before any data rows could be send back
-// to the client.
-func (columns Columns) Define(ctx context.Context, writer *buffer.Writer) error {
+// Define writes the table RowDescription headers for the given table and the
+// containing columns. The headers have to be written before any data rows could
+// be send back to the client. The given columns are encoded using the given
+// format codes. Columns could be encoded as Text or Binary. If you provide a
+// single format code, it will be applied to all columns.
+func (columns Columns) Define(ctx context.Context, writer *buffer.Writer, formats []FormatCode) error {
 	if len(columns) == 0 {
 		return nil
 	}
@@ -24,16 +26,27 @@ func (columns Columns) Define(ctx context.Context, writer *buffer.Writer) error 
 	writer.Start(types.ServerRowDescription)
 	writer.AddInt16(int16(len(columns)))
 
-	for _, column := range columns {
-		column.Define(ctx, writer)
+	if len(formats) == 0 {
+		formats = []FormatCode{TextFormat}
+	}
+
+	for index := range columns {
+		format := formats[0]
+		if len(formats) > index {
+			format = formats[index]
+		}
+
+		columns[index].Define(ctx, writer, format)
 	}
 
 	return writer.End()
 }
 
-// Write writes the given column values back to the client using the predefined
-// table column types and format encoders (text/binary).
-func (columns Columns) Write(ctx context.Context, writer *buffer.Writer, srcs []any) (err error) {
+// Write writes the given column values back to the client. The given columns
+// are encoded using the given format codes. Columns could be encoded as Text or
+// Binary. If you provide a single format code, it will be applied to all
+// columns.
+func (columns Columns) Write(ctx context.Context, formats []FormatCode, writer *buffer.Writer, srcs []any) (err error) {
 	if len(srcs) != len(columns) {
 		return fmt.Errorf("unexpected columns, %d columns are defined inside the given table but %d were given", len(columns), len(srcs))
 	}
@@ -41,8 +54,17 @@ func (columns Columns) Write(ctx context.Context, writer *buffer.Writer, srcs []
 	writer.Start(types.ServerDataRow)
 	writer.AddInt16(int16(len(columns)))
 
+	if len(formats) == 0 {
+		formats = []FormatCode{TextFormat}
+	}
+
 	for index, column := range columns {
-		err = column.Write(ctx, writer, srcs[index])
+		format := formats[0]
+		if len(formats) > index {
+			format = formats[index]
+		}
+
+		err = column.Write(ctx, writer, format, srcs[index])
 		if err != nil {
 			return err
 		}
@@ -63,13 +85,12 @@ type Column struct {
 	Oid          oid.Oid
 	Width        int16
 	TypeModifier int32
-	Format       FormatCode
 }
 
 // Define writes the column header values to the given writer.
 // This method is used to define a column inside RowDescription message defining
 // the column type, width, and name.
-func (column Column) Define(ctx context.Context, writer *buffer.Writer) {
+func (column Column) Define(ctx context.Context, writer *buffer.Writer, format FormatCode) {
 	writer.AddString(column.Name)
 	writer.AddNullTerminate()
 	writer.AddInt32(column.Table)
@@ -90,13 +111,13 @@ func (column Column) Define(ctx context.Context, writer *buffer.Writer) {
 	// https://www.postgresql.org/docs/current/catalog-pg-attribute.html
 
 	writer.AddInt32(-1)
-	writer.AddInt16(int16(column.Format))
+	writer.AddInt16(int16(format))
 }
 
 // Write encodes the given source value using the column type definition and connection
 // info. The encoded byte buffer is added to the given write buffer. This method
 // Is used to encode values and return them inside a DataRow message.
-func (column Column) Write(ctx context.Context, writer *buffer.Writer, src any) (err error) {
+func (column Column) Write(ctx context.Context, writer *buffer.Writer, format FormatCode, src any) (err error) {
 	if ctx.Err() != nil {
 		return ctx.Err()
 	}
@@ -107,7 +128,7 @@ func (column Column) Write(ctx context.Context, writer *buffer.Writer, src any) 
 	}
 
 	bb := make([]byte, 0)
-	bb, err = tm.Encode(uint32(column.Oid), int16(column.Format), src, bb)
+	bb, err = tm.Encode(uint32(column.Oid), int16(format), src, bb)
 	if err != nil {
 		return err
 	}

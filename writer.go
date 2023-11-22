@@ -41,18 +41,20 @@ var ErrClosedWriter = errors.New("closed writer")
 // buffer. The returned writer should be handled with caution as it is not safe
 // for concurrent use. Concurrent access to the same data without proper
 // synchronization can result in unexpected behavior and data corruption.
-func NewDataWriter(ctx context.Context, columns Columns, writer *buffer.Writer) DataWriter {
+func NewDataWriter(ctx context.Context, columns Columns, formats []FormatCode, writer *buffer.Writer) DataWriter {
 	return &dataWriter{
 		ctx:     ctx,
 		columns: columns,
+		formats: formats,
 		client:  writer,
 	}
 }
 
 // dataWriter is a implementation of the DataWriter interface.
 type dataWriter struct {
-	columns Columns
 	ctx     context.Context
+	columns Columns
+	formats []FormatCode
 	client  *buffer.Writer
 	closed  bool
 	written uint64
@@ -64,7 +66,7 @@ func (writer *dataWriter) Define(columns Columns) error {
 	}
 
 	writer.columns = columns
-	return writer.columns.Define(writer.ctx, writer.client)
+	return writer.columns.Define(writer.ctx, writer.client, writer.formats)
 }
 
 func (writer *dataWriter) Row(values []any) error {
@@ -74,7 +76,7 @@ func (writer *dataWriter) Row(values []any) error {
 
 	writer.written++
 
-	return writer.columns.Write(writer.ctx, writer.client, values)
+	return writer.columns.Write(writer.ctx, writer.formats, writer.client, values)
 }
 
 func (writer *dataWriter) Empty() error {

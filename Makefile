@@ -32,7 +32,7 @@ lint: | $(GOLANGCI_LINT) ; $(info $(M) running golint…) @ ## Run the project l
 
 .PHONY: test
 test: ## Run all tests
-	$Q $(GO) test ./...
+	$Q $(GO) test ./... -timeout 20s
 
 .PHONY: fmt
 fmt: ; $(info $(M) running gofmt…) @ ## Run gofmt on all source files

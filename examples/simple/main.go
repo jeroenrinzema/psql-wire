@@ -15,25 +15,22 @@ func main() {
 
 var table = wire.Columns{
 	{
-		Table:  0,
-		Name:   "name",
-		Oid:    oid.T_text,
-		Width:  256,
-		Format: wire.TextFormat,
+		Table: 0,
+		Name:  "name",
+		Oid:   oid.T_text,
+		Width: 256,
 	},
 	{
-		Table:  0,
-		Name:   "member",
-		Oid:    oid.T_bool,
-		Width:  1,
-		Format: wire.TextFormat,
+		Table: 0,
+		Name:  "member",
+		Oid:   oid.T_bool,
+		Width: 1,
 	},
 	{
-		Table:  0,
-		Name:   "age",
-		Oid:    oid.T_int4,
-		Width:  1,
-		Format: wire.TextFormat,
+		Table: 0,
+		Name:  "age",
+		Oid:   oid.T_int4,
+		Width: 1,
 	},
 }
 

@@ -56,33 +56,35 @@ func (cache *DefaultStatementCache) Get(ctx context.Context, name string) (*Stat
 	return stmt, nil
 }
 
-type portal struct {
+type Portal struct {
 	statement  *Statement
 	parameters []Parameter
+	formats    []FormatCode
 }
 
 type DefaultPortalCache struct {
-	portals map[string]portal
+	portals map[string]*Portal
 	mu      sync.RWMutex
 }
 
-func (cache *DefaultPortalCache) Bind(ctx context.Context, name string, stmt *Statement, parameters []Parameter) error {
+func (cache *DefaultPortalCache) Bind(ctx context.Context, name string, stmt *Statement, parameters []Parameter, formats []FormatCode) error {
 	cache.mu.Lock()
 	defer cache.mu.Unlock()
 
 	if cache.portals == nil {
-		cache.portals = map[string]portal{}
+		cache.portals = map[string]*Portal{}
 	}
 
-	cache.portals[name] = portal{
+	cache.portals[name] = &Portal{
 		statement:  stmt,
 		parameters: parameters,
+		formats:    formats,
 	}
 
 	return nil
 }
 
-func (cache *DefaultPortalCache) Get(ctx context.Context, name string) (*Statement, error) {
+func (cache *DefaultPortalCache) Get(ctx context.Context, name string) (*Portal, error) {
 	cache.mu.Lock()
 	defer cache.mu.Unlock()
 
@@ -95,7 +97,7 @@ func (cache *DefaultPortalCache) Get(ctx context.Context, name string) (*Stateme
 		return nil, nil
 	}
 
-	return portal.statement, nil
+	return portal, nil
 }
 
 func (cache *DefaultPortalCache) Execute(ctx context.Context, name string, writer *buffer.Writer) error {
@@ -111,5 +113,5 @@ func (cache *DefaultPortalCache) Execute(ctx context.Context, name string, write
 		return nil
 	}
 
-	return portal.statement.fn(ctx, NewDataWriter(ctx, portal.statement.columns, writer), portal.parameters)
+	return portal.statement.fn(ctx, NewDataWriter(ctx, portal.statement.columns, portal.formats, writer), portal.parameters)
 }

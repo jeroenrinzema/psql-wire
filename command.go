@@ -128,9 +128,6 @@ func (srv *Server) handleCommand(ctx context.Context, conn net.Conn, t types.Cli
 	case types.ClientParse:
 		return srv.handleParse(ctx, reader, writer)
 	case types.ClientDescribe:
-		// TODO: Server should return the column types that will be
-		// returned for the given portal or statement.
-		//
 		// The Describe message (portal variant) specifies the name of an
 		// existing portal (or an empty string for the unnamed portal). The
 		// response is a RowDescription message describing the rows that will be
@@ -250,12 +247,12 @@ func (srv *Server) handleSimpleQuery(ctx context.Context, reader *buffer.Reader,
 	}
 
 	// NOTE: we have to define the column definitions before executing a simple query
-	err = statement.columns.Define(ctx, writer)
+	err = statement.columns.Define(ctx, writer, nil)
 	if err != nil {
 		return ErrorCode(writer, err)
 	}
 
-	err = statement.fn(ctx, NewDataWriter(ctx, statement.columns, writer), nil)
+	err = statement.fn(ctx, NewDataWriter(ctx, statement.columns, nil, writer), nil)
 	if err != nil {
 		return ErrorCode(writer, err)
 	}
@@ -324,11 +321,9 @@ func (srv *Server) handleDescribe(ctx context.Context, reader *buffer.Reader, wr
 		return err
 	}
 
-	var statement *Statement
-
 	switch d[0] {
 	case 'S':
-		statement, err = srv.Statements.Get(ctx, name)
+		statement, err := srv.Statements.Get(ctx, name)
 		if err != nil {
 			return err
 		}
@@ -341,18 +336,28 @@ func (srv *Server) handleDescribe(ctx context.Context, reader *buffer.Reader, wr
 		if err != nil {
 			return err
 		}
+
+		// NOTE: the format codes are not yet known at this point in time.
+		return srv.writeColumnDescription(ctx, writer, nil, statement.columns)
 	case 'P':
-		statement, err = srv.Portals.Get(ctx, name)
+		portal, err := srv.Portals.Get(ctx, name)
 		if err != nil {
 			return err
 		}
+
+		if portal == nil {
+			return ErrorCode(writer, errors.New("unknown portal"))
+		}
+
+		err = srv.writeParameterDescription(writer, portal.statement.parameters)
+		if err != nil {
+			return err
+		}
+
+		return srv.writeColumnDescription(ctx, writer, portal.formats, portal.statement.columns)
 	}
 
-	if statement == nil {
-		return ErrorCode(writer, errors.New("unknown statement"))
-	}
-
-	return srv.writeColumnDescription(ctx, writer, statement.columns)
+	return ErrorCode(writer, fmt.Errorf("unknown describe command: %s", string(d[0])))
 }
 
 // https://www.postgresql.org/docs/15/protocol-message-formats.html
@@ -371,13 +376,13 @@ func (srv *Server) writeParameterDescription(writer *buffer.Writer, parameters [
 // back to the writer buffer. Information about the returned columns is written
 // to the client.
 // https://www.postgresql.org/docs/15/protocol-message-formats.html
-func (srv *Server) writeColumnDescription(ctx context.Context, writer *buffer.Writer, columns Columns) error {
+func (srv *Server) writeColumnDescription(ctx context.Context, writer *buffer.Writer, formats []FormatCode, columns Columns) error {
 	if len(columns) == 0 {
 		writer.Start(types.ServerNoData)
 		return writer.End()
 	}
 
-	return columns.Define(ctx, writer)
+	return columns.Define(ctx, writer, formats)
 }
 
 func (srv *Server) handleBind(ctx context.Context, reader *buffer.Reader, writer *buffer.Writer) error {
@@ -396,6 +401,11 @@ func (srv *Server) handleBind(ctx context.Context, reader *buffer.Reader, writer
 		return err
 	}
 
+	formats, err := srv.readColumnTypes(ctx, reader)
+	if err != nil {
+		return err
+	}
+
 	stmt, err := srv.Statements.Get(ctx, statement)
 	if err != nil {
 		return err
@@ -405,7 +415,7 @@ func (srv *Server) handleBind(ctx context.Context, reader *buffer.Reader, writer
 		return NewErrUnkownStatement(statement)
 	}
 
-	err = srv.Portals.Bind(ctx, name, stmt, parameters)
+	err = srv.Portals.Bind(ctx, name, stmt, parameters, formats)
 	if err != nil {
 		return err
 	}
@@ -418,7 +428,6 @@ func (srv *Server) handleBind(ctx context.Context, reader *buffer.Reader, writer
 // reader. The parameters are parsed and returned.
 // https://www.postgresql.org/docs/14/protocol-message-formats.html
 func (srv *Server) readParameters(ctx context.Context, reader *buffer.Reader) ([]Parameter, error) {
-	// [0 1, 0 0 0 1 0 0 0 3 98 111 120 0 2 0 1 0 0]
 	// NOTE: read the total amount of parameter format length that will be send
 	// by the client. This can be zero to indicate that there are no parameters
 	// or that the parameters all use the default format (text); or one, in
@@ -480,30 +489,28 @@ func (srv *Server) readParameters(ctx context.Context, reader *buffer.Reader) ([
 		parameters[i] = NewParameter(TypeMap(ctx), format, value)
 	}
 
-	// NOTE: Read the total amount of result-column format that will be
-	// send by the client.
-	length, err = reader.GetUint16()
+	return parameters, nil
+}
+
+func (srv *Server) readColumnTypes(ctx context.Context, reader *buffer.Reader) ([]FormatCode, error) {
+	length, err := reader.GetUint16()
 	if err != nil {
 		return nil, err
 	}
 
-	srv.logger.Debug("reading result-column format codes", slog.Uint64("length", uint64(length)))
+	srv.logger.Debug("reading column format codes", slog.Uint64("length", uint64(length)))
 
+	columns := make([]FormatCode, length)
 	for i := uint16(0); i < length; i++ {
-		// TODO: Handle incoming result-column format codes
-		//
-		// Incoming format codes are currently ignored and should be handled in
-		// the future. The result-column format codes. Each must presently be
-		// zero (text) or one (binary). These format codes should be returned
-		// and handled by the parent function to return the proper column formats.
-		// https://www.postgresql.org/docs/current/protocol-message-formats.html
-		_, err := reader.GetUint16()
+		format, err := reader.GetUint16()
 		if err != nil {
 			return nil, err
 		}
+
+		columns[i] = FormatCode(format)
 	}
 
-	return parameters, nil
+	return columns, nil
 }
 
 func (srv *Server) handleExecute(ctx context.Context, reader *buffer.Reader, writer *buffer.Writer) error {

@@ -53,18 +53,16 @@ func TestBindMessageParameters(t *testing.T) {
 
 	columns := Columns{
 		{
-			Table:  0,
-			Name:   "full_name",
-			Oid:    oid.T_text,
-			Width:  256,
-			Format: TextFormat,
+			Table: 0,
+			Name:  "full_name",
+			Oid:   oid.T_text,
+			Width: 256,
 		},
 		{
-			Table:  0,
-			Name:   "answer_to_life_the_universe_and_everything",
-			Oid:    oid.T_text,
-			Width:  256,
-			Format: TextFormat,
+			Table: 0,
+			Name:  "answer_to_life_the_universe_and_everything",
+			Oid:   oid.T_text,
+			Width: 256,
 		},
 	}
 

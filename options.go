@@ -63,8 +63,8 @@ type StatementCache interface {
 // PortalCache represents a cache which could be used to bind and execute
 // prepared statements with parameters.
 type PortalCache interface {
-	Bind(ctx context.Context, name string, statement *Statement, parameters []Parameter) error
-	Get(ctx context.Context, name string) (*Statement, error)
+	Bind(ctx context.Context, name string, statement *Statement, parameters []Parameter, columns []FormatCode) error
+	Get(ctx context.Context, name string) (*Portal, error)
 	Execute(ctx context.Context, name string, writer *buffer.Writer) error
 }
 
