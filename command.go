@@ -349,11 +349,6 @@ func (srv *Server) handleDescribe(ctx context.Context, reader *buffer.Reader, wr
 			return ErrorCode(writer, errors.New("unknown portal"))
 		}
 
-		err = srv.writeParameterDescription(writer, portal.statement.parameters)
-		if err != nil {
-			return err
-		}
-
 		return srv.writeColumnDescription(ctx, writer, portal.formats, portal.statement.columns)
 	}
 
