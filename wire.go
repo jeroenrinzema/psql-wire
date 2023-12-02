@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/tls"
 	"crypto/x509"
+	"errors"
 	"fmt"
 	"net"
 	"sync"
@@ -88,7 +89,6 @@ func (srv *Server) ListenAndServe(address string) error {
 // preconfigured configurations. The given listener will be closed once the
 // server is gracefully closed.
 func (srv *Server) Serve(listener net.Listener) error {
-	defer listener.Close()
 	defer srv.logger.Info("closing server")
 
 	srv.logger.Info("serving incoming connections", slog.String("addr", listener.Addr().String()))
@@ -107,6 +107,10 @@ func (srv *Server) Serve(listener net.Listener) error {
 
 	for {
 		conn, err := listener.Accept()
+		if errors.Is(err, net.ErrClosed) {
+			return nil
+		}
+
 		if err != nil {
 			return err
 		}
