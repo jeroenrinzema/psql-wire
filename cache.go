@@ -2,6 +2,7 @@ package wire
 
 import (
 	"context"
+	"fmt"
 	"sync"
 
 	"github.com/jeroenrinzema/psql-wire/pkg/buffer"
@@ -100,7 +101,14 @@ func (cache *DefaultPortalCache) Get(ctx context.Context, name string) (*Portal,
 	return portal, nil
 }
 
-func (cache *DefaultPortalCache) Execute(ctx context.Context, name string, writer *buffer.Writer) error {
+func (cache *DefaultPortalCache) Execute(ctx context.Context, name string, writer *buffer.Writer) (err error) {
+	defer func() {
+		r := recover()
+		if r != nil {
+			err = fmt.Errorf("unexpected panic: %s", r)
+		}
+	}()
+
 	cache.mu.Lock()
 	defer cache.mu.Unlock()
 
@@ -113,5 +121,10 @@ func (cache *DefaultPortalCache) Execute(ctx context.Context, name string, write
 		return nil
 	}
 
-	return portal.statement.fn(ctx, NewDataWriter(ctx, portal.statement.columns, portal.formats, writer), portal.parameters)
+	err = portal.statement.fn(ctx, NewDataWriter(ctx, portal.statement.columns, portal.formats, writer), portal.parameters)
+	if err != nil {
+		return err
+	}
+
+	return err
 }
