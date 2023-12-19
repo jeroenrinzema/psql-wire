@@ -51,6 +51,10 @@ $ # The web interface is up and running at: http://localhost:5432
 $ # You could login using the default username and password kit:kitpw
 ```
 
+## Support
+
+Feel free to join the Cloud Proud [Slack](https://join.slack.com/t/cloudproud/shared_invite/zt-23094hi83-MnbKFknPmPsnqnMtXUYfUg) workspace to discuss feature requests or issues.
+
 ## Contributing
 
 Thank you for your interest in contributing to psql-wire!
