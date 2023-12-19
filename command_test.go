@@ -66,8 +66,8 @@ func TestBindMessageParameters(t *testing.T) {
 		},
 	}
 
-	handler := func(ctx context.Context, query string) (*PreparedStatement, error) {
-		statement := NewPreparedStatement(func(ctx context.Context, writer DataWriter, parameters []Parameter) error {
+	handler := func(ctx context.Context, query string) (PreparedStatements, error) {
+		handle := func(ctx context.Context, writer DataWriter, parameters []Parameter) error {
 			t.Log("serving query")
 
 			if len(parameters) != 2 {
@@ -79,11 +79,9 @@ func TestBindMessageParameters(t *testing.T) {
 
 			writer.Row([]any{first, second}) //nolint:errcheck
 			return writer.Complete("SELECT 1")
-		})
+		}
 
-		statement.WithParameters(ParseParameters(query))
-		statement.WithColumns(columns)
-		return statement, nil
+		return Prepared(NewStatement(handle, WithColumns(columns), WithParameters(ParseParameters(query)))), nil
 	}
 
 	server, err := NewServer(handler, Logger(slogt.New(t)))

@@ -34,15 +34,14 @@ var table = wire.Columns{
 	},
 }
 
-func handler(ctx context.Context, query string) (*wire.PreparedStatement, error) {
+func handler(ctx context.Context, query string) (wire.PreparedStatements, error) {
 	log.Println("incoming SQL query:", query)
 
-	statement := wire.NewPreparedStatement(func(ctx context.Context, writer wire.DataWriter, parameters []wire.Parameter) error {
+	handle := func(ctx context.Context, writer wire.DataWriter, parameters []wire.Parameter) error {
 		writer.Row([]any{"John", true, 29})
 		writer.Row([]any{"Marry", false, 21})
 		return writer.Complete("SELECT 2")
-	})
+	}
 
-	statement.WithColumns(table)
-	return statement, nil
+	return wire.Prepared(wire.NewStatement(handle, wire.WithColumns(table))), nil
 }

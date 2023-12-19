@@ -15,12 +15,12 @@ import (
 )
 
 func TestErrorCode(t *testing.T) {
-	handler := func(ctx context.Context, query string) (*PreparedStatement, error) {
-		statement := NewPreparedStatement(func(ctx context.Context, writer DataWriter, parameters []Parameter) error {
+	handler := func(ctx context.Context, query string) (PreparedStatements, error) {
+		stmt := NewStatement(func(ctx context.Context, writer DataWriter, parameters []Parameter) error {
 			return psqlerr.WithSeverity(psqlerr.WithCode(errors.New("unimplemented feature"), codes.FeatureNotSupported), psqlerr.LevelFatal)
 		})
 
-		return statement, nil
+		return Prepared(stmt), nil
 	}
 
 	server, err := NewServer(handler, Logger(slogt.New(t)))

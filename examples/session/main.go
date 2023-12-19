@@ -32,13 +32,13 @@ func session(ctx context.Context) (context.Context, error) {
 	return context.WithValue(ctx, id, counter), nil
 }
 
-func handler(ctx context.Context, query string) (*wire.PreparedStatement, error) {
+func handler(ctx context.Context, query string) (wire.PreparedStatements, error) {
 	log.Println("incoming SQL query:", query)
 
-	statement := wire.NewPreparedStatement(func(ctx context.Context, writer wire.DataWriter, parameters []wire.Parameter) error {
+	handle := func(ctx context.Context, writer wire.DataWriter, parameters []wire.Parameter) error {
 		session := ctx.Value(id).(int)
 		return writer.Complete(fmt.Sprintf("OK, session: %d", session))
-	})
+	}
 
-	return statement, nil
+	return wire.Prepared(wire.NewStatement(handle)), nil
 }

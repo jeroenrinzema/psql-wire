@@ -16,32 +16,60 @@ import (
 
 // ParseFn parses the given query and returns a prepared statement which could
 // be used to execute at a later point in time.
-type ParseFn func(ctx context.Context, query string) (*PreparedStatement, error)
+type ParseFn func(ctx context.Context, query string) (PreparedStatements, error)
 
 // PreparedStatementFn represents a query of which a statement has been
 // prepared. The statement could be executed at any point in time with the given
 // arguments and data writer.
 type PreparedStatementFn func(ctx context.Context, writer DataWriter, parameters []Parameter) error
 
-// NewPreparedStatement constructs a new prepared statement for the given function.
-func NewPreparedStatement(fn PreparedStatementFn) *PreparedStatement {
-	return &PreparedStatement{
+// Prepared is a small wrapper function returning a list of prepared statements.
+// More then one prepared statement could be returned within the simple query
+// protocol. An error is returned when more then one prepared statement is
+// returned in the extended query protocol.
+// https://www.postgresql.org/docs/15/protocol-flow.html#PROTOCOL-FLOW-MULTI-STATEMENT
+func Prepared(stmts ...*PreparedStatement) PreparedStatements {
+	return stmts
+}
+
+// NewStatement constructs a new prepared statement for the given function.
+func NewStatement(fn PreparedStatementFn, options ...PreparedOptionFn) *PreparedStatement {
+	stmt := &PreparedStatement{
 		fn: fn,
 	}
+
+	for _, option := range options {
+		option(stmt)
+	}
+
+	return stmt
 }
+
+// PreparedOptionFn options pattern used to define options while preparing a new statement.
+type PreparedOptionFn func(*PreparedStatement)
+
+// WithColumns sets the given columns as the columns which are returned by the
+// prepared statement.
+func WithColumns(columns Columns) PreparedOptionFn {
+	return func(stmt *PreparedStatement) {
+		stmt.columns = columns
+	}
+}
+
+// WithParameters sets the given parameters as the parameters which are expected
+// by the prepared statement.
+func WithParameters(parameters []oid.Oid) PreparedOptionFn {
+	return func(stmt *PreparedStatement) {
+		stmt.parameters = parameters
+	}
+}
+
+type PreparedStatements []*PreparedStatement
 
 type PreparedStatement struct {
 	fn         PreparedStatementFn
 	parameters []oid.Oid
 	columns    Columns
-}
-
-func (stmt *PreparedStatement) WithParameters(parameters []oid.Oid) {
-	stmt.parameters = parameters
-}
-
-func (stmt *PreparedStatement) WithColumns(columns Columns) {
-	stmt.columns = columns
 }
 
 // SessionHandler represents a wrapper function defining the state of a single

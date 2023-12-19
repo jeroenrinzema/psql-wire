@@ -41,13 +41,13 @@ func TListenAndServe(t *testing.T, server *Server) *net.TCPAddr {
 func TestClientConnect(t *testing.T) {
 	t.Parallel()
 
-	handler := func(ctx context.Context, query string) (*PreparedStatement, error) {
-		statement := NewPreparedStatement(func(ctx context.Context, writer DataWriter, parameters []Parameter) error {
+	handler := func(ctx context.Context, query string) (PreparedStatements, error) {
+		statement := NewStatement(func(ctx context.Context, writer DataWriter, parameters []Parameter) error {
 			t.Log("serving query")
 			return writer.Complete("OK")
 		})
 
-		return statement, nil
+		return Prepared(statement), nil
 	}
 
 	server, err := NewServer(handler, Logger(slogt.New(t)))
@@ -111,23 +111,22 @@ func TestClientConnect(t *testing.T) {
 func TestClientParameters(t *testing.T) {
 	t.Parallel()
 
-	handler := func(ctx context.Context, query string) (*PreparedStatement, error) {
-		statement := NewPreparedStatement(func(ctx context.Context, writer DataWriter, parameters []Parameter) error {
+	handler := func(ctx context.Context, query string) (PreparedStatements, error) {
+		handle := func(ctx context.Context, writer DataWriter, parameters []Parameter) error {
 			writer.Row([]any{"John Doe"}) //nolint:errcheck
 			return writer.Complete("SELECT 1")
-		})
+		}
 
-		statement.WithParameters(ParseParameters(query))
-		statement.WithColumns(Columns{
+		columns := Columns{
 			{
 				Table: 0,
 				Name:  "full_name",
 				Oid:   oid.T_text,
 				Width: 256,
 			},
-		})
+		}
 
-		return statement, nil
+		return Prepared(NewStatement(handle, WithColumns(columns), WithParameters(ParseParameters(query)))), nil
 	}
 
 	server, err := NewServer(handler, Logger(slogt.New(t)))
@@ -185,16 +184,15 @@ func TestClientParameters(t *testing.T) {
 func TestServerWritingResult(t *testing.T) {
 	t.Parallel()
 
-	handler := func(ctx context.Context, query string) (*PreparedStatement, error) {
-		statement := NewPreparedStatement(func(ctx context.Context, writer DataWriter, parameters []Parameter) error {
+	handler := func(ctx context.Context, query string) (PreparedStatements, error) {
+		handle := func(ctx context.Context, writer DataWriter, parameters []Parameter) error {
 			t.Log("serving query")
 			writer.Row([]any{"John", true, 28})   //nolint:errcheck
 			writer.Row([]any{"Marry", false, 21}) //nolint:errcheck
 			return writer.Complete("SELECT 2")
-		})
+		}
 
-		statement.WithParameters(ParseParameters(query))
-		statement.WithColumns(Columns{ //nolint:errcheck
+		columns := Columns{ //nolint:errcheck
 			{
 				Table: 0,
 				Name:  "name",
@@ -213,9 +211,9 @@ func TestServerWritingResult(t *testing.T) {
 				Oid:   oid.T_int4,
 				Width: 1,
 			},
-		})
+		}
 
-		return statement, nil
+		return Prepared(NewStatement(handle, WithColumns(columns))), nil
 	}
 
 	server, err := NewServer(handler, Logger(slogt.New(t)))
@@ -338,24 +336,23 @@ func TestServerHandlingMultipleConnections(t *testing.T) {
 
 func TOpenMockServer(t *testing.T) *net.TCPAddr {
 	t.Helper()
-	handler := func(ctx context.Context, query string) (*PreparedStatement, error) {
-		statement := NewPreparedStatement(func(ctx context.Context, writer DataWriter, parameters []Parameter) error {
+	handler := func(ctx context.Context, query string) (PreparedStatements, error) {
+		handle := func(ctx context.Context, writer DataWriter, parameters []Parameter) error {
 			t.Log("serving query")
 			writer.Row([]any{20}) //nolint:errcheck
 			return writer.Complete("SELECT 1")
-		})
+		}
 
-		statement.WithParameters(ParseParameters(query))
-		statement.WithColumns(Columns{
+		columns := Columns{
 			{
 				Table: 0,
 				Name:  "age",
 				Oid:   oid.T_int4,
 				Width: 1,
 			},
-		})
+		}
 
-		return statement, nil
+		return Prepared(NewStatement(handle, WithColumns(columns), WithParameters(ParseParameters(query)))), nil
 	}
 
 	server, err := NewServer(handler, Logger(slogt.New(t)))
@@ -373,25 +370,24 @@ func TestServerNULLValues(t *testing.T) {
 		nil,
 	}
 
-	handler := func(ctx context.Context, query string) (*PreparedStatement, error) {
-		statement := NewPreparedStatement(func(ctx context.Context, writer DataWriter, parameters []Parameter) error {
+	handler := func(ctx context.Context, query string) (PreparedStatements, error) {
+		handle := func(ctx context.Context, writer DataWriter, parameters []Parameter) error {
 			t.Log("serving query")
 			writer.Row([]any{"John"}) //nolint:errcheck
 			writer.Row([]any{nil})    //nolint:errcheck
 			return writer.Complete("SELECT 2")
-		})
+		}
 
-		statement.WithParameters(ParseParameters(query))
-		statement.WithColumns(Columns{
+		columns := Columns{
 			{
 				Table: 0,
 				Name:  "name",
 				Oid:   oid.T_text,
 				Width: 256,
 			},
-		})
+		}
 
-		return statement, nil
+		return Prepared(NewStatement(handle, WithColumns(columns))), nil
 	}
 
 	server, err := NewServer(handler, Logger(slogt.New(t)))

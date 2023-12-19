@@ -31,6 +31,20 @@ func NewErrUnkownStatement(name string) error {
 	return psqlerr.WithSeverity(psqlerr.WithCode(err, codes.InvalidPreparedStatementDefinition), psqlerr.LevelFatal)
 }
 
+// NewErrUndefinedStatement is returned whenever no statement has been defined
+// within the incoming query.
+func NewErrUndefinedStatement() error {
+	err := errors.New("no statement has been defined")
+	return psqlerr.WithSeverity(psqlerr.WithCode(err, codes.Syntax), psqlerr.LevelError)
+}
+
+// NewErrMultipleCommandsStatements is returned whenever multiple statements have been
+// given within a single query during the extended query protocol.
+func NewErrMultipleCommandsStatements() error {
+	err := errors.New("cannot insert multiple commands into a prepared statement")
+	return psqlerr.WithSeverity(psqlerr.WithCode(err, codes.Syntax), psqlerr.LevelError)
+}
+
 // consumeCommands consumes incoming commands send over the Postgres wire connection.
 // Commands consumed from the connection are returned through a go channel.
 // Responses for the given message type are written back to the client.
@@ -237,24 +251,26 @@ func (srv *Server) handleSimpleQuery(ctx context.Context, reader *buffer.Reader,
 		return readyForQuery(writer, types.ServerIdle)
 	}
 
-	statement, err := srv.parse(ctx, query)
+	statements, err := srv.parse(ctx, query)
 	if err != nil {
 		return ErrorCode(writer, err)
 	}
 
-	if err != nil {
-		return ErrorCode(writer, err)
+	if len(statements) == 0 {
+		return ErrorCode(writer, NewErrUndefinedStatement())
 	}
 
-	// NOTE: we have to define the column definitions before executing a simple query
-	err = statement.columns.Define(ctx, writer, nil)
-	if err != nil {
-		return ErrorCode(writer, err)
-	}
+	// NOTE: it is possible to send multiple statements in one simple query.
+	for index := range statements {
+		err = statements[index].columns.Define(ctx, writer, nil)
+		if err != nil {
+			return ErrorCode(writer, err)
+		}
 
-	err = statement.fn(ctx, NewDataWriter(ctx, statement.columns, nil, writer), nil)
-	if err != nil {
-		return ErrorCode(writer, err)
+		err = statements[index].fn(ctx, NewDataWriter(ctx, statements[index].columns, nil, writer), nil)
+		if err != nil {
+			return ErrorCode(writer, err)
+		}
 	}
 
 	return readyForQuery(writer, types.ServerIdle)
@@ -294,7 +310,7 @@ func (srv *Server) handleParse(ctx context.Context, reader *buffer.Reader, write
 		// `reader.GetUint32()`
 	}
 
-	statement, err := srv.parse(ctx, query)
+	statement, err := singleStatement(srv.parse(ctx, query))
 	if err != nil {
 		return ErrorCode(writer, err)
 	}
@@ -542,4 +558,20 @@ func (srv *Server) handleConnTerminate(ctx context.Context) error {
 	}
 
 	return srv.TerminateConn(ctx)
+}
+
+func singleStatement(stmts PreparedStatements, err error) (*PreparedStatement, error) {
+	if err != nil {
+		return nil, err
+	}
+
+	if len(stmts) > 1 {
+		return nil, NewErrMultipleCommandsStatements()
+	}
+
+	if len(stmts) == 0 {
+		return nil, NewErrUndefinedStatement()
+	}
+
+	return stmts[0], nil
 }

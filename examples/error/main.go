@@ -15,7 +15,7 @@ func main() {
 	wire.ListenAndServe("127.0.0.1:5432", handler)
 }
 
-func handler(ctx context.Context, query string) (*wire.PreparedStatement, error) {
+func handler(ctx context.Context, query string) (wire.PreparedStatements, error) {
 	log.Println("incoming SQL query:", query)
 
 	err := errors.New("unimplemented feature")
