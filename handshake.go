@@ -146,7 +146,7 @@ func (srv *Server) potentialConnUpgrade(conn net.Conn, reader *buffer.Reader, ve
 
 	srv.logger.Debug("attempting to upgrade the client to a TLS connection")
 
-	if len(srv.Certificates) == 0 {
+	if len(srv.Certificates) == 0 && srv.TLSConfig == nil {
 		srv.logger.Debug("no TLS certificates available continuing with a insecure connection")
 		return srv.sslUnsupported(conn, reader, version)
 	}
@@ -156,15 +156,20 @@ func (srv *Server) potentialConnUpgrade(conn net.Conn, reader *buffer.Reader, ve
 		return conn, reader, version, err
 	}
 
-	tlsConfig := tls.Config{
-		Certificates: srv.Certificates,
-		ClientAuth:   srv.ClientAuth,
-		ClientCAs:    srv.ClientCAs,
+	var tlsConfig *tls.Config
+	if srv.TLSConfig != nil {
+		tlsConfig = srv.TLSConfig
+	} else {
+		tlsConfig = &tls.Config{
+			Certificates: srv.Certificates,
+			ClientAuth:   srv.ClientAuth,
+			ClientCAs:    srv.ClientCAs,
+		}
 	}
 
 	// NOTE: initialize the TLS connection and construct a new buffered
 	// reader for the constructed TLS connection.
-	conn = tls.Server(conn, &tlsConfig)
+	conn = tls.Server(conn, tlsConfig)
 	reader = buffer.NewReader(srv.logger, conn, srv.BufferedMsgSize)
 
 	version, err = srv.readVersion(reader)

@@ -61,6 +61,7 @@ type Server struct {
 	Auth            AuthStrategy
 	BufferedMsgSize int
 	Parameters      Parameters
+	TLSConfig       *tls.Config
 	Certificates    []tls.Certificate
 	ClientCAs       *x509.CertPool
 	ClientAuth      tls.ClientAuthType
