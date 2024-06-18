@@ -146,9 +146,8 @@ func MessageBufferSize(size int) OptionFn {
 	}
 }
 
-// Certificates sets the given TLS config to be used to initialize a
+// TLSConfig sets the given TLS config to be used to initialize a
 // secure connection between the front-end (client) and back-end (server).
-// Prefer TLSConfig over Certificates and ClientCAs.
 func TLSConfig(config *tls.Config) OptionFn {
 	return func(srv *Server) error {
 		srv.TLSConfig = config
