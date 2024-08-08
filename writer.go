@@ -32,6 +32,9 @@ type DataWriter interface {
 	//
 	// [CommandComplete]: https://www.postgresql.org/docs/current/protocol-message-formats.html#PROTOCOL-MESSAGE-FORMATS-COMMANDCOMPLETE
 	Complete(description string) error
+
+	// CopyIn is incomplete
+	CopyIn() error
 }
 
 // ErrDataWritten is returned when an empty result is attempted to be sent to the
@@ -81,6 +84,27 @@ func (writer *dataWriter) Row(values []any) error {
 	writer.written++
 
 	return writer.columns.Write(writer.ctx, writer.formats, writer.client, values)
+}
+
+func (writer *dataWriter) CopyIn() error {
+	if writer.closed {
+		return ErrClosedWriter
+	}
+	// if writer.reader == nil {
+	// 	return errors.New("reader is nil; use PortalCacheCopy to execute CopyIn")
+	// }
+	writer.client.Start(types.ServerCopyInResponse)
+	writer.client.AddByte(0)
+	const n = 3
+	writer.client.AddInt16(n)
+	for i := 0; i < n; i++ {
+		writer.client.AddInt16(0)
+	}
+	if err := writer.client.End(); err != nil {
+		return err
+	}
+
+	return nil
 }
 
 func (writer *dataWriter) Empty() error {

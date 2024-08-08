@@ -10,7 +10,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	_ "github.com/jackc/pgx/v5/stdlib"
 	"github.com/jeroenrinzema/psql-wire/pkg/mock"
-	_ "github.com/lib/pq"
+	"github.com/lib/pq"
 	"github.com/lib/pq/oid"
 	"github.com/neilotoole/slogt"
 	"github.com/stretchr/testify/assert"
@@ -486,6 +486,130 @@ func TestServerNULLValues(t *testing.T) {
 					t.Errorf("unexpected value %+v, expected %+v", left, right)
 				}
 			}
+		}
+
+		err = conn.Close(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+	})
+}
+
+type stubStatementCache struct {
+	SetFn func(context.Context, string, *PreparedStatement) error
+	GetFn func(context.Context, string) (*Statement, error)
+}
+
+func (c *stubStatementCache) Set(ctx context.Context, name string, fn *PreparedStatement) error {
+	return c.SetFn(ctx, name, fn)
+}
+
+func (c *stubStatementCache) Get(ctx context.Context, name string) (*Statement, error) {
+	return c.GetFn(ctx, name)
+}
+
+func TestServerCopyIn(t *testing.T) {
+	t.Parallel()
+
+	handler := func(ctx context.Context, query string) (PreparedStatements, error) {
+		handle := func(ctx context.Context, writer DataWriter, parameters []Parameter) error {
+			t.Log("serving QUERY", query)
+			switch query {
+			case "BEGIN READ WRITE":
+				return writer.Complete("BEGIN")
+			}
+			if err := writer.CopyIn(); err != nil {
+				t.Fatal(err)
+			}
+			return writer.Complete("COPY IN")
+		}
+
+		return Prepared(NewStatement(handle)), nil
+	}
+
+	defStatement := DefaultStatementCache{}
+
+	opts := []OptionFn{
+		Logger(slogt.New(t)),
+		Statements(
+			&stubStatementCache{
+				SetFn: func(ctx context.Context, name string, fn *PreparedStatement) error {
+					fn.columns = Columns{
+						{}, {}, {},
+					}
+					return defStatement.Set(ctx, name, fn)
+				},
+				GetFn: defStatement.Get,
+			},
+		),
+	}
+
+	server, err := NewServer(handler, opts...)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	address := TListenAndServe(t, server)
+
+	rows := [][]any{
+		{196, "My Posse In Effect", nil},
+		{181, "Almost KISS", nil},
+	}
+
+	t.Run("lib/pq", func(t *testing.T) {
+		t.Skip()
+		connstr := fmt.Sprintf("host=%s port=%d sslmode=disable", address.IP, address.Port)
+		conn, err := sql.Open("postgres", connstr)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		txn, err := conn.Begin()
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		stmt, err := txn.Prepare(pq.CopyIn("id", "name", "spotify_id"))
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		for _, row := range rows {
+			_, err := stmt.Exec(row...)
+			if err != nil {
+				t.Fatal(err)
+			}
+		}
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		if err := stmt.Close(); err != nil {
+			t.Fatal(err)
+		}
+		if err := txn.Commit(); err != nil {
+			t.Fatal(err)
+		}
+
+		if err := conn.Close(); err != nil {
+			t.Fatal(err)
+		}
+	})
+
+	t.Run("jackc/pgx", func(t *testing.T) {
+		ctx := context.Background()
+		connstr := fmt.Sprintf("postgres://%s:%d", address.IP, address.Port)
+		conn, err := pgx.Connect(ctx, connstr)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		n, err := conn.CopyFrom(ctx, pgx.Identifier{"foo"}, []string{"id", "name", "spotify_id"}, pgx.CopyFromRows(rows))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if n != 2 {
+			t.Fatalf("unexpected number of rows copied: %d", n)
 		}
 
 		err = conn.Close(ctx)
