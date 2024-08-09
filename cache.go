@@ -102,6 +102,10 @@ func (cache *DefaultPortalCache) Get(ctx context.Context, name string) (*Portal,
 }
 
 func (cache *DefaultPortalCache) Execute(ctx context.Context, name string, writer *buffer.Writer) (err error) {
+	return cache.ExecuteCopyIn(ctx, name, writer, nil)
+}
+
+func (cache *DefaultPortalCache) ExecuteCopyIn(ctx context.Context, name string, writer *buffer.Writer, fn CopyDataFn) (err error) {
 	defer func() {
 		r := recover()
 		if r != nil {
@@ -121,5 +125,5 @@ func (cache *DefaultPortalCache) Execute(ctx context.Context, name string, write
 		return nil
 	}
 
-	return portal.statement.fn(ctx, NewDataWriter(ctx, portal.statement.columns, portal.formats, writer), portal.parameters)
+	return portal.statement.fn(ctx, NewDataWriter(ctx, portal.statement.columns, portal.formats, writer, fn), portal.parameters)
 }

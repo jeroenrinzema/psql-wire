@@ -267,7 +267,7 @@ func (srv *Server) handleSimpleQuery(ctx context.Context, reader *buffer.Reader,
 			return ErrorCode(writer, err)
 		}
 
-		err = statements[index].fn(ctx, NewDataWriter(ctx, statements[index].columns, nil, writer), nil)
+		err = statements[index].fn(ctx, NewDataWriter(ctx, statements[index].columns, nil, writer, nil), nil)
 		if err != nil {
 			return ErrorCode(writer, err)
 		}
@@ -546,7 +546,11 @@ func (srv *Server) handleExecute(ctx context.Context, reader *buffer.Reader, wri
 	}
 
 	srv.logger.Debug("executing", slog.String("name", name), slog.Uint64("limit", uint64(limit)))
-	err = srv.Portals.Execute(ctx, name, writer)
+	if pcCopyIn, ok := srv.Portals.(PortalCacheCopyIn); ok {
+		err = pcCopyIn.ExecuteCopyIn(ctx, name, writer, nil)
+	} else {
+		err = srv.Portals.Execute(ctx, name, writer)
+	}
 	if err != nil {
 		return ErrorCode(writer, err)
 	}

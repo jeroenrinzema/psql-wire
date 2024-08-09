@@ -48,12 +48,13 @@ var ErrClosedWriter = errors.New("closed writer")
 // buffer. The returned writer should be handled with caution as it is not safe
 // for concurrent use. Concurrent access to the same data without proper
 // synchronization can result in unexpected behavior and data corruption.
-func NewDataWriter(ctx context.Context, columns Columns, formats []FormatCode, writer *buffer.Writer) DataWriter {
+func NewDataWriter(ctx context.Context, columns Columns, formats []FormatCode, writer *buffer.Writer, copy CopyDataFn) DataWriter {
 	return &dataWriter{
 		ctx:     ctx,
 		columns: columns,
 		formats: formats,
 		client:  writer,
+		copy:    copy,
 	}
 }
 
@@ -65,6 +66,7 @@ type dataWriter struct {
 	client  *buffer.Writer
 	closed  bool
 	written uint64
+	copy    CopyDataFn
 }
 
 func (writer *dataWriter) Define(columns Columns) error {
@@ -85,6 +87,11 @@ func (writer *dataWriter) Row(values []any) error {
 
 	return writer.columns.Write(writer.ctx, writer.formats, writer.client, values)
 }
+
+// CopyDataFn should behave as an iterator, returning the next row of data to be
+// copied to the server. When there is no more data to be copied, the function
+// should return [io.EOF]. Any other error will abort the copy operation.
+type CopyDataFn func(context.Context) ([]any, error)
 
 func (writer *dataWriter) CopyIn() error {
 	if writer.closed {
