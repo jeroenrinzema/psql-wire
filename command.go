@@ -71,7 +71,7 @@ func (srv *Server) consumeCommands(ctx context.Context, conn net.Conn, reader *b
 
 		// NOTE: we could recover from this scenario
 		if errors.Is(err, buffer.ErrMessageSizeExceeded) {
-			err = srv.handleMessageSizeExceeded(reader, writer, err)
+			err = handleMessageSizeExceeded(reader, writer, err)
 			if err != nil {
 				return err
 			}
@@ -112,7 +112,7 @@ func (srv *Server) consumeCommands(ctx context.Context, conn net.Conn, reader *b
 // type. A fatal error is returned when an unexpected error is returned while
 // consuming the expected message size or when attempting to write the error
 // message back to the client.
-func (srv *Server) handleMessageSizeExceeded(reader *buffer.Reader, writer *buffer.Writer, exceeded error) (err error) {
+func handleMessageSizeExceeded(reader *buffer.Reader, writer *buffer.Writer, exceeded error) (err error) {
 	unwrapped, has := buffer.UnwrapMessageSizeExceeded(exceeded)
 	if !has {
 		return exceeded
