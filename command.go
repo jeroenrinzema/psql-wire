@@ -16,7 +16,7 @@ import (
 	"github.com/lib/pq/oid"
 )
 
-// NewErrUnimplementedMessageType is called whenever a unimplemented message
+// NewErrUnimplementedMessageType is called whenever an unimplemented message
 // type is sent. This error indicates to the client that the sent message cannot
 // be processed at this moment in time.
 func NewErrUnimplementedMessageType(t types.ClientMessage) error {
@@ -50,7 +50,7 @@ func NewErrMultipleCommandsStatements() error {
 // Responses for the given message type are written back to the client.
 // This method keeps consuming messages until the client issues a close message
 // or the connection is terminated.
-func (srv *Server) consumeCommands(ctx context.Context, conn net.Conn, reader *buffer.Reader, writer *buffer.Writer) (err error) {
+func (srv *Server) consumeCommands(ctx context.Context, conn net.Conn, reader *buffer.Reader, writer *buffer.Writer) error {
 	srv.logger.Debug("ready for query... starting to consume commands")
 
 	// TODO: Include a value to identify unique connections
@@ -58,11 +58,17 @@ func (srv *Server) consumeCommands(ctx context.Context, conn net.Conn, reader *b
 	// include a identification value inside the context that
 	// could be used to identify connections at a later stage.
 
-	err = readyForQuery(writer, types.ServerIdle)
+	err := readyForQuery(writer, types.ServerIdle)
 	if err != nil {
 		return err
 	}
 
+	return srv.commandLoop(ctx, reader, writer, srv.handleCommand(conn))
+}
+
+type commandHandler func(context.Context, types.ClientMessage, *buffer.Reader, *buffer.Writer) error
+
+func (srv *Server) commandLoop(ctx context.Context, reader *buffer.Reader, writer *buffer.Writer, handleCommand commandHandler) error {
 	for {
 		t, length, err := reader.ReadTypedMsg()
 		if err == io.EOF {
@@ -91,7 +97,7 @@ func (srv *Server) consumeCommands(ctx context.Context, conn net.Conn, reader *b
 		// connections are not blocking a close.
 		srv.wg.Add(1)
 		srv.logger.Debug("<- incoming command", slog.Int("length", length), slog.String("type", t.String()))
-		err = srv.handleCommand(ctx, conn, t, reader, writer)
+		err = handleCommand(ctx, t, reader, writer)
 		srv.wg.Done()
 		if errors.Is(err, io.EOF) {
 			return nil
@@ -130,97 +136,133 @@ func handleMessageSizeExceeded(reader *buffer.Reader, writer *buffer.Writer, exc
 // message type and reader buffer containing the actual message. The type
 // indecates a action executed by the client.
 // https://www.postgresql.org/docs/14/protocol-message-formats.html
-func (srv *Server) handleCommand(ctx context.Context, conn net.Conn, t types.ClientMessage, reader *buffer.Reader, writer *buffer.Writer) (err error) {
+func (srv *Server) handleCommand(conn net.Conn) func(context.Context, types.ClientMessage, *buffer.Reader, *buffer.Writer) error {
+	return func(ctx context.Context, t types.ClientMessage, reader *buffer.Reader, writer *buffer.Writer) error {
+		ctx, cancel := context.WithCancel(ctx)
+		defer cancel()
+
+		switch t {
+		case types.ClientSimpleQuery:
+			return srv.handleSimpleQuery(ctx, reader, writer)
+		case types.ClientExecute:
+			return srv.handleExecute(ctx, reader, writer)
+		case types.ClientParse:
+			return srv.handleParse(ctx, reader, writer)
+		case types.ClientDescribe:
+			// The Describe message (portal variant) specifies the name of an
+			// existing portal (or an empty string for the unnamed portal). The
+			// response is a RowDescription message describing the rows that will be
+			// returned by executing the portal; or a NoData message if the portal
+			// does not contain a query that will return rows; or ErrorResponse if
+			// there is no such portal.
+			//
+			// The Describe message (statement variant) specifies the name of an
+			// existing prepared statement (or an empty string for the unnamed
+			// prepared statement). The response is a ParameterDescription message
+			// describing the parameters needed by the statement, followed by a
+			// RowDescription message describing the rows that will be returned when
+			// the statement is eventually executed (or a NoData message if the
+			// statement will not return rows). ErrorResponse is issued if there is
+			// no such prepared statement. Note that since Bind has not yet been
+			// issued, the formats to be used for returned columns are not yet known
+			// to the backend; the format code fields in the RowDescription message
+			// will be zeroes in this case.
+			// https://www.postgresql.org/docs/current/protocol-flow.html#PROTOCOL-FLOW-EXT-QUERY
+			return srv.handleDescribe(ctx, reader, writer)
+		case types.ClientSync:
+			// TODO: Include the ability to catch sync messages in order to
+			// close the current transaction.
+			//
+			// At completion of each series of extended-query messages, the frontend
+			// should issue a Sync message. This parameterless message causes the
+			// backend to close the current transaction if it's not inside a
+			// BEGIN/COMMIT transaction block (“close” meaning to commit if no
+			// error, or roll back if error). Then a ReadyForQuery response is
+			// issued. The purpose of Sync is to provide a resynchronization point
+			// for error recovery. When an error is detected while processing any
+			// extended-query message, the backend issues ErrorResponse, then reads
+			// and discards messages until a Sync is reached, then issues
+			// ReadyForQuery and returns to normal message processing. (But note
+			// that no skipping occurs if an error is detected while processing Sync
+			// — this ensures that there is one and only one ReadyForQuery sent for
+			// each Sync.)
+			// https://www.postgresql.org/docs/current/protocol-flow.html#PROTOCOL-FLOW-EXT-QUERY
+			return readyForQuery(writer, types.ServerIdle)
+		case types.ClientBind:
+			return srv.handleBind(ctx, reader, writer)
+		case types.ClientFlush:
+			// TODO: Flush all remaining rows inside connection buffer if
+			// any are remaining.
+			//
+			// The Flush message does not cause any specific
+			// output to be generated, but forces the backend to deliver any data
+			// pending in its output buffers. A Flush must be sent after any
+			// extended-query command except Sync, if the frontend wishes to examine
+			// the results of that command before issuing more commands. Without
+			// Flush, messages returned by the backend will be combined into the
+			// minimum possible number of packets to minimize network overhead.
+			// https://www.postgresql.org/docs/current/protocol-flow.html#PROTOCOL-FLOW-EXT-QUERY
+			return nil
+		case types.ClientCopyData, types.ClientCopyDone, types.ClientCopyFail:
+			// We're supposed to ignore these messages, per the protocol spec. This
+			// state will happen when an error occurs on the server-side during a copy
+			// operation: the server will send an error and a ready message back to
+			// the client, and must then ignore further copy messages. See:
+			// https://github.com/postgres/postgres/blob/6e1dd2773eb60a6ab87b27b8d9391b756e904ac3/src/backend/tcop/postgres.c#L4295
+			return nil
+		case types.ClientClose:
+			// TODO: close the statement or portal
+			writer.Start(types.ServerCloseComplete) //nolint:errcheck
+			writer.End()                            //nolint:errcheck
+			return nil
+		case types.ClientTerminate:
+			err := srv.handleConnTerminate(ctx)
+			if err != nil {
+				return err
+			}
+
+			err = conn.Close()
+			if err != nil {
+				return err
+			}
+
+			return io.EOF
+		default:
+			return ErrorCode(writer, NewErrUnimplementedMessageType(t))
+		}
+	}
+}
+
+// copyDataFn returns the default [CopyDataFn] function.
+func (srv *Server) copyDataFn(reader *buffer.Reader, writer *buffer.Writer) CopyDataFn {
+	return func(ctx context.Context) ([]any, error) {
+		if err := srv.commandLoop(ctx, reader, writer, srv.handleCopyInCommand); err != nil {
+			return nil, err
+		}
+		return nil, nil
+	}
+}
+
+// handleCopyInCommand handles the given client message, while in CopyIn mode.
+func (srv *Server) handleCopyInCommand(ctx context.Context, t types.ClientMessage, reader *buffer.Reader, writer *buffer.Writer) error {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
 	switch t {
-	case types.ClientSimpleQuery:
-		return srv.handleSimpleQuery(ctx, reader, writer)
-	case types.ClientExecute:
-		return srv.handleExecute(ctx, reader, writer)
-	case types.ClientParse:
-		return srv.handleParse(ctx, reader, writer)
-	case types.ClientDescribe:
-		// The Describe message (portal variant) specifies the name of an
-		// existing portal (or an empty string for the unnamed portal). The
-		// response is a RowDescription message describing the rows that will be
-		// returned by executing the portal; or a NoData message if the portal
-		// does not contain a query that will return rows; or ErrorResponse if
-		// there is no such portal.
-		//
-		// The Describe message (statement variant) specifies the name of an
-		// existing prepared statement (or an empty string for the unnamed
-		// prepared statement). The response is a ParameterDescription message
-		// describing the parameters needed by the statement, followed by a
-		// RowDescription message describing the rows that will be returned when
-		// the statement is eventually executed (or a NoData message if the
-		// statement will not return rows). ErrorResponse is issued if there is
-		// no such prepared statement. Note that since Bind has not yet been
-		// issued, the formats to be used for returned columns are not yet known
-		// to the backend; the format code fields in the RowDescription message
-		// will be zeroes in this case.
-		// https://www.postgresql.org/docs/current/protocol-flow.html#PROTOCOL-FLOW-EXT-QUERY
-		return srv.handleDescribe(ctx, reader, writer)
-	case types.ClientSync:
-		// TODO: Include the ability to catch sync messages in order to
-		// close the current transaction.
-		//
-		// At completion of each series of extended-query messages, the frontend
-		// should issue a Sync message. This parameterless message causes the
-		// backend to close the current transaction if it's not inside a
-		// BEGIN/COMMIT transaction block (“close” meaning to commit if no
-		// error, or roll back if error). Then a ReadyForQuery response is
-		// issued. The purpose of Sync is to provide a resynchronization point
-		// for error recovery. When an error is detected while processing any
-		// extended-query message, the backend issues ErrorResponse, then reads
-		// and discards messages until a Sync is reached, then issues
-		// ReadyForQuery and returns to normal message processing. (But note
-		// that no skipping occurs if an error is detected while processing Sync
-		// — this ensures that there is one and only one ReadyForQuery sent for
-		// each Sync.)
-		// https://www.postgresql.org/docs/current/protocol-flow.html#PROTOCOL-FLOW-EXT-QUERY
-		return readyForQuery(writer, types.ServerIdle)
-	case types.ClientBind:
-		return srv.handleBind(ctx, reader, writer)
-	case types.ClientFlush:
-		// TODO: Flush all remaining rows inside connection buffer if
-		// any are remaining.
-		//
-		// The Flush message does not cause any specific
-		// output to be generated, but forces the backend to deliver any data
-		// pending in its output buffers. A Flush must be sent after any
-		// extended-query command except Sync, if the frontend wishes to examine
-		// the results of that command before issuing more commands. Without
-		// Flush, messages returned by the backend will be combined into the
-		// minimum possible number of packets to minimize network overhead.
-		// https://www.postgresql.org/docs/current/protocol-flow.html#PROTOCOL-FLOW-EXT-QUERY
+	case types.ClientFlush, types.ClientSync:
+		// The backend will ignore Flush and Sync messages received during copy-in mode.
+		// https://www.postgresql.org/docs/current/protocol-flow.html#PROTOCOL-COPY
 		return nil
-	case types.ClientCopyData, types.ClientCopyDone, types.ClientCopyFail:
-		// We're supposed to ignore these messages, per the protocol spec. This
-		// state will happen when an error occurs on the server-side during a copy
-		// operation: the server will send an error and a ready message back to
-		// the client, and must then ignore further copy messages. See:
-		// https://github.com/postgres/postgres/blob/6e1dd2773eb60a6ab87b27b8d9391b756e904ac3/src/backend/tcop/postgres.c#L4295
+	case types.ClientCopyData:
 		return nil
-	case types.ClientClose:
-		// TODO: close the statement or portal
-		writer.Start(types.ServerCloseComplete) //nolint:errcheck
-		writer.End()                            //nolint:errcheck
+	case types.ClientCopyDone:
 		return nil
-	case types.ClientTerminate:
-		err = srv.handleConnTerminate(ctx)
-		if err != nil {
-			return err
-		}
-
-		err = conn.Close()
-		if err != nil {
-			return err
-		}
-
-		return io.EOF
+	case types.ClientCopyFail:
+		return nil
 	default:
+		// Receipt of any other non-copy message type constitutes an error that
+		// will abort the copy-in state as described above.
+		// https://www.postgresql.org/docs/current/protocol-flow.html#PROTOCOL-COPY
 		return ErrorCode(writer, NewErrUnimplementedMessageType(t))
 	}
 }
@@ -267,7 +309,7 @@ func (srv *Server) handleSimpleQuery(ctx context.Context, reader *buffer.Reader,
 			return ErrorCode(writer, err)
 		}
 
-		err = statements[index].fn(ctx, NewDataWriter(ctx, statements[index].columns, nil, writer, nil), nil)
+		err = statements[index].fn(ctx, NewDataWriter(ctx, statements[index].columns, nil, writer, srv.copyDataFn(reader, writer)), nil)
 		if err != nil {
 			return ErrorCode(writer, err)
 		}
@@ -547,7 +589,7 @@ func (srv *Server) handleExecute(ctx context.Context, reader *buffer.Reader, wri
 
 	srv.logger.Debug("executing", slog.String("name", name), slog.Uint64("limit", uint64(limit)))
 	if pcCopyIn, ok := srv.Portals.(PortalCacheCopyIn); ok {
-		err = pcCopyIn.ExecuteCopyIn(ctx, name, writer, nil)
+		err = pcCopyIn.ExecuteCopyIn(ctx, name, writer, srv.copyDataFn(reader, writer))
 	} else {
 		err = srv.Portals.Execute(ctx, name, writer)
 	}
