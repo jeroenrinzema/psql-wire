@@ -337,8 +337,10 @@ func (srv *Server) handleDescribe(ctx context.Context, reader *buffer.Reader, wr
 		return err
 	}
 
-	switch d[0] {
-	case 'S':
+	srv.logger.Debug("incoming describe request", slog.String("type", types.DescribeMessage(d[0]).String()), slog.String("name", name))
+
+	switch types.DescribeMessage(d[0]) {
+	case types.DescribeStatement:
 		statement, err := srv.Statements.Get(ctx, name)
 		if err != nil {
 			return err
@@ -355,7 +357,7 @@ func (srv *Server) handleDescribe(ctx context.Context, reader *buffer.Reader, wr
 
 		// NOTE: the format codes are not yet known at this point in time.
 		return srv.writeColumnDescription(ctx, writer, nil, statement.columns)
-	case 'P':
+	case types.DescribePortal:
 		portal, err := srv.Portals.Get(ctx, name)
 		if err != nil {
 			return err
