@@ -414,7 +414,7 @@ func (srv *Server) handleBind(ctx context.Context, reader *buffer.Reader, writer
 		return err
 	}
 
-	formats, err := srv.readColumnTypes(ctx, reader)
+	formats, err := srv.readColumnTypes(reader)
 	if err != nil {
 		return err
 	}
@@ -505,7 +505,7 @@ func (srv *Server) readParameters(ctx context.Context, reader *buffer.Reader) ([
 	return parameters, nil
 }
 
-func (srv *Server) readColumnTypes(ctx context.Context, reader *buffer.Reader) ([]FormatCode, error) {
+func (srv *Server) readColumnTypes(reader *buffer.Reader) ([]FormatCode, error) {
 	length, err := reader.GetUint16()
 	if err != nil {
 		return nil, err
