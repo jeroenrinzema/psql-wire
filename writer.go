@@ -21,20 +21,24 @@ type DataWriter interface {
 	// Written returns the number of rows written to the client.
 	Written() uint64
 
-	// Empty announces to the client a empty response and that no data rows should
+	// Empty announces to the client an empty response and that no data rows should
 	// be expected.
 	Empty() error
 
 	// Complete announces to the client that the command has been completed and
 	// no further data should be expected.
+	//
+	// See [CommandComplete] for the expected format for different queries.
+	//
+	// [CommandComplete]: https://www.postgresql.org/docs/current/protocol-message-formats.html#PROTOCOL-MESSAGE-FORMATS-COMMANDCOMPLETE
 	Complete(description string) error
 }
 
-// ErrDataWritten is thrown when an empty result is attempted to be send to the
+// ErrDataWritten is returned when an empty result is attempted to be sent to the
 // client while data has already been written.
 var ErrDataWritten = errors.New("data has already been written")
 
-// ErrClosedWriter is thrown when the data writer has been closed
+// ErrClosedWriter is returned when the data writer has been closed.
 var ErrClosedWriter = errors.New("closed writer")
 
 // NewDataWriter constructs a new data writer using the given context and

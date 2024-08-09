@@ -121,10 +121,5 @@ func (cache *DefaultPortalCache) Execute(ctx context.Context, name string, write
 		return nil
 	}
 
-	err = portal.statement.fn(ctx, NewDataWriter(ctx, portal.statement.columns, portal.formats, writer), portal.parameters)
-	if err != nil {
-		return err
-	}
-
-	return err
+	return portal.statement.fn(ctx, NewDataWriter(ctx, portal.statement.columns, portal.formats, writer), portal.parameters)
 }
