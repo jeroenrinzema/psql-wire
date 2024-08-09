@@ -3,6 +3,7 @@ package wire
 import (
 	"context"
 	"errors"
+	"io"
 
 	"github.com/jeroenrinzema/psql-wire/pkg/buffer"
 	"github.com/jeroenrinzema/psql-wire/pkg/types"
@@ -33,8 +34,9 @@ type DataWriter interface {
 	// [CommandComplete]: https://www.postgresql.org/docs/current/protocol-message-formats.html#PROTOCOL-MESSAGE-FORMATS-COMMANDCOMPLETE
 	Complete(description string) error
 
-	// CopyIn is incomplete
-	CopyIn() error
+	// CopyIn is incomplete.
+	// format is expected to be one of [TextFormat] or [BinaryFormat].
+	CopyIn(format FormatCode, in io.Writer) error
 }
 
 // ErrDataWritten is returned when an empty result is attempted to be sent to the
@@ -91,17 +93,21 @@ func (writer *dataWriter) Row(values []any) error {
 // CopyDataFn should behave as an iterator, returning the next row of data to be
 // copied to the server. When there is no more data to be copied, the function
 // should return [io.EOF]. Any other error will abort the copy operation.
-type CopyDataFn func(context.Context) ([]any, error)
+type CopyDataFn func(context.Context) ([]byte, error)
 
-func (writer *dataWriter) CopyIn() error {
+// CopyInFn is a handler for data received from the client in a COPY IN operation.
+// Returning an error will abort the copy operation.
+type CopyInFn func([]byte) error
+
+func (writer *dataWriter) CopyIn(format FormatCode, in io.Writer) error {
 	if writer.closed {
 		return ErrClosedWriter
 	}
-	// if writer.reader == nil {
-	// 	return errors.New("reader is nil; use PortalCacheCopy to execute CopyIn")
-	// }
+	if writer.copy == nil {
+		return errors.New("DataCopyFn is nil; use PortalCacheCopy to execute CopyIn")
+	}
 	writer.client.Start(types.ServerCopyInResponse)
-	writer.client.AddByte(0)
+	writer.client.AddByte(byte(format))
 	const n = 3
 	writer.client.AddInt16(n)
 	for i := 0; i < n; i++ {
@@ -111,7 +117,18 @@ func (writer *dataWriter) CopyIn() error {
 		return err
 	}
 
-	return nil
+	for i := 0; ; i++ {
+		data, err := writer.copy(writer.ctx)
+		if err == io.EOF {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		if _, err := in.Write(data); err != nil {
+			return err
+		}
+	}
 }
 
 func (writer *dataWriter) Empty() error {

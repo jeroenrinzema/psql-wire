@@ -45,6 +45,13 @@ func NewErrMultipleCommandsStatements() error {
 	return psqlerr.WithSeverity(psqlerr.WithCode(err, codes.Syntax), psqlerr.LevelError)
 }
 
+// newErrClientCopyFailed is returned whenever the client aborts a copy operation.
+func newErrClientCopyFailed(desc string) error {
+	err := fmt.Errorf("client aborted copy: %s", desc)
+	// TODO: What error code should this really be?
+	return psqlerr.WithSeverity(psqlerr.WithCode(err, codes.Uncategorized), psqlerr.LevelError)
+}
+
 // consumeCommands consumes incoming commands sent over the Postgres wire connection.
 // Commands consumed from the connection are returned through a go channel.
 // Responses for the given message type are written back to the client.
@@ -136,7 +143,7 @@ func handleMessageSizeExceeded(reader *buffer.Reader, writer *buffer.Writer, exc
 // message type and reader buffer containing the actual message. The type
 // indecates a action executed by the client.
 // https://www.postgresql.org/docs/14/protocol-message-formats.html
-func (srv *Server) handleCommand(conn net.Conn) func(context.Context, types.ClientMessage, *buffer.Reader, *buffer.Writer) error {
+func (srv *Server) handleCommand(conn net.Conn) commandHandler {
 	return func(ctx context.Context, t types.ClientMessage, reader *buffer.Reader, writer *buffer.Writer) error {
 		ctx, cancel := context.WithCancel(ctx)
 		defer cancel()
@@ -235,37 +242,48 @@ func (srv *Server) handleCommand(conn net.Conn) func(context.Context, types.Clie
 
 // copyDataFn returns the default [CopyDataFn] function.
 func (srv *Server) copyDataFn(reader *buffer.Reader, writer *buffer.Writer) CopyDataFn {
-	return func(ctx context.Context) ([]any, error) {
-		if err := srv.commandLoop(ctx, reader, writer, srv.handleCopyInCommand); err != nil {
-			return nil, err
+	return func(ctx context.Context) ([]byte, error) {
+		var results []byte
+		err := srv.commandLoop(ctx, reader, writer, srv.handleCopyInCommand(func(r []byte) { results = r }))
+		if err == errClientCopyDone {
+			err = io.EOF
 		}
-		return nil, nil
+		srv.logger.Debug("srv.copyDataFn", slog.String("results", string(results)))
+		return results, err
 	}
 }
 
 // handleCopyInCommand handles the given client message, while in CopyIn mode.
-func (srv *Server) handleCopyInCommand(ctx context.Context, t types.ClientMessage, reader *buffer.Reader, writer *buffer.Writer) error {
-	ctx, cancel := context.WithCancel(ctx)
-	defer cancel()
-
-	switch t {
-	case types.ClientFlush, types.ClientSync:
-		// The backend will ignore Flush and Sync messages received during copy-in mode.
-		// https://www.postgresql.org/docs/current/protocol-flow.html#PROTOCOL-COPY
-		return nil
-	case types.ClientCopyData:
-		return nil
-	case types.ClientCopyDone:
-		return nil
-	case types.ClientCopyFail:
-		return nil
-	default:
-		// Receipt of any other non-copy message type constitutes an error that
-		// will abort the copy-in state as described above.
-		// https://www.postgresql.org/docs/current/protocol-flow.html#PROTOCOL-COPY
-		return ErrorCode(writer, NewErrUnimplementedMessageType(t))
+func (srv *Server) handleCopyInCommand(resultCb func([]byte)) commandHandler {
+	return func(ctx context.Context, t types.ClientMessage, reader *buffer.Reader, writer *buffer.Writer) error {
+		switch t {
+		case types.ClientFlush, types.ClientSync:
+			// The backend will ignore Flush and Sync messages received during copy-in mode.
+			// https://www.postgresql.org/docs/current/protocol-flow.html#PROTOCOL-COPY
+			return nil
+		case types.ClientCopyData:
+			resultCb(reader.Msg)
+			return nil
+		case types.ClientCopyDone:
+			return errClientCopyDone
+		case types.ClientCopyFail:
+			desc, err := reader.GetString()
+			if err != nil {
+				return err
+			}
+			return ErrorCode(writer, newErrClientCopyFailed(desc))
+		default:
+			// Receipt of any other non-copy message type constitutes an error that
+			// will abort the copy-in state as described above.
+			// https://www.postgresql.org/docs/current/protocol-flow.html#PROTOCOL-COPY
+			return ErrorCode(writer, NewErrUnimplementedMessageType(t))
+		}
 	}
 }
+
+// errClientCopyDone internal sentinel error value distinct from [io.EOF], since
+// that has special meaning in [commandLoop].
+var errClientCopyDone = errors.New("client sent CopyDone")
 
 func (srv *Server) handleSimpleQuery(ctx context.Context, reader *buffer.Reader, writer *buffer.Writer) error {
 	if srv.parse == nil {

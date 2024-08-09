@@ -1,6 +1,7 @@
 package wire
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
 	"fmt"
@@ -518,10 +519,11 @@ func TestServerCopyIn(t *testing.T) {
 			case "BEGIN READ WRITE":
 				return writer.Complete("BEGIN")
 			}
-			if err := writer.CopyIn(); err != nil {
+			buf := &bytes.Buffer{}
+			if err := writer.CopyIn(BinaryFormat, buf); err != nil {
 				t.Fatal(err)
 			}
-			return writer.Complete("COPY IN")
+			return writer.Complete("COPY 2")
 		}
 
 		return Prepared(NewStatement(handle)), nil
