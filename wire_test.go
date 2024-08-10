@@ -514,13 +514,14 @@ func TestServerCopyIn(t *testing.T) {
 	t.Parallel()
 
 	handler := func(ctx context.Context, query string) (PreparedStatements, error) {
+		t.Log("preparing QUERY", query)
 		handle := func(ctx context.Context, writer DataWriter, parameters []Parameter) error {
-			t.Log("serving QUERY", query)
+			t.Log("executing QUERY", query)
 			switch query {
 			case "BEGIN READ WRITE":
 				return writer.Complete("BEGIN")
 			}
-			r, err := writer.CopyIn(BinaryFormat)
+			r, err := writer.CopyIn(BinaryFormat, []FormatCode{BinaryFormat, BinaryFormat, BinaryFormat})
 			if err != nil {
 				return err
 			}

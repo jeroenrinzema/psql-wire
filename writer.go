@@ -35,9 +35,12 @@ type DataWriter interface {
 	Complete(description string) error
 
 	// CopyIn sends a [CopyInResponse] to the client, to initiate a CopyIn
-	// operation. format must be either [TextFormat] or [BinaryFormat]. The
-	// returned reader will receive the raw data stream from the client.
-	CopyIn(format FormatCode) (io.Reader, error)
+	// operation. All format values must be either [TextFormat] or [BinaryFormat].
+	// When overallFormat is [TextFormat], all columnFormats must be [TextFormat]. When
+	// overallFormat is BinaryFormat, columnFormats may be either [TextFormat] or
+	// [BinaryFormat]. You must provide one columnFormat value for each column
+	// expected by the CopyIn operation.
+	CopyIn(overallFormat FormatCode, columnFormats []FormatCode) (io.Reader, error)
 }
 
 // ErrDataWritten is returned when an empty result is attempted to be sent to the
@@ -96,25 +99,18 @@ func (writer *dataWriter) Row(values []any) error {
 // should return [io.EOF]. Any other error will abort the copy operation.
 type CopyDataFn func(context.Context) ([]byte, error)
 
-// CopyInFn is a handler for data received from the client in a COPY IN operation.
-// Returning an error will abort the copy operation.
-type CopyInFn func([]byte) error
-
-func (writer *dataWriter) CopyIn(format FormatCode) (io.Reader, error) {
+func (writer *dataWriter) CopyIn(overallFormat FormatCode, columnFormats []FormatCode) (io.Reader, error) {
 	if writer.closed {
 		return nil, ErrClosedWriter
 	}
 	if writer.copy == nil {
 		return nil, errors.New("DataCopyFn is nil; use PortalCacheCopy to execute CopyIn")
 	}
-	writer.client.Start(types.ServerCopyInResponse)
-	writer.client.AddByte(byte(format))
-	const n = 3
-	writer.client.AddInt16(n)
-	for i := 0; i < n; i++ {
-		writer.client.AddInt16(0)
+	if len(columnFormats) == 0 {
+		return nil, errors.New("CopyIn must have at least one column")
 	}
-	if err := writer.client.End(); err != nil {
+
+	if err := writer.sendCopyInResponse(overallFormat, columnFormats); err != nil {
 		return nil, err
 	}
 
@@ -123,6 +119,21 @@ func (writer *dataWriter) CopyIn(format FormatCode) (io.Reader, error) {
 			return writer.copy(writer.ctx)
 		},
 	}, nil
+}
+
+// sendCopyInResponse sends a [CopyInResponse] to the client, to initiate a
+// CopyIn operation. format must be either [TextFormat] or [BinaryFormat], and
+// columnCount must be >= 1.
+//
+// [CopyInResponse]: https://www.postgresql.org/docs/current/protocol-message-formats.html#PROTOCOL-MESSAGE-FORMATS-COPYINRESPONSE
+func (writer *dataWriter) sendCopyInResponse(format FormatCode, columnFormats []FormatCode) error {
+	writer.client.Start(types.ServerCopyInResponse)
+	writer.client.AddByte(byte(format))
+	writer.client.AddInt16(int16(len(columnFormats)))
+	for _, columnFormat := range columnFormats {
+		writer.client.AddInt16(int16(columnFormat))
+	}
+	return writer.client.End()
 }
 
 type copyInReader struct {
