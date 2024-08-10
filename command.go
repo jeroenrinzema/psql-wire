@@ -248,7 +248,6 @@ func (srv *Server) copyDataFn(reader *buffer.Reader, writer *buffer.Writer) Copy
 		if err == errClientCopyDone {
 			err = io.EOF
 		}
-		srv.logger.Debug("srv.copyDataFn", slog.String("results", string(results)))
 		return results, err
 	}
 }
