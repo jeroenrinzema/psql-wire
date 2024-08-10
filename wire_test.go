@@ -5,6 +5,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"io"
 	"net"
 	"testing"
 
@@ -519,9 +520,13 @@ func TestServerCopyIn(t *testing.T) {
 			case "BEGIN READ WRITE":
 				return writer.Complete("BEGIN")
 			}
+			r, err := writer.CopyIn(BinaryFormat)
+			if err != nil {
+				return err
+			}
 			buf := &bytes.Buffer{}
-			if err := writer.CopyIn(BinaryFormat, buf); err != nil {
-				t.Fatal(err)
+			if _, err := io.Copy(buf, r); err != nil {
+				return err
 			}
 			return writer.Complete("COPY 2")
 		}

@@ -34,9 +34,10 @@ type DataWriter interface {
 	// [CommandComplete]: https://www.postgresql.org/docs/current/protocol-message-formats.html#PROTOCOL-MESSAGE-FORMATS-COMMANDCOMPLETE
 	Complete(description string) error
 
-	// CopyIn is incomplete.
-	// format is expected to be one of [TextFormat] or [BinaryFormat].
-	CopyIn(format FormatCode, in io.Writer) error
+	// CopyIn sends a [CopyInResponse] to the client, to initiate a CopyIn
+	// operation. format must be either [TextFormat] or [BinaryFormat]. The
+	// returned reader will receive the raw data stream from the client.
+	CopyIn(format FormatCode) (io.Reader, error)
 }
 
 // ErrDataWritten is returned when an empty result is attempted to be sent to the
@@ -99,12 +100,12 @@ type CopyDataFn func(context.Context) ([]byte, error)
 // Returning an error will abort the copy operation.
 type CopyInFn func([]byte) error
 
-func (writer *dataWriter) CopyIn(format FormatCode, in io.Writer) error {
+func (writer *dataWriter) CopyIn(format FormatCode) (io.Reader, error) {
 	if writer.closed {
-		return ErrClosedWriter
+		return nil, ErrClosedWriter
 	}
 	if writer.copy == nil {
-		return errors.New("DataCopyFn is nil; use PortalCacheCopy to execute CopyIn")
+		return nil, errors.New("DataCopyFn is nil; use PortalCacheCopy to execute CopyIn")
 	}
 	writer.client.Start(types.ServerCopyInResponse)
 	writer.client.AddByte(byte(format))
@@ -114,21 +115,32 @@ func (writer *dataWriter) CopyIn(format FormatCode, in io.Writer) error {
 		writer.client.AddInt16(0)
 	}
 	if err := writer.client.End(); err != nil {
-		return err
+		return nil, err
 	}
 
-	for i := 0; ; i++ {
-		data, err := writer.copy(writer.ctx)
-		if err == io.EOF {
-			return nil
-		}
+	return &copyInReader{
+		copy: func() ([]byte, error) {
+			return writer.copy(writer.ctx)
+		},
+	}, nil
+}
+
+type copyInReader struct {
+	buf  []byte
+	copy func() ([]byte, error)
+}
+
+func (r *copyInReader) Read(p []byte) (int, error) {
+	if len(r.buf) == 0 {
+		data, err := r.copy()
 		if err != nil {
-			return err
+			return 0, err
 		}
-		if _, err := in.Write(data); err != nil {
-			return err
-		}
+		r.buf = data
 	}
+	n := copy(p, r.buf)
+	r.buf = r.buf[n:]
+	return n, nil
 }
 
 func (writer *dataWriter) Empty() error {
