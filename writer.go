@@ -94,11 +94,6 @@ func (writer *dataWriter) Row(values []any) error {
 	return writer.columns.Write(writer.ctx, writer.formats, writer.client, values)
 }
 
-// CopyDataFn should behave as an iterator, returning the next row of data to be
-// copied to the server. When there is no more data to be copied, the function
-// should return [io.EOF]. Any other error will abort the copy operation.
-type CopyDataFn func(context.Context) ([]byte, error)
-
 func (writer *dataWriter) CopyIn(overallFormat FormatCode, columnFormats []FormatCode) (io.Reader, error) {
 	if writer.closed {
 		return nil, ErrClosedWriter
@@ -130,24 +125,6 @@ func (writer *dataWriter) sendCopyInResponse(format FormatCode, columnFormats []
 		writer.client.AddInt16(int16(columnFormat))
 	}
 	return writer.client.End()
-}
-
-type copyInReader struct {
-	buf  []byte
-	copy func() ([]byte, error)
-}
-
-func (r *copyInReader) Read(p []byte) (int, error) {
-	if len(r.buf) == 0 {
-		data, err := r.copy()
-		if err != nil {
-			return 0, err
-		}
-		r.buf = data
-	}
-	n := copy(p, r.buf)
-	r.buf = r.buf[n:]
-	return n, nil
 }
 
 func (writer *dataWriter) Empty() error {

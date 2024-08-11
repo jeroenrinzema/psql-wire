@@ -240,8 +240,7 @@ func (srv *Server) handleCommand(conn net.Conn) commandHandler {
 	}
 }
 
-// copyDataFn returns the default [CopyDataFn] function.
-func (srv *Server) copyDataFn(ctx context.Context, reader *buffer.Reader, writer *buffer.Writer) io.Reader {
+func (srv *Server) copyData(ctx context.Context, reader *buffer.Reader, writer *buffer.Writer) io.Reader {
 	return &copyDataReader{
 		more: func() ([]byte, error) {
 			var results []byte
@@ -346,7 +345,7 @@ func (srv *Server) handleSimpleQuery(ctx context.Context, reader *buffer.Reader,
 			return ErrorCode(writer, err)
 		}
 
-		err = statements[index].fn(ctx, NewDataWriter(ctx, statements[index].columns, nil, writer, srv.copyDataFn(ctx, reader, writer)), nil)
+		err = statements[index].fn(ctx, NewDataWriter(ctx, statements[index].columns, nil, writer, srv.copyData(ctx, reader, writer)), nil)
 		if err != nil {
 			return ErrorCode(writer, err)
 		}
@@ -626,7 +625,7 @@ func (srv *Server) handleExecute(ctx context.Context, reader *buffer.Reader, wri
 
 	srv.logger.Debug("executing", slog.String("name", name), slog.Uint64("limit", uint64(limit)))
 	if pcCopyIn, ok := srv.Portals.(PortalCacheCopyIn); ok {
-		err = pcCopyIn.ExecuteCopyIn(ctx, name, writer, srv.copyDataFn(ctx, reader, writer))
+		err = pcCopyIn.ExecuteCopyIn(ctx, name, writer, srv.copyData(ctx, reader, writer))
 	} else {
 		err = srv.Portals.Execute(ctx, name, writer)
 	}
