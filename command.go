@@ -70,50 +70,50 @@ func (srv *Server) consumeCommands(ctx context.Context, conn net.Conn, reader *b
 		return err
 	}
 
-	return srv.commandLoop(ctx, reader, writer, srv.handleCommand(conn))
+	for {
+		if err = srv.consumeSingleCommand(ctx, reader, writer, srv.handleCommand(conn)); err != nil {
+			return err
+		}
+	}
 }
 
 type commandHandler func(context.Context, types.ClientMessage, *buffer.Reader, *buffer.Writer) error
 
-func (srv *Server) commandLoop(ctx context.Context, reader *buffer.Reader, writer *buffer.Writer, handleCommand commandHandler) error {
-	for {
-		t, length, err := reader.ReadTypedMsg()
-		if err == io.EOF {
-			return nil
-		}
-
-		// NOTE: we could recover from this scenario
-		if errors.Is(err, buffer.ErrMessageSizeExceeded) {
-			err = handleMessageSizeExceeded(reader, writer, err)
-			if err != nil {
-				return err
-			}
-
-			continue
-		}
-
-		if err != nil {
-			return err
-		}
-
-		if srv.closing.Load() {
-			return nil
-		}
-
-		// NOTE: we increase the wait group by one in order to make sure that idle
-		// connections are not blocking a close.
-		srv.wg.Add(1)
-		srv.logger.Debug("<- incoming command", slog.Int("length", length), slog.String("type", t.String()))
-		err = handleCommand(ctx, t, reader, writer)
-		srv.wg.Done()
-		if errors.Is(err, io.EOF) {
-			return nil
-		}
-
-		if err != nil {
-			return err
-		}
+func (srv *Server) consumeSingleCommand(ctx context.Context, reader *buffer.Reader, writer *buffer.Writer, handleCommand commandHandler) error {
+	t, length, err := reader.ReadTypedMsg()
+	if err == io.EOF {
+		return nil
 	}
+
+	// NOTE: we could recover from this scenario
+	if errors.Is(err, buffer.ErrMessageSizeExceeded) {
+		err = handleMessageSizeExceeded(reader, writer, err)
+		if err != nil {
+			return err
+		}
+
+		return nil
+	}
+
+	if err != nil {
+		return err
+	}
+
+	if srv.closing.Load() {
+		return nil
+	}
+
+	// NOTE: we increase the wait group by one in order to make sure that idle
+	// connections are not blocking a close.
+	srv.wg.Add(1)
+	srv.logger.Debug("<- incoming command", slog.Int("length", length), slog.String("type", t.String()))
+	err = handleCommand(ctx, t, reader, writer)
+	srv.wg.Done()
+	if errors.Is(err, io.EOF) {
+		return nil
+	}
+
+	return err
 }
 
 // handleMessageSizeExceeded attempts to unwrap the given error message as
@@ -244,7 +244,7 @@ func (srv *Server) handleCommand(conn net.Conn) commandHandler {
 func (srv *Server) copyDataFn(reader *buffer.Reader, writer *buffer.Writer) CopyDataFn {
 	return func(ctx context.Context) ([]byte, error) {
 		var results []byte
-		err := srv.commandLoop(ctx, reader, writer, srv.handleCopyInCommand(func(r []byte) { results = r }))
+		err := srv.consumeSingleCommand(ctx, reader, writer, srv.handleCopyInCommand(func(r []byte) { results = r }))
 		if err == errClientCopyDone {
 			err = io.EOF
 		}
