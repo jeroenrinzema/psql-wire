@@ -54,25 +54,25 @@ var ErrClosedWriter = errors.New("closed writer")
 // buffer. The returned writer should be handled with caution as it is not safe
 // for concurrent use. Concurrent access to the same data without proper
 // synchronization can result in unexpected behavior and data corruption.
-func NewDataWriter(ctx context.Context, columns Columns, formats []FormatCode, writer *buffer.Writer, copy CopyDataFn) DataWriter {
+func NewDataWriter(ctx context.Context, columns Columns, formats []FormatCode, writer *buffer.Writer, copyData io.Reader) DataWriter {
 	return &dataWriter{
-		ctx:     ctx,
-		columns: columns,
-		formats: formats,
-		client:  writer,
-		copy:    copy,
+		ctx:      ctx,
+		columns:  columns,
+		formats:  formats,
+		client:   writer,
+		copyData: copyData,
 	}
 }
 
 // dataWriter is a implementation of the DataWriter interface.
 type dataWriter struct {
-	ctx     context.Context
-	columns Columns
-	formats []FormatCode
-	client  *buffer.Writer
-	closed  bool
-	written uint64
-	copy    CopyDataFn
+	ctx      context.Context
+	columns  Columns
+	formats  []FormatCode
+	client   *buffer.Writer
+	closed   bool
+	written  uint64
+	copyData io.Reader
 }
 
 func (writer *dataWriter) Define(columns Columns) error {
@@ -103,7 +103,7 @@ func (writer *dataWriter) CopyIn(overallFormat FormatCode, columnFormats []Forma
 	if writer.closed {
 		return nil, ErrClosedWriter
 	}
-	if writer.copy == nil {
+	if writer.copyData == nil {
 		return nil, errors.New("DataCopyFn is nil; use PortalCacheCopy to execute CopyIn")
 	}
 	if len(columnFormats) == 0 {
@@ -114,11 +114,7 @@ func (writer *dataWriter) CopyIn(overallFormat FormatCode, columnFormats []Forma
 		return nil, err
 	}
 
-	return &copyInReader{
-		copy: func() ([]byte, error) {
-			return writer.copy(writer.ctx)
-		},
-	}, nil
+	return writer.copyData, nil
 }
 
 // sendCopyInResponse sends a [CopyInResponse] to the client, to initiate a

@@ -241,15 +241,35 @@ func (srv *Server) handleCommand(conn net.Conn) commandHandler {
 }
 
 // copyDataFn returns the default [CopyDataFn] function.
-func (srv *Server) copyDataFn(reader *buffer.Reader, writer *buffer.Writer) CopyDataFn {
-	return func(ctx context.Context) ([]byte, error) {
-		var results []byte
-		err := srv.consumeSingleCommand(ctx, reader, writer, srv.handleCopyInCommand(func(r []byte) { results = r }))
-		if err == errClientCopyDone {
-			err = io.EOF
-		}
-		return results, err
+func (srv *Server) copyDataFn(ctx context.Context, reader *buffer.Reader, writer *buffer.Writer) io.Reader {
+	return &copyDataReader{
+		more: func() ([]byte, error) {
+			var results []byte
+			err := srv.consumeSingleCommand(ctx, reader, writer, srv.handleCopyInCommand(func(r []byte) { results = r }))
+			if err == errClientCopyDone {
+				err = io.EOF
+			}
+			return results, err
+		},
 	}
+}
+
+type copyDataReader struct {
+	buf  []byte
+	more func() ([]byte, error)
+}
+
+func (r *copyDataReader) Read(p []byte) (n int, err error) {
+	if len(r.buf) == 0 {
+		r.buf, err = r.more()
+		if err != nil {
+			return 0, err
+		}
+	}
+
+	n = copy(p, r.buf)
+	r.buf = r.buf[n:]
+	return n, nil
 }
 
 // handleCopyInCommand handles the given client message, while in CopyIn mode.
@@ -326,7 +346,7 @@ func (srv *Server) handleSimpleQuery(ctx context.Context, reader *buffer.Reader,
 			return ErrorCode(writer, err)
 		}
 
-		err = statements[index].fn(ctx, NewDataWriter(ctx, statements[index].columns, nil, writer, srv.copyDataFn(reader, writer)), nil)
+		err = statements[index].fn(ctx, NewDataWriter(ctx, statements[index].columns, nil, writer, srv.copyDataFn(ctx, reader, writer)), nil)
 		if err != nil {
 			return ErrorCode(writer, err)
 		}
@@ -606,7 +626,7 @@ func (srv *Server) handleExecute(ctx context.Context, reader *buffer.Reader, wri
 
 	srv.logger.Debug("executing", slog.String("name", name), slog.Uint64("limit", uint64(limit)))
 	if pcCopyIn, ok := srv.Portals.(PortalCacheCopyIn); ok {
-		err = pcCopyIn.ExecuteCopyIn(ctx, name, writer, srv.copyDataFn(reader, writer))
+		err = pcCopyIn.ExecuteCopyIn(ctx, name, writer, srv.copyDataFn(ctx, reader, writer))
 	} else {
 		err = srv.Portals.Execute(ctx, name, writer)
 	}

@@ -3,6 +3,7 @@ package wire
 import (
 	"context"
 	"fmt"
+	"io"
 	"sync"
 
 	"github.com/jeroenrinzema/psql-wire/pkg/buffer"
@@ -105,7 +106,7 @@ func (cache *DefaultPortalCache) Execute(ctx context.Context, name string, write
 	return cache.ExecuteCopyIn(ctx, name, writer, nil)
 }
 
-func (cache *DefaultPortalCache) ExecuteCopyIn(ctx context.Context, name string, writer *buffer.Writer, fn CopyDataFn) (err error) {
+func (cache *DefaultPortalCache) ExecuteCopyIn(ctx context.Context, name string, writer *buffer.Writer, copyData io.Reader) (err error) {
 	defer func() {
 		r := recover()
 		if r != nil {
@@ -125,5 +126,5 @@ func (cache *DefaultPortalCache) ExecuteCopyIn(ctx context.Context, name string,
 		return nil
 	}
 
-	return portal.statement.fn(ctx, NewDataWriter(ctx, portal.statement.columns, portal.formats, writer, fn), portal.parameters)
+	return portal.statement.fn(ctx, NewDataWriter(ctx, portal.statement.columns, portal.formats, writer, copyData), portal.parameters)
 }

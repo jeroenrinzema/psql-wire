@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/tls"
 	"crypto/x509"
+	"io"
 	"log/slog"
 	"regexp"
 	"strconv"
@@ -101,9 +102,9 @@ type PortalCache interface {
 // PortalCacheCopyIn extends [PortalCache] to support the COPY IN protocol.
 type PortalCacheCopyIn interface {
 	PortalCache
-	// ExecuteCopyIn executes the named cached statement. copyFn is ignored and
+	// ExecuteCopyIn executes the named cached statement. copyData is ignored and
 	// may be nil for queries that do not use the COPY IN protocol.
-	ExecuteCopyIn(ctx context.Context, name string, writer *buffer.Writer, copyFn CopyDataFn) error
+	ExecuteCopyIn(ctx context.Context, name string, writer *buffer.Writer, copyData io.Reader) error
 }
 
 type CloseFn func(ctx context.Context) error
