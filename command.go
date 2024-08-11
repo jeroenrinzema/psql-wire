@@ -241,27 +241,25 @@ func (srv *Server) handleCommand(conn net.Conn) commandHandler {
 }
 
 func (srv *Server) copyData(ctx context.Context, reader *buffer.Reader, writer *buffer.Writer) io.Reader {
-	return &copyDataReader{
-		more: func() ([]byte, error) {
-			var results []byte
-			err := srv.consumeSingleCommand(ctx, reader, writer, srv.handleCopyInCommand(func(r []byte) { results = r }))
-			if err == errClientCopyDone {
-				err = io.EOF
-			}
-			return results, err
-		},
+	r := &copyDataReader{}
+	r.more = func() error {
+		err := srv.consumeSingleCommand(ctx, reader, writer, srv.handleCopyInCommand(r))
+		if err == errClientCopyDone {
+			return io.EOF
+		}
+		return err
 	}
+	return r
 }
 
 type copyDataReader struct {
 	buf  []byte
-	more func() ([]byte, error)
+	more func() error
 }
 
 func (r *copyDataReader) Read(p []byte) (n int, err error) {
 	if len(r.buf) == 0 {
-		r.buf, err = r.more()
-		if err != nil {
+		if err := r.more(); err != nil {
 			return 0, err
 		}
 	}
@@ -272,7 +270,7 @@ func (r *copyDataReader) Read(p []byte) (n int, err error) {
 }
 
 // handleCopyInCommand handles the given client message, while in CopyIn mode.
-func (srv *Server) handleCopyInCommand(resultCb func([]byte)) commandHandler {
+func (srv *Server) handleCopyInCommand(r *copyDataReader) commandHandler {
 	return func(ctx context.Context, t types.ClientMessage, reader *buffer.Reader, writer *buffer.Writer) error {
 		switch t {
 		case types.ClientFlush, types.ClientSync:
@@ -280,7 +278,7 @@ func (srv *Server) handleCopyInCommand(resultCb func([]byte)) commandHandler {
 			// https://www.postgresql.org/docs/current/protocol-flow.html#PROTOCOL-COPY
 			return nil
 		case types.ClientCopyData:
-			resultCb(reader.Msg)
+			r.buf = reader.Msg
 			return nil
 		case types.ClientCopyDone:
 			return errClientCopyDone
