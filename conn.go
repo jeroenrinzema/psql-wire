@@ -31,11 +31,11 @@ func TypeMap(ctx context.Context) *pgtype.Map {
 }
 
 // Parameters represents a parameters collection of parameter status keys and
-// their values
+// their values.
 type Parameters map[ParameterStatus]string
 
 // ParameterStatus represents a metadata key that could be defined inside a server/client
-// metadata definition
+// metadata definition.
 type ParameterStatus string
 
 // At present there is a hard-wired set of parameters for which ParameterStatus

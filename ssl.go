@@ -1,6 +1,6 @@
 package wire
 
-// sslIdentifier represents a the bytes identifying whether the given connection
+// sslIdentifier represents the bytes identifying whether the given connection
 // supports SSL.
 type sslIdentifier []byte
 

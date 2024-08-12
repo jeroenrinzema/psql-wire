@@ -24,7 +24,7 @@ const (
 	errFieldConstraintName errFieldType = 'n'
 )
 
-// ErrorCode writes a error message as response to a command with the given
+// ErrorCode writes an error message as response to a command with the given
 // severity and error message. A ready for query message is written back to the
 // client once the error has been written indicating the end of a command cycle.
 // https://www.postgresql.org/docs/current/static/protocol-error-fields.html

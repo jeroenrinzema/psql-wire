@@ -22,7 +22,7 @@ const (
 	authClearTextPassword authType = 3
 )
 
-// AuthStrategy represents a authentication strategy used to authenticate a user
+// AuthStrategy represents an authentication strategy used to authenticate a user.
 type AuthStrategy func(ctx context.Context, writer *buffer.Writer, reader *buffer.Reader) (_ context.Context, err error)
 
 // handleAuth handles the client authentication for the given connection.
@@ -44,7 +44,7 @@ func (srv *Server) handleAuth(ctx context.Context, reader *buffer.Reader, writer
 // ClearTextPassword announces to the client to authenticate by sending a
 // clear text password and validates if the provided username and password (received
 // inside the client parameters) are valid. If the provided credentials are invalid
-// or any unexpected error occures is an error returned and should the connection be closed.
+// or any unexpected error occurs, an error returned and the connection should be closed.
 func ClearTextPassword(validate func(ctx context.Context, username, password string) (context.Context, bool, error)) AuthStrategy {
 	return func(ctx context.Context, writer *buffer.Writer, reader *buffer.Reader) (_ context.Context, err error) {
 		err = writeAuthType(writer, authClearTextPassword)
@@ -88,13 +88,13 @@ func writeAuthType(writer *buffer.Writer, status authType) error {
 	return writer.End()
 }
 
-// IsSuperUser checks whether the given connection context is a super user
+// IsSuperUser checks whether the given connection context is a super user.
 func IsSuperUser(ctx context.Context) bool {
 	return false
 }
 
 // AuthenticatedUsername returns the username of the authenticated user of the
-// given connection context
+// given connection context.
 func AuthenticatedUsername(ctx context.Context) string {
 	parameters := ClientParameters(ctx)
 	return parameters[ParamUsername]
