@@ -4,10 +4,9 @@ import (
 	"context"
 	"crypto/tls"
 	"crypto/x509"
+	"log/slog"
 	"regexp"
 	"strconv"
-
-	"log/slog"
 
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jeroenrinzema/psql-wire/pkg/buffer"
@@ -25,9 +24,10 @@ type PreparedStatementFn func(ctx context.Context, writer DataWriter, parameters
 
 // Prepared is a small wrapper function returning a list of prepared statements.
 // More then one prepared statement could be returned within the simple query
-// protocol. An error is returned when more then one prepared statement is
-// returned in the extended query protocol.
-// https://www.postgresql.org/docs/15/protocol-flow.html#PROTOCOL-FLOW-MULTI-STATEMENT
+// protocol. An error is returned when more than one prepared statement is
+// returned in the [extended query protocol].
+//
+// [extended query protocol]: https://www.postgresql.org/docs/15/protocol-flow.html#PROTOCOL-FLOW-MULTI-STATEMENT
 func Prepared(stmts ...*PreparedStatement) PreparedStatements {
 	return stmts
 }
@@ -103,7 +103,7 @@ type CloseFn func(ctx context.Context) error
 type OptionFn func(*Server) error
 
 // Statements sets the statement cache used to cache statements for later use. By
-// default is the DefaultStatementCache used to cache prepared statements.
+// default [DefaultStatementCache] is used.
 func Statements(cache StatementCache) OptionFn {
 	return func(srv *Server) error {
 		srv.Statements = cache
@@ -112,7 +112,7 @@ func Statements(cache StatementCache) OptionFn {
 }
 
 // Portals sets the portals cache used to cache statements for later use. By
-// default is the DefaultPortalCache used to evaluate portals.
+// default [DefaultPortalCache] is used.
 func Portals(cache PortalCache) OptionFn {
 	return func(srv *Server) error {
 		srv.Portals = cache
@@ -191,7 +191,7 @@ func GlobalParameters(params Parameters) OptionFn {
 	}
 }
 
-// Logger sets the given zap logger as the default logger for the given server.
+// Logger sets the given [slog.Logger] as the logger for the given server.
 func Logger(logger *slog.Logger) OptionFn {
 	return func(srv *Server) error {
 		srv.logger = logger
@@ -209,8 +209,8 @@ func Version(version string) OptionFn {
 }
 
 // ExtendTypes provides the ability to extend the underlying connection types.
-// Types registered inside the given pgtype.ConnInfo are registered to all
-// incoming connections.
+// Types registered inside the given [github.com/jackc/pgx/v5/pgtype.Map] are
+// registered to all incoming connections.
 func ExtendTypes(fn func(*pgtype.Map)) OptionFn {
 	return func(srv *Server) error {
 		fn(srv.types)
@@ -246,11 +246,12 @@ func Session(fn SessionHandler) OptionFn {
 
 // QueryParameters represents a regex which could be used to identify and lookup
 // parameters defined inside a given query. Parameters could be defined as
-// positional parameters and un-positional parameters.
-// https://www.postgresql.org/docs/15/sql-expressions.html#SQL-EXPRESSIONS-PARAMETERS-POSITIONAL
+// [positional parameters] and non-positional parameters.
+//
+// [positional parameters]: https://www.postgresql.org/docs/15/sql-expressions.html#SQL-EXPRESSIONS-PARAMETERS-POSITIONAL
 var QueryParameters = regexp.MustCompile(`\$(\d+)|\?`)
 
-// ParseParameters attempts ot parse the parameters in the given string and
+// ParseParameters attempts to parse the parameters in the given string and
 // returns the expected parameters. This is necessary for the query protocol
 // where the parameter types are expected to be defined in the extended query protocol.
 func ParseParameters(query string) []oid.Oid {
