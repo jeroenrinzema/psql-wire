@@ -3,6 +3,7 @@ package wire
 import (
 	"context"
 	"errors"
+	"io"
 
 	"github.com/jeroenrinzema/psql-wire/pkg/buffer"
 	"github.com/jeroenrinzema/psql-wire/pkg/types"
@@ -32,6 +33,14 @@ type DataWriter interface {
 	//
 	// [CommandComplete]: https://www.postgresql.org/docs/current/protocol-message-formats.html#PROTOCOL-MESSAGE-FORMATS-COMMANDCOMPLETE
 	Complete(description string) error
+
+	// CopyIn sends a [CopyInResponse] to the client, to initiate a CopyIn
+	// operation. All format values must be either [TextFormat] or [BinaryFormat].
+	// When overallFormat is [TextFormat], all columnFormats must be [TextFormat]. When
+	// overallFormat is BinaryFormat, columnFormats may be either [TextFormat] or
+	// [BinaryFormat]. You must provide one columnFormat value for each column
+	// expected by the CopyIn operation.
+	CopyIn(overallFormat FormatCode, columnFormats []FormatCode) (io.Reader, error)
 }
 
 // ErrDataWritten is returned when an empty result is attempted to be sent to the
@@ -45,23 +54,25 @@ var ErrClosedWriter = errors.New("closed writer")
 // buffer. The returned writer should be handled with caution as it is not safe
 // for concurrent use. Concurrent access to the same data without proper
 // synchronization can result in unexpected behavior and data corruption.
-func NewDataWriter(ctx context.Context, columns Columns, formats []FormatCode, writer *buffer.Writer) DataWriter {
+func NewDataWriter(ctx context.Context, columns Columns, formats []FormatCode, writer *buffer.Writer, copyData io.Reader) DataWriter {
 	return &dataWriter{
-		ctx:     ctx,
-		columns: columns,
-		formats: formats,
-		client:  writer,
+		ctx:      ctx,
+		columns:  columns,
+		formats:  formats,
+		client:   writer,
+		copyData: copyData,
 	}
 }
 
 // dataWriter is a implementation of the DataWriter interface.
 type dataWriter struct {
-	ctx     context.Context
-	columns Columns
-	formats []FormatCode
-	client  *buffer.Writer
-	closed  bool
-	written uint64
+	ctx      context.Context
+	columns  Columns
+	formats  []FormatCode
+	client   *buffer.Writer
+	closed   bool
+	written  uint64
+	copyData io.Reader
 }
 
 func (writer *dataWriter) Define(columns Columns) error {
@@ -81,6 +92,39 @@ func (writer *dataWriter) Row(values []any) error {
 	writer.written++
 
 	return writer.columns.Write(writer.ctx, writer.formats, writer.client, values)
+}
+
+func (writer *dataWriter) CopyIn(overallFormat FormatCode, columnFormats []FormatCode) (io.Reader, error) {
+	if writer.closed {
+		return nil, ErrClosedWriter
+	}
+	if writer.copyData == nil {
+		return nil, errors.New("DataCopyFn is nil; use PortalCacheCopy to execute CopyIn")
+	}
+	if len(columnFormats) == 0 {
+		return nil, errors.New("CopyIn must have at least one column")
+	}
+
+	if err := writer.sendCopyInResponse(overallFormat, columnFormats); err != nil {
+		return nil, err
+	}
+
+	return writer.copyData, nil
+}
+
+// sendCopyInResponse sends a [CopyInResponse] to the client, to initiate a
+// CopyIn operation. format must be either [TextFormat] or [BinaryFormat], and
+// columnCount must be >= 1.
+//
+// [CopyInResponse]: https://www.postgresql.org/docs/current/protocol-message-formats.html#PROTOCOL-MESSAGE-FORMATS-COPYINRESPONSE
+func (writer *dataWriter) sendCopyInResponse(format FormatCode, columnFormats []FormatCode) error {
+	writer.client.Start(types.ServerCopyInResponse)
+	writer.client.AddByte(byte(format))
+	writer.client.AddInt16(int16(len(columnFormats)))
+	for _, columnFormat := range columnFormats {
+		writer.client.AddInt16(int16(columnFormat))
+	}
+	return writer.client.End()
 }
 
 func (writer *dataWriter) Empty() error {

@@ -6,6 +6,9 @@ type ClientMessage byte
 // ServerMessage represents a server pgwire message.
 type ServerMessage byte
 
+// DescribeMessage represents a client describe message type.
+type DescribeMessage byte
+
 // http://www.postgresql.org/docs/9.4/static/protocol-message-formats.html
 const (
 	ClientBind        ClientMessage = 'B'
@@ -38,6 +41,9 @@ const (
 	ServerPortalSuspended      ServerMessage = 's'
 	ServerReady                ServerMessage = 'Z'
 	ServerRowDescription       ServerMessage = 'T'
+
+	DescribePortal    DescribeMessage = 'P'
+	DescribeStatement DescribeMessage = 'S'
 )
 
 func (m ClientMessage) String() string {
@@ -107,6 +113,17 @@ func (m ServerMessage) String() string {
 		return "Ready"
 	case ServerRowDescription:
 		return "RowDescription"
+	default:
+		return "Unknown"
+	}
+}
+
+func (m DescribeMessage) String() string {
+	switch m {
+	case DescribePortal:
+		return "Portal"
+	case DescribeStatement:
+		return "Statement"
 	default:
 		return "Unknown"
 	}
