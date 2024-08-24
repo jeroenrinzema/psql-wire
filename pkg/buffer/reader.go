@@ -54,7 +54,6 @@ func NewReader(logger *slog.Logger, reader io.Reader, bufferSize int) *Reader {
 func (reader *Reader) reset(size int) {
 	if reader.Msg != nil {
 		reader.Msg = reader.Msg[len(reader.Msg):]
-		return
 	}
 
 	if cap(reader.Msg) >= size {
@@ -153,7 +152,7 @@ func (reader *Reader) ReadUntypedMsg() (int, error) {
 
 	reader.reset(size)
 	n, err := io.ReadFull(reader.Buffer, reader.Msg)
-	return n, err
+	return len(reader.header) + n, err
 }
 
 // GetString reads a null-terminated string.
