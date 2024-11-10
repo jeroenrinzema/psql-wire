@@ -68,12 +68,22 @@ func (reader *Reader) reset(size int) {
 	reader.Msg = make([]byte, size, allocSize)
 }
 
+// ReadType reads the client message type from the provided reader.
+func (reader *Reader) ReadType() (types.ClientMessage, error) {
+	b, err := reader.Buffer.ReadByte()
+	if err != nil {
+		return 0, err
+	}
+
+	return types.ClientMessage(b), nil
+}
+
 // ReadTypedMsg reads a message from the provided reader, returning its type code and body.
 // It returns the message type, number of bytes read, and an error if there was one.
 func (reader *Reader) ReadTypedMsg() (types.ClientMessage, int, error) {
-	b, err := reader.Buffer.ReadByte()
+	typed, err := reader.ReadType()
 	if err != nil {
-		return 0, 0, err
+		return typed, 0, err
 	}
 
 	n, err := reader.ReadUntypedMsg()
@@ -81,7 +91,7 @@ func (reader *Reader) ReadTypedMsg() (types.ClientMessage, int, error) {
 		return 0, 0, err
 	}
 
-	return types.ClientMessage(b), n, nil
+	return typed, n, nil
 }
 
 // Slurp reads the remaining
@@ -107,6 +117,20 @@ func (reader *Reader) Slurp(size int) error {
 	return nil
 }
 
+// ReadMsgSize reads the length of the next message from the provided reader.
+func (reader *Reader) ReadMsgSize() (int, error) {
+	nread, err := io.ReadFull(reader.Buffer, reader.header[:])
+	if err != nil {
+		return nread, err
+	}
+
+	size := int(binary.BigEndian.Uint32(reader.header[:]))
+	// size includes itself.
+	size -= 4
+
+	return size, nil
+}
+
 // ReadUntypedMsg reads a length-prefixed message. It is only used directly
 // during the authentication phase of the protocol; [ReadTypedMsg] is used at all
 // other times. This returns the number of bytes read and an error, if there
@@ -117,22 +141,18 @@ func (reader *Reader) Slurp(size int) error {
 // If the error is related to consuming a buffer that is larger than the
 // maxMessageSize, the remaining bytes will be read but discarded.
 func (reader *Reader) ReadUntypedMsg() (int, error) {
-	nread, err := io.ReadFull(reader.Buffer, reader.header[:])
+	size, err := reader.ReadMsgSize()
 	if err != nil {
-		return nread, err
+		return 0, err
 	}
 
-	size := int(binary.BigEndian.Uint32(reader.header[:]))
-	// size includes itself.
-	size -= 4
-
 	if size > reader.MaxMessageSize || size < 0 {
-		return nread, NewMessageSizeExceeded(reader.MaxMessageSize, size)
+		return size, NewMessageSizeExceeded(reader.MaxMessageSize, size)
 	}
 
 	reader.reset(size)
 	n, err := io.ReadFull(reader.Buffer, reader.Msg)
-	return nread + n, err
+	return len(reader.header) + n, err
 }
 
 // GetString reads a null-terminated string.
