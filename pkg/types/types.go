@@ -39,3 +39,75 @@ const (
 	ServerReady                ServerMessage = 'Z'
 	ServerRowDescription       ServerMessage = 'T'
 )
+
+func (m ClientMessage) String() string {
+	switch m {
+	case ClientBind:
+		return "Bind"
+	case ClientClose:
+		return "Close"
+	case ClientCopyData:
+		return "CopyData"
+	case ClientCopyDone:
+		return "CopyDone"
+	case ClientCopyFail:
+		return "CopyFail"
+	case ClientDescribe:
+		return "Describe"
+	case ClientExecute:
+		return "Execute"
+	case ClientFlush:
+		return "Flush"
+	case ClientParse:
+		return "Parse"
+	case ClientPassword:
+		return "Password"
+	case ClientSimpleQuery:
+		return "SimpleQuery"
+	case ClientSync:
+		return "Sync"
+	case ClientTerminate:
+		return "Terminate"
+	default:
+		return "Unknown"
+	}
+}
+
+func (m ServerMessage) String() string {
+	switch m {
+	case ServerAuth:
+		return "Auth"
+	case ServerBindComplete:
+		return "BindComplete"
+	case ServerCommandComplete:
+		return "CommandComplete"
+	case ServerCloseComplete:
+		return "CloseComplete"
+	case ServerCopyInResponse:
+		return "CopyInResponse"
+	case ServerDataRow:
+		return "DataRow"
+	case ServerEmptyQuery:
+		return "EmptyQuery"
+	case ServerErrorResponse:
+		return "ErrorResponse"
+	case ServerNoticeResponse:
+		return "NoticeResponse"
+	case ServerNoData:
+		return "NoData"
+	case ServerParameterDescription:
+		return "ParameterDescription"
+	case ServerParameterStatus:
+		return "ParameterStatus"
+	case ServerParseComplete:
+		return "ParseComplete"
+	case ServerPortalSuspended:
+		return "PortalSuspended"
+	case ServerReady:
+		return "Ready"
+	case ServerRowDescription:
+		return "RowDescription"
+	default:
+		return "Unknown"
+	}
+}

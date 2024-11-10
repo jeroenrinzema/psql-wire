@@ -17,7 +17,7 @@ import (
 )
 
 // NewErrUnimplementedMessageType is called whenever a unimplemented message
-// type is send. This error indicates to the client that the send message cannot
+// type is sent. This error indicates to the client that the sent message cannot
 // be processed at this moment in time.
 func NewErrUnimplementedMessageType(t types.ClientMessage) error {
 	err := fmt.Errorf("unimplemented client message type: %d", t)
@@ -45,7 +45,7 @@ func NewErrMultipleCommandsStatements() error {
 	return psqlerr.WithSeverity(psqlerr.WithCode(err, codes.Syntax), psqlerr.LevelError)
 }
 
-// consumeCommands consumes incoming commands send over the Postgres wire connection.
+// consumeCommands consumes incoming commands sent over the Postgres wire connection.
 // Commands consumed from the connection are returned through a go channel.
 // Responses for the given message type are written back to the client.
 // This method keeps consuming messages until the client issues a close message
@@ -90,7 +90,7 @@ func (srv *Server) consumeCommands(ctx context.Context, conn net.Conn, reader *b
 		// NOTE: we increase the wait group by one in order to make sure that idle
 		// connections are not blocking a close.
 		srv.wg.Add(1)
-		srv.logger.Debug("incoming command", slog.Int("length", length), slog.String("type", string(t)))
+		srv.logger.Debug("<- incoming command", slog.Int("length", length), slog.String("type", t.String()))
 		err = srv.handleCommand(ctx, conn, t, reader, writer)
 		srv.wg.Done()
 		if errors.Is(err, io.EOF) {

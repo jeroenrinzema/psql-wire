@@ -5,6 +5,7 @@ import (
 	"crypto/tls"
 	"errors"
 	"log/slog"
+	"maps"
 	"net"
 
 	"github.com/jeroenrinzema/psql-wire/pkg/buffer"
@@ -104,6 +105,8 @@ func (srv *Server) readClientParameters(ctx context.Context, reader *buffer.Read
 func (srv *Server) writeParameters(ctx context.Context, writer *buffer.Writer, params Parameters) (_ context.Context, err error) {
 	if params == nil {
 		params = make(Parameters, 4)
+	} else {
+		params = maps.Clone(params)
 	}
 
 	srv.logger.Debug("writing server parameters")

@@ -136,7 +136,7 @@ func (writer *Writer) End() error {
 	binary.BigEndian.PutUint32(bytes[1:5], length)
 	_, err := writer.Writer.Write(bytes)
 
-	writer.logger.Debug("writing message", slog.String("type", string(bytes[0])))
+	writer.logger.Debug("-> writing message", slog.String("type", types.ServerMessage(bytes[0]).String()))
 	return err
 }
 
