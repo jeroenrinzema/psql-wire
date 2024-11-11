@@ -52,12 +52,18 @@ func newErrClientCopyFailed(desc string) error {
 	return psqlerr.WithSeverity(psqlerr.WithCode(err, codes.Uncategorized), psqlerr.LevelError)
 }
 
+type Session struct {
+	*Server
+	Statements StatementCache
+	Portals    PortalCache
+}
+
 // consumeCommands consumes incoming commands sent over the Postgres wire connection.
 // Commands consumed from the connection are returned through a go channel.
 // Responses for the given message type are written back to the client.
 // This method keeps consuming messages until the client issues a close message
 // or the connection is terminated.
-func (srv *Server) consumeCommands(ctx context.Context, conn net.Conn, reader *buffer.Reader, writer *buffer.Writer) error {
+func (srv *Session) consumeCommands(ctx context.Context, conn net.Conn, reader *buffer.Reader, writer *buffer.Writer) error {
 	srv.logger.Debug("ready for query... starting to consume commands")
 
 	// TODO: Include a value to identify unique connections
@@ -77,7 +83,7 @@ func (srv *Server) consumeCommands(ctx context.Context, conn net.Conn, reader *b
 	}
 }
 
-func (srv *Server) consumeSingleCommand(ctx context.Context, reader *buffer.Reader, writer *buffer.Writer, conn net.Conn) error {
+func (srv *Session) consumeSingleCommand(ctx context.Context, reader *buffer.Reader, writer *buffer.Writer, conn net.Conn) error {
 	t, length, err := reader.ReadTypedMsg()
 	if err == io.EOF {
 		return nil
@@ -141,7 +147,7 @@ func handleMessageSizeExceeded(reader *buffer.Reader, writer *buffer.Writer, exc
 // message type and reader buffer containing the actual message. The type
 // indecates a action executed by the client.
 // https://www.postgresql.org/docs/14/protocol-message-formats.html
-func (srv *Server) handleCommand(ctx context.Context, conn net.Conn, t types.ClientMessage, reader *buffer.Reader, writer *buffer.Writer) error {
+func (srv *Session) handleCommand(ctx context.Context, conn net.Conn, t types.ClientMessage, reader *buffer.Reader, writer *buffer.Writer) error {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
@@ -236,7 +242,7 @@ func (srv *Server) handleCommand(ctx context.Context, conn net.Conn, t types.Cli
 	}
 }
 
-func (srv *Server) handleSimpleQuery(ctx context.Context, reader *buffer.Reader, writer *buffer.Writer) error {
+func (srv *Session) handleSimpleQuery(ctx context.Context, reader *buffer.Reader, writer *buffer.Writer) error {
 	if srv.parse == nil {
 		return ErrorCode(writer, NewErrUnimplementedMessageType(types.ClientSimpleQuery))
 	}
@@ -287,7 +293,7 @@ func (srv *Server) handleSimpleQuery(ctx context.Context, reader *buffer.Reader,
 	return readyForQuery(writer, types.ServerIdle)
 }
 
-func (srv *Server) handleParse(ctx context.Context, reader *buffer.Reader, writer *buffer.Writer) error {
+func (srv *Session) handleParse(ctx context.Context, reader *buffer.Reader, writer *buffer.Writer) error {
 	if srv.parse == nil || srv.Statements == nil {
 		return ErrorCode(writer, NewErrUnimplementedMessageType(types.ClientParse))
 	}
@@ -337,7 +343,7 @@ func (srv *Server) handleParse(ctx context.Context, reader *buffer.Reader, write
 	return writer.End()
 }
 
-func (srv *Server) handleDescribe(ctx context.Context, reader *buffer.Reader, writer *buffer.Writer) error {
+func (srv *Session) handleDescribe(ctx context.Context, reader *buffer.Reader, writer *buffer.Writer) error {
 	d, err := reader.GetBytes(1)
 	if err != nil {
 		return err
@@ -385,7 +391,7 @@ func (srv *Server) handleDescribe(ctx context.Context, reader *buffer.Reader, wr
 }
 
 // https://www.postgresql.org/docs/15/protocol-message-formats.html
-func (srv *Server) writeParameterDescription(writer *buffer.Writer, parameters []oid.Oid) error {
+func (srv *Session) writeParameterDescription(writer *buffer.Writer, parameters []oid.Oid) error {
 	writer.Start(types.ServerParameterDescription)
 	writer.AddInt16(int16(len(parameters)))
 
@@ -400,7 +406,7 @@ func (srv *Server) writeParameterDescription(writer *buffer.Writer, parameters [
 // back to the writer buffer. Information about the returned columns is written
 // to the client.
 // https://www.postgresql.org/docs/15/protocol-message-formats.html
-func (srv *Server) writeColumnDescription(ctx context.Context, writer *buffer.Writer, formats []FormatCode, columns Columns) error {
+func (srv *Session) writeColumnDescription(ctx context.Context, writer *buffer.Writer, formats []FormatCode, columns Columns) error {
 	if len(columns) == 0 {
 		writer.Start(types.ServerNoData)
 		return writer.End()
@@ -409,7 +415,7 @@ func (srv *Server) writeColumnDescription(ctx context.Context, writer *buffer.Wr
 	return columns.Define(ctx, writer, formats)
 }
 
-func (srv *Server) handleBind(ctx context.Context, reader *buffer.Reader, writer *buffer.Writer) error {
+func (srv *Session) handleBind(ctx context.Context, reader *buffer.Reader, writer *buffer.Writer) error {
 	name, err := reader.GetString()
 	if err != nil {
 		return err
@@ -451,7 +457,7 @@ func (srv *Server) handleBind(ctx context.Context, reader *buffer.Reader, writer
 // readParameters attempts to read all incoming parameters from the given
 // reader. The parameters are parsed and returned.
 // https://www.postgresql.org/docs/14/protocol-message-formats.html
-func (srv *Server) readParameters(ctx context.Context, reader *buffer.Reader) ([]Parameter, error) {
+func (srv *Session) readParameters(ctx context.Context, reader *buffer.Reader) ([]Parameter, error) {
 	// NOTE: read the total amount of parameter format length that will be send
 	// by the client. This can be zero to indicate that there are no parameters
 	// or that the parameters all use the default format (text); or one, in
@@ -516,7 +522,7 @@ func (srv *Server) readParameters(ctx context.Context, reader *buffer.Reader) ([
 	return parameters, nil
 }
 
-func (srv *Server) readColumnTypes(reader *buffer.Reader) ([]FormatCode, error) {
+func (srv *Session) readColumnTypes(reader *buffer.Reader) ([]FormatCode, error) {
 	length, err := reader.GetUint16()
 	if err != nil {
 		return nil, err
@@ -537,7 +543,7 @@ func (srv *Server) readColumnTypes(reader *buffer.Reader) ([]FormatCode, error) 
 	return columns, nil
 }
 
-func (srv *Server) handleExecute(ctx context.Context, reader *buffer.Reader, writer *buffer.Writer) error {
+func (srv *Session) handleExecute(ctx context.Context, reader *buffer.Reader, writer *buffer.Writer) error {
 	if srv.Statements == nil {
 		return ErrorCode(writer, NewErrUnimplementedMessageType(types.ClientExecute))
 	}
@@ -565,7 +571,7 @@ func (srv *Server) handleExecute(ctx context.Context, reader *buffer.Reader, wri
 	return nil
 }
 
-func (srv *Server) handleConnTerminate(ctx context.Context) error {
+func (srv *Session) handleConnTerminate(ctx context.Context) error {
 	if srv.TerminateConn == nil {
 		return nil
 	}

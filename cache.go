@@ -15,6 +15,10 @@ type Statement struct {
 	columns    Columns
 }
 
+func DefaultStatementCacheFn() StatementCache {
+	return &DefaultStatementCache{}
+}
+
 type DefaultStatementCache struct {
 	statements map[string]*Statement
 	mu         sync.RWMutex
@@ -61,6 +65,10 @@ type Portal struct {
 	statement  *Statement
 	parameters []Parameter
 	formats    []FormatCode
+}
+
+func DefaultPortalCacheFn() PortalCache {
+	return &DefaultPortalCache{}
 }
 
 type DefaultPortalCache struct {

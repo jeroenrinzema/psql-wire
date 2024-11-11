@@ -10,7 +10,7 @@ import (
 )
 
 func main() {
-	srv, err := wire.NewServer(handler, wire.Session(session))
+	srv, err := wire.NewServer(handler, wire.SessionMiddleware(session))
 	if err != nil {
 		panic(err)
 	}
