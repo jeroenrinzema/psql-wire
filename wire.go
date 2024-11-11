@@ -127,13 +127,12 @@ func (srv *Server) Serve(listener net.Listener) error {
 
 func (srv *Server) serve(ctx context.Context, conn net.Conn) error {
 	ctx = setTypeInfo(ctx, srv.types)
-	ctx = context.WithValue(ctx, "remote_addr", conn.RemoteAddr())
+	ctx = setRemoteAddress(ctx, conn.RemoteAddr())
 	defer conn.Close()
 
 	srv.logger.Debug("serving a new client connection")
 
 	conn, version, reader, err := srv.Handshake(conn)
-
 	if err != nil {
 		return err
 	}
