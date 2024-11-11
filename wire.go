@@ -5,11 +5,10 @@ import (
 	"crypto/tls"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net"
 	"sync"
 	"sync/atomic"
-
-	"log/slog"
 
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jeroenrinzema/psql-wire/pkg/buffer"
@@ -116,7 +115,7 @@ func (srv *Server) Serve(listener net.Listener) error {
 			ctx := context.Background()
 			err = srv.serve(ctx, conn)
 			if err != nil {
-				srv.logger.Error("an unexpected error got returned while serving a client connectio", "err", err)
+				srv.logger.Error("an unexpected error got returned while serving a client connection", "err", err)
 			}
 		}()
 	}

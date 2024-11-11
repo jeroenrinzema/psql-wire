@@ -21,32 +21,46 @@ type DataWriter interface {
 	// Written returns the number of rows written to the client.
 	Written() uint64
 
-	// Empty announces to the client a empty response and that no data rows should
+	// Empty announces to the client an empty response and that no data rows should
 	// be expected.
 	Empty() error
 
+	// Columns returns the columns that are currently defined within the writer.
+	Columns() Columns
+
 	// Complete announces to the client that the command has been completed and
 	// no further data should be expected.
+	//
+	// See [CommandComplete] for the expected format for different queries.
+	//
+	// [CommandComplete]: https://www.postgresql.org/docs/current/protocol-message-formats.html#PROTOCOL-MESSAGE-FORMATS-COMMANDCOMPLETE
 	Complete(description string) error
+
+	// CopyIn sends a [CopyInResponse] to the client, to initiate a CopyIn
+	// operation. The copy operation can be used to send large amounts of data to
+	// the server in a single transaction. A column reader has to be used to read
+	// the data that is sent by the client to the CopyReader.
+	CopyIn(format FormatCode) (*CopyReader, error)
 }
 
-// ErrDataWritten is thrown when an empty result is attempted to be send to the
+// ErrDataWritten is returned when an empty result is attempted to be sent to the
 // client while data has already been written.
 var ErrDataWritten = errors.New("data has already been written")
 
-// ErrClosedWriter is thrown when the data writer has been closed
+// ErrClosedWriter is returned when the data writer has been closed.
 var ErrClosedWriter = errors.New("closed writer")
 
 // NewDataWriter constructs a new data writer using the given context and
 // buffer. The returned writer should be handled with caution as it is not safe
 // for concurrent use. Concurrent access to the same data without proper
 // synchronization can result in unexpected behavior and data corruption.
-func NewDataWriter(ctx context.Context, columns Columns, formats []FormatCode, writer *buffer.Writer) DataWriter {
+func NewDataWriter(ctx context.Context, columns Columns, formats []FormatCode, reader *buffer.Reader, writer *buffer.Writer) DataWriter {
 	return &dataWriter{
 		ctx:     ctx,
 		columns: columns,
 		formats: formats,
 		client:  writer,
+		reader:  reader,
 	}
 }
 
@@ -56,8 +70,13 @@ type dataWriter struct {
 	columns Columns
 	formats []FormatCode
 	client  *buffer.Writer
+	reader  *buffer.Reader
 	closed  bool
 	written uint64
+}
+
+func (writer *dataWriter) Columns() Columns {
+	return writer.columns
 }
 
 func (writer *dataWriter) Define(columns Columns) error {
@@ -77,6 +96,19 @@ func (writer *dataWriter) Row(values []any) error {
 	writer.written++
 
 	return writer.columns.Write(writer.ctx, writer.formats, writer.client, values)
+}
+
+func (writer *dataWriter) CopyIn(format FormatCode) (*CopyReader, error) {
+	if writer.closed {
+		return nil, ErrClosedWriter
+	}
+
+	err := writer.columns.CopyIn(writer.ctx, writer.client, format)
+	if err != nil {
+		return nil, err
+	}
+
+	return NewCopyReader(writer.reader, writer.client, writer.columns), nil
 }
 
 func (writer *dataWriter) Empty() error {
