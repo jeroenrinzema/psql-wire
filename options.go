@@ -3,7 +3,6 @@ package wire
 import (
 	"context"
 	"crypto/tls"
-	"crypto/x509"
 	"log/slog"
 	"regexp"
 	"strconv"
@@ -146,29 +145,11 @@ func MessageBufferSize(size int) OptionFn {
 	}
 }
 
-// Certificates sets the given TLS certificates to be used to initialize a
+// TLSConfig sets the given TLS config to be used to initialize a
 // secure connection between the front-end (client) and back-end (server).
-func Certificates(certs []tls.Certificate) OptionFn {
+func TLSConfig(config *tls.Config) OptionFn {
 	return func(srv *Server) error {
-		srv.Certificates = certs
-		return nil
-	}
-}
-
-// ClientCAs sets the given Client CAs to be used, by the server, to verify a
-// secure connection between the front-end (client) and back-end (server).
-func ClientCAs(cas *x509.CertPool) OptionFn {
-	return func(srv *Server) error {
-		srv.ClientCAs = cas
-		return nil
-	}
-}
-
-// ClientAuth sets the given Client Auth to be used, by the server, to verify a
-// secure connection between the front-end (client) and back-end (server).
-func ClientAuth(authType tls.ClientAuthType) OptionFn {
-	return func(srv *Server) error {
-		srv.ClientAuth = authType
+		srv.TLSConfig = config
 		return nil
 	}
 }
