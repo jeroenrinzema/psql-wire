@@ -93,7 +93,7 @@ type StatementCache interface {
 type PortalCache interface {
 	Bind(ctx context.Context, name string, statement *Statement, parameters []Parameter, columns []FormatCode) error
 	Get(ctx context.Context, name string) (*Portal, error)
-	Execute(ctx context.Context, name string, writer *buffer.Writer) error
+	Execute(ctx context.Context, name string, reader *buffer.Reader, writer *buffer.Writer) error
 }
 
 type CloseFn func(ctx context.Context) error

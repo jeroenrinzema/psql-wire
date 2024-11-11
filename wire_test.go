@@ -4,13 +4,14 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"io"
 	"net"
 	"testing"
 
 	"github.com/jackc/pgx/v5"
 	_ "github.com/jackc/pgx/v5/stdlib"
 	"github.com/jeroenrinzema/psql-wire/pkg/mock"
-	_ "github.com/lib/pq"
+	"github.com/lib/pq"
 	"github.com/lib/pq/oid"
 	"github.com/neilotoole/slogt"
 	"github.com/stretchr/testify/assert"
@@ -486,6 +487,140 @@ func TestServerNULLValues(t *testing.T) {
 					t.Errorf("unexpected value %+v, expected %+v", left, right)
 				}
 			}
+		}
+
+		err = conn.Close(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+	})
+}
+
+func TestServerCopyIn(t *testing.T) {
+	t.Parallel()
+
+	handler := func(ctx context.Context, query string) (PreparedStatements, error) {
+		t.Log("preparing query", query)
+
+		handle := func(ctx context.Context, writer DataWriter, parameters []Parameter) error {
+			t.Log("copying data")
+
+			c, err := writer.CopyIn(BinaryFormat)
+			if err != nil {
+				return err
+			}
+
+			b, err := NewBinaryColumnReader(ctx, c)
+			if err != nil {
+				return err
+			}
+
+			for {
+				rows, err := b.Read(ctx)
+				if err == io.EOF {
+					break
+				}
+
+				if err != nil {
+					return err
+				}
+
+				t.Logf("received columns: %+v", rows)
+			}
+
+			return writer.Complete("COPY 2")
+		}
+
+		columns := Columns{
+			{
+				Table: 0,
+				Name:  "id",
+				Oid:   oid.T_int4,
+				Width: 1,
+			},
+			{
+				Table: 0,
+				Name:  "name",
+				Oid:   oid.T_text,
+				Width: 256,
+			},
+			{
+				Table: 0,
+				Name:  "spotify_id",
+				Oid:   oid.T_text,
+				Width: 256,
+			},
+		}
+
+		return Prepared(NewStatement(handle, WithColumns(columns))), nil
+	}
+
+	server, err := NewServer(handler, Logger(slogt.New(t)))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	address := TListenAndServe(t, server)
+
+	rows := [][]any{
+		{196, "My Posse In Effect", nil},
+		{181, "Almost KISS", "10"},
+	}
+
+	t.Run("lib/pq", func(t *testing.T) {
+		t.Skip()
+		connstr := fmt.Sprintf("host=%s port=%d sslmode=disable", address.IP, address.Port)
+		conn, err := sql.Open("postgres", connstr)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		txn, err := conn.Begin()
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		stmt, err := txn.Prepare(pq.CopyIn("id", "name", "spotify_id"))
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		for _, row := range rows {
+			_, err := stmt.Exec(row...)
+			if err != nil {
+				t.Fatal(err)
+			}
+		}
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		if err := stmt.Close(); err != nil {
+			t.Fatal(err)
+		}
+		if err := txn.Commit(); err != nil {
+			t.Fatal(err)
+		}
+
+		if err := conn.Close(); err != nil {
+			t.Fatal(err)
+		}
+	})
+
+	t.Run("jackc/pgx", func(t *testing.T) {
+		ctx := context.Background()
+		connstr := fmt.Sprintf("postgres://%s:%d", address.IP, address.Port)
+		conn, err := pgx.Connect(ctx, connstr)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		n, err := conn.CopyFrom(ctx, pgx.Identifier{"foo"}, []string{"id", "name", "spotify_id"}, pgx.CopyFromRows(rows))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if n != 2 {
+			t.Fatalf("unexpected number of rows copied: %d", n)
 		}
 
 		err = conn.Close(ctx)

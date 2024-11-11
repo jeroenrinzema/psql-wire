@@ -44,6 +44,29 @@ func (columns Columns) Define(ctx context.Context, writer *buffer.Writer, format
 	return writer.End()
 }
 
+// CopyIn sends a [CopyInResponse] to the client, to initiate a CopyIn
+// operation. Based on the given columns within the prepared statement.
+// https://www.postgresql.org/docs/current/protocol-message-formats.html#PROTOCOL-MESSAGE-FORMATS-COPYINRESPONSE
+func (columns Columns) CopyIn(ctx context.Context, writer *buffer.Writer, format FormatCode) error {
+	if ctx.Err() != nil {
+		return ctx.Err()
+	}
+
+	if len(columns) == 0 {
+		return errors.New("at least one column needs to be defined within the prepared statement")
+	}
+
+	writer.Start(types.ServerCopyInResponse)
+	writer.AddByte(byte(format))
+	writer.AddInt16(int16(len(columns)))
+
+	for range columns {
+		writer.AddInt16(int16(format))
+	}
+
+	return writer.End()
+}
+
 // Write writes the given column values back to the client. The given columns
 // are encoded using the given format codes. Columns could be encoded as Text or
 // Binary. If you provide a single format code, it will be applied to all

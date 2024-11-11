@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"encoding/binary"
 	"io"
-
 	"log/slog"
 
 	"github.com/jeroenrinzema/psql-wire/pkg/types"
