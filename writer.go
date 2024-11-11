@@ -3,7 +3,6 @@ package wire
 import (
 	"context"
 	"errors"
-	"io"
 
 	"github.com/jeroenrinzema/psql-wire/pkg/buffer"
 	"github.com/jeroenrinzema/psql-wire/pkg/types"
@@ -26,6 +25,9 @@ type DataWriter interface {
 	// be expected.
 	Empty() error
 
+	// Columns returns the columns that are currently defined within the writer.
+	Columns() Columns
+
 	// Complete announces to the client that the command has been completed and
 	// no further data should be expected.
 	//
@@ -35,12 +37,10 @@ type DataWriter interface {
 	Complete(description string) error
 
 	// CopyIn sends a [CopyInResponse] to the client, to initiate a CopyIn
-	// operation. All format values must be either [TextFormat] or [BinaryFormat].
-	// When overallFormat is [TextFormat], all columnFormats must be [TextFormat]. When
-	// overallFormat is BinaryFormat, columnFormats may be either [TextFormat] or
-	// [BinaryFormat]. You must provide one columnFormat value for each column
-	// expected by the CopyIn operation.
-	CopyIn(overallFormat FormatCode, columnFormats []FormatCode) (io.Reader, error)
+	// operation. The copy operation can be used to send large amounts of data to
+	// the server in a single transaction. A column reader has to be used to read
+	// the data that is sent by the client to the CopyReader.
+	CopyIn(format FormatCode) (*CopyReader, error)
 }
 
 // ErrDataWritten is returned when an empty result is attempted to be sent to the
@@ -54,25 +54,29 @@ var ErrClosedWriter = errors.New("closed writer")
 // buffer. The returned writer should be handled with caution as it is not safe
 // for concurrent use. Concurrent access to the same data without proper
 // synchronization can result in unexpected behavior and data corruption.
-func NewDataWriter(ctx context.Context, columns Columns, formats []FormatCode, writer *buffer.Writer, copyData io.Reader) DataWriter {
+func NewDataWriter(ctx context.Context, columns Columns, formats []FormatCode, reader *buffer.Reader, writer *buffer.Writer) DataWriter {
 	return &dataWriter{
-		ctx:      ctx,
-		columns:  columns,
-		formats:  formats,
-		client:   writer,
-		copyData: copyData,
+		ctx:     ctx,
+		columns: columns,
+		formats: formats,
+		client:  writer,
+		reader:  reader,
 	}
 }
 
 // dataWriter is a implementation of the DataWriter interface.
 type dataWriter struct {
-	ctx      context.Context
-	columns  Columns
-	formats  []FormatCode
-	client   *buffer.Writer
-	closed   bool
-	written  uint64
-	copyData io.Reader
+	ctx     context.Context
+	columns Columns
+	formats []FormatCode
+	client  *buffer.Writer
+	reader  *buffer.Reader
+	closed  bool
+	written uint64
+}
+
+func (writer *dataWriter) Columns() Columns {
+	return writer.columns
 }
 
 func (writer *dataWriter) Define(columns Columns) error {
@@ -94,37 +98,17 @@ func (writer *dataWriter) Row(values []any) error {
 	return writer.columns.Write(writer.ctx, writer.formats, writer.client, values)
 }
 
-func (writer *dataWriter) CopyIn(overallFormat FormatCode, columnFormats []FormatCode) (io.Reader, error) {
+func (writer *dataWriter) CopyIn(format FormatCode) (*CopyReader, error) {
 	if writer.closed {
 		return nil, ErrClosedWriter
 	}
-	if writer.copyData == nil {
-		return nil, errors.New("DataCopyFn is nil; use PortalCacheCopy to execute CopyIn")
-	}
-	if len(columnFormats) == 0 {
-		return nil, errors.New("CopyIn must have at least one column")
-	}
 
-	if err := writer.sendCopyInResponse(overallFormat, columnFormats); err != nil {
+	err := writer.columns.CopyIn(writer.ctx, writer.client, format)
+	if err != nil {
 		return nil, err
 	}
 
-	return writer.copyData, nil
-}
-
-// sendCopyInResponse sends a [CopyInResponse] to the client, to initiate a
-// CopyIn operation. format must be either [TextFormat] or [BinaryFormat], and
-// columnCount must be >= 1.
-//
-// [CopyInResponse]: https://www.postgresql.org/docs/current/protocol-message-formats.html#PROTOCOL-MESSAGE-FORMATS-COPYINRESPONSE
-func (writer *dataWriter) sendCopyInResponse(format FormatCode, columnFormats []FormatCode) error {
-	writer.client.Start(types.ServerCopyInResponse)
-	writer.client.AddByte(byte(format))
-	writer.client.AddInt16(int16(len(columnFormats)))
-	for _, columnFormat := range columnFormats {
-		writer.client.AddInt16(int16(columnFormat))
-	}
-	return writer.client.End()
+	return NewCopyReader(writer.reader, writer.client, writer.columns), nil
 }
 
 func (writer *dataWriter) Empty() error {

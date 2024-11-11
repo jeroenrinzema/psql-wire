@@ -1,7 +1,6 @@
 package wire
 
 import (
-	"bytes"
 	"context"
 	"database/sql"
 	"fmt"
@@ -497,62 +496,66 @@ func TestServerNULLValues(t *testing.T) {
 	})
 }
 
-type stubStatementCache struct {
-	SetFn func(context.Context, string, *PreparedStatement) error
-	GetFn func(context.Context, string) (*Statement, error)
-}
-
-func (c *stubStatementCache) Set(ctx context.Context, name string, fn *PreparedStatement) error {
-	return c.SetFn(ctx, name, fn)
-}
-
-func (c *stubStatementCache) Get(ctx context.Context, name string) (*Statement, error) {
-	return c.GetFn(ctx, name)
-}
-
 func TestServerCopyIn(t *testing.T) {
 	t.Parallel()
 
 	handler := func(ctx context.Context, query string) (PreparedStatements, error) {
-		t.Log("preparing QUERY", query)
+		t.Log("preparing query", query)
+
 		handle := func(ctx context.Context, writer DataWriter, parameters []Parameter) error {
-			t.Log("executing QUERY", query)
-			switch query {
-			case "BEGIN READ WRITE":
-				return writer.Complete("BEGIN")
-			}
-			r, err := writer.CopyIn(BinaryFormat, []FormatCode{BinaryFormat, BinaryFormat, BinaryFormat})
+			t.Log("copying data")
+
+			c, err := writer.CopyIn(BinaryFormat)
 			if err != nil {
 				return err
 			}
-			buf := &bytes.Buffer{}
-			if _, err := io.Copy(buf, r); err != nil {
+
+			b, err := NewBinaryColumnReader(ctx, c)
+			if err != nil {
 				return err
 			}
+
+			for {
+				rows, err := b.Read(ctx)
+				if err == io.EOF {
+					break
+				}
+
+				if err != nil {
+					return err
+				}
+
+				t.Logf("received columns: %+v", rows)
+			}
+
 			return writer.Complete("COPY 2")
 		}
 
-		return Prepared(NewStatement(handle)), nil
-	}
-
-	defStatement := DefaultStatementCache{}
-
-	opts := []OptionFn{
-		Logger(slogt.New(t)),
-		Statements(
-			&stubStatementCache{
-				SetFn: func(ctx context.Context, name string, fn *PreparedStatement) error {
-					fn.columns = Columns{
-						{}, {}, {},
-					}
-					return defStatement.Set(ctx, name, fn)
-				},
-				GetFn: defStatement.Get,
+		columns := Columns{
+			{
+				Table: 0,
+				Name:  "id",
+				Oid:   oid.T_int4,
+				Width: 1,
 			},
-		),
+			{
+				Table: 0,
+				Name:  "name",
+				Oid:   oid.T_text,
+				Width: 256,
+			},
+			{
+				Table: 0,
+				Name:  "spotify_id",
+				Oid:   oid.T_text,
+				Width: 256,
+			},
+		}
+
+		return Prepared(NewStatement(handle, WithColumns(columns))), nil
 	}
 
-	server, err := NewServer(handler, opts...)
+	server, err := NewServer(handler, Logger(slogt.New(t)))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -561,7 +564,7 @@ func TestServerCopyIn(t *testing.T) {
 
 	rows := [][]any{
 		{196, "My Posse In Effect", nil},
-		{181, "Almost KISS", nil},
+		{181, "Almost KISS", "10"},
 	}
 
 	t.Run("lib/pq", func(t *testing.T) {

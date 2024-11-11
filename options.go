@@ -4,7 +4,6 @@ import (
 	"context"
 	"crypto/tls"
 	"crypto/x509"
-	"io"
 	"log/slog"
 	"regexp"
 	"strconv"
@@ -91,20 +90,10 @@ type StatementCache interface {
 
 // PortalCache represents a cache which could be used to bind and execute
 // prepared statements with parameters.
-//
-// Deprecated: Use [PortalCacheCopyIn] instead.
 type PortalCache interface {
 	Bind(ctx context.Context, name string, statement *Statement, parameters []Parameter, columns []FormatCode) error
 	Get(ctx context.Context, name string) (*Portal, error)
-	Execute(ctx context.Context, name string, writer *buffer.Writer) error
-}
-
-// PortalCacheCopyIn extends [PortalCache] to support the COPY IN protocol.
-type PortalCacheCopyIn interface {
-	PortalCache
-	// ExecuteCopyIn executes the named cached statement. copyData is ignored and
-	// may be nil for queries that do not use the COPY IN protocol.
-	ExecuteCopyIn(ctx context.Context, name string, writer *buffer.Writer, copyData io.Reader) error
+	Execute(ctx context.Context, name string, reader *buffer.Reader, writer *buffer.Writer) error
 }
 
 type CloseFn func(ctx context.Context) error
