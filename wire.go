@@ -123,6 +123,7 @@ func (srv *Server) Serve(listener net.Listener) error {
 
 func (srv *Server) serve(ctx context.Context, conn net.Conn) error {
 	ctx = setTypeInfo(ctx, srv.types)
+	ctx = setRemoteAddress(ctx, conn.RemoteAddr())
 	defer conn.Close()
 
 	srv.logger.Debug("serving a new client connection")

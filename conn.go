@@ -2,6 +2,7 @@ package wire
 
 import (
 	"context"
+	"net"
 
 	"github.com/jackc/pgx/v5/pgtype"
 )
@@ -12,6 +13,7 @@ const (
 	ctxTypeMap ctxKey = iota
 	ctxClientMetadata
 	ctxServerMetadata
+	ctxRemoteAddr
 )
 
 // setTypeInfo constructs a new Postgres type connection info for the given value
@@ -28,6 +30,21 @@ func TypeMap(ctx context.Context) *pgtype.Map {
 	}
 
 	return val.(*pgtype.Map)
+}
+
+func setRemoteAddress(ctx context.Context, addr net.Addr) context.Context {
+	return context.WithValue(ctx, ctxRemoteAddr, addr)
+}
+
+// RemoteAddress returns the Postgres remote address connection info if it has been set inside
+// the given context.
+func RemoteAddress(ctx context.Context) net.Addr {
+	val := ctx.Value(ctxRemoteAddr)
+	if val == nil {
+		return nil
+	}
+
+	return val.(net.Addr)
 }
 
 // Parameters represents a parameters collection of parameter status keys and
