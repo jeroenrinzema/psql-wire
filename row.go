@@ -10,14 +10,16 @@ import (
 	"github.com/lib/pq/oid"
 )
 
-// Columns represent a collection of columns
+// Columns represent a collection of columns.
 type Columns []Column
 
-// Define writes the table RowDescription headers for the given table and the
+// Define writes the table [RowDescription] headers for the given table and the
 // containing columns. The headers have to be written before any data rows could
 // be send back to the client. The given columns are encoded using the given
 // format codes. Columns could be encoded as Text or Binary. If you provide a
 // single format code, it will be applied to all columns.
+//
+// [RowDescription]: https://www.postgresql.org/docs/current/protocol-message-formats.html#PROTOCOL-MESSAGE-FORMATS-ROWDESCRIPTION
 func (columns Columns) Define(ctx context.Context, writer *buffer.Writer, formats []FormatCode) error {
 	if len(columns) == 0 {
 		return nil
@@ -37,6 +39,29 @@ func (columns Columns) Define(ctx context.Context, writer *buffer.Writer, format
 		}
 
 		columns[index].Define(ctx, writer, format)
+	}
+
+	return writer.End()
+}
+
+// CopyIn sends a [CopyInResponse] to the client, to initiate a CopyIn
+// operation. Based on the given columns within the prepared statement.
+// https://www.postgresql.org/docs/current/protocol-message-formats.html#PROTOCOL-MESSAGE-FORMATS-COPYINRESPONSE
+func (columns Columns) CopyIn(ctx context.Context, writer *buffer.Writer, format FormatCode) error {
+	if ctx.Err() != nil {
+		return ctx.Err()
+	}
+
+	if len(columns) == 0 {
+		return errors.New("at least one column needs to be defined within the prepared statement")
+	}
+
+	writer.Start(types.ServerCopyInResponse)
+	writer.AddByte(byte(format))
+	writer.AddInt16(int16(len(columns)))
+
+	for range columns {
+		writer.AddInt16(int16(format))
 	}
 
 	return writer.End()
@@ -73,9 +98,10 @@ func (columns Columns) Write(ctx context.Context, formats []FormatCode, writer *
 	return writer.End()
 }
 
-// Column represents a table column and its attributes such as name, type and
+// Column represents a table column and its [attributes] such as name, type and
 // encode formatter.
-// https://www.postgresql.org/docs/8.3/catalog-pg-attribute.html
+//
+// [attributes]: https://www.postgresql.org/docs/8.3/catalog-pg-attribute.html
 type Column struct {
 	Table        int32  // table id
 	ID           int32  // column identifier
@@ -88,8 +114,10 @@ type Column struct {
 }
 
 // Define writes the column header values to the given writer.
-// This method is used to define a column inside RowDescription message defining
+// This method is used to define a column inside [RowDescription] message defining
 // the column type, width, and name.
+//
+// [RowDescription]: https://www.postgresql.org/docs/current/protocol-message-formats.html#PROTOCOL-MESSAGE-FORMATS-ROWDESCRIPTION
 func (column Column) Define(ctx context.Context, writer *buffer.Writer, format FormatCode) {
 	writer.AddString(column.Name)
 	writer.AddNullTerminate()
@@ -116,7 +144,9 @@ func (column Column) Define(ctx context.Context, writer *buffer.Writer, format F
 
 // Write encodes the given source value using the column type definition and connection
 // info. The encoded byte buffer is added to the given write buffer. This method
-// Is used to encode values and return them inside a DataRow message.
+// Is used to encode values and return them inside a [DataRow] message.
+//
+// [DataRow]: https://www.postgresql.org/docs/current/protocol-message-formats.html#PROTOCOL-MESSAGE-FORMATS-DATAROW
 func (column Column) Write(ctx context.Context, writer *buffer.Writer, format FormatCode, src any) (err error) {
 	if ctx.Err() != nil {
 		return ctx.Err()

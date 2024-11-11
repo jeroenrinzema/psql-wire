@@ -23,8 +23,8 @@ func run() error {
 		return err
 	}
 
-	certs := []tls.Certificate{cert}
-	server, err := wire.NewServer(handler, wire.Certificates(certs), wire.Logger(logger), wire.MessageBufferSize(100))
+	config := &tls.Config{Certificates: []tls.Certificate{cert}}
+	server, err := wire.NewServer(handler, wire.TLSConfig(config), wire.Logger(logger), wire.MessageBufferSize(100))
 	if err != nil {
 		return err
 	}

@@ -3,14 +3,12 @@ package wire
 import (
 	"context"
 	"crypto/tls"
-	"crypto/x509"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net"
 	"sync"
 	"sync/atomic"
-
-	"log/slog"
 
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jeroenrinzema/psql-wire/pkg/buffer"
@@ -61,9 +59,7 @@ type Server struct {
 	Auth            AuthStrategy
 	BufferedMsgSize int
 	Parameters      Parameters
-	Certificates    []tls.Certificate
-	ClientCAs       *x509.CertPool
-	ClientAuth      tls.ClientAuthType
+	TLSConfig       *tls.Config
 	parse           ParseFn
 	Session         SessionHandler
 	Statements      StatementCache
@@ -119,7 +115,7 @@ func (srv *Server) Serve(listener net.Listener) error {
 			ctx := context.Background()
 			err = srv.serve(ctx, conn)
 			if err != nil {
-				srv.logger.Error("an unexpected error got returned while serving a client connectio", "err", err)
+				srv.logger.Error("an unexpected error got returned while serving a client connection", "err", err)
 			}
 		}()
 	}
