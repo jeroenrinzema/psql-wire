@@ -56,15 +56,15 @@ func TestSessionHandler(t *testing.T) {
 
 	tests := map[string]test{
 		"single": {
-			Session(func(ctx context.Context) (context.Context, error) {
+			SessionMiddleware(func(ctx context.Context) (context.Context, error) {
 				return context.WithValue(ctx, mock, value), nil
 			}),
 		},
 		"nested": {
-			Session(func(ctx context.Context) (context.Context, error) {
+			SessionMiddleware(func(ctx context.Context) (context.Context, error) {
 				return ctx, nil
 			}),
-			Session(func(ctx context.Context) (context.Context, error) {
+			SessionMiddleware(func(ctx context.Context) (context.Context, error) {
 				return context.WithValue(ctx, mock, value), nil
 			}),
 		},

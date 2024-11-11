@@ -35,8 +35,8 @@ func NewServer(parse ParseFn, options ...OptionFn) (*Server, error) {
 		logger:     slog.Default(),
 		closer:     make(chan struct{}),
 		types:      pgtype.NewMap(),
-		Statements: &DefaultStatementCache{},
-		Portals:    &DefaultPortalCache{},
+		Statements: DefaultStatementCacheFn,
+		Portals:    DefaultPortalCacheFn,
 		Session:    func(ctx context.Context) (context.Context, error) { return ctx, nil },
 	}
 
@@ -62,8 +62,8 @@ type Server struct {
 	TLSConfig       *tls.Config
 	parse           ParseFn
 	Session         SessionHandler
-	Statements      StatementCache
-	Portals         PortalCache
+	Statements      func() StatementCache
+	Portals         func() PortalCache
 	CloseConn       CloseFn
 	TerminateConn   CloseFn
 	Version         string
@@ -162,7 +162,13 @@ func (srv *Server) serve(ctx context.Context, conn net.Conn) error {
 		return err
 	}
 
-	return srv.consumeCommands(ctx, conn, reader, writer)
+	session := &Session{
+		Server:     srv,
+		Statements: srv.Statements(),
+		Portals:    srv.Portals(),
+	}
+
+	return session.consumeCommands(ctx, conn, reader, writer)
 }
 
 // Close gracefully closes the underlaying Postgres server.

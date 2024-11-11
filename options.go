@@ -103,18 +103,18 @@ type OptionFn func(*Server) error
 
 // Statements sets the statement cache used to cache statements for later use. By
 // default [DefaultStatementCache] is used.
-func Statements(cache StatementCache) OptionFn {
+func Statements(handler func() StatementCache) OptionFn {
 	return func(srv *Server) error {
-		srv.Statements = cache
+		srv.Statements = handler
 		return nil
 	}
 }
 
 // Portals sets the portals cache used to cache statements for later use. By
 // default [DefaultPortalCache] is used.
-func Portals(cache PortalCache) OptionFn {
+func Portals(handler func() PortalCache) OptionFn {
 	return func(srv *Server) error {
-		srv.Portals = cache
+		srv.Portals = handler
 		return nil
 	}
 }
@@ -199,10 +199,10 @@ func ExtendTypes(fn func(*pgtype.Map)) OptionFn {
 	}
 }
 
-// Session sets the given session handler within the underlying server. The
+// SessionMiddleware sets the given session handler within the underlying server. The
 // session handler is called when a new connection is opened and authenticated
 // allowing for additional metadata to be wrapped around the connection context.
-func Session(fn SessionHandler) OptionFn {
+func SessionMiddleware(fn SessionHandler) OptionFn {
 	return func(srv *Server) error {
 		if srv.Session == nil {
 			srv.Session = fn
