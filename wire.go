@@ -3,7 +3,6 @@ package wire
 import (
 	"context"
 	"crypto/tls"
-	"crypto/x509"
 	"errors"
 	"fmt"
 	"net"
@@ -62,9 +61,6 @@ type Server struct {
 	BufferedMsgSize int
 	Parameters      Parameters
 	TLSConfig       *tls.Config
-	Certificates    []tls.Certificate
-	ClientCAs       *x509.CertPool
-	ClientAuth      tls.ClientAuthType
 	parse           ParseFn
 	Session         SessionHandler
 	Statements      StatementCache
