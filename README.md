@@ -36,22 +36,9 @@ func handler(ctx context.Context, query string) (wire.PreparedStatements, error)
 
 > 🚧 When wanting to debug issues and or inspect the PostgreSQL wire protocol please check out the [psql-proxy](https://github.com/cloudproud/psql-proxy) cli
 
-## Sponsor
-
-<img src="https://github.com/cloudproud/lab/assets/3440116/9a92844f-15a6-45a1-9f75-5f26b56b8ee8" width="150px" alt="Cloud Proud" /><br>
-
-Sponsored by [Cloud Proud](https://cloudproud.nl). A single access point for all your data.
-Query all your data sources as one large virtual database using the PostgreSQL protocol and SQL.
-
-```sh
-$ docker run -p 5432:5432 registry.cloudproud.nl/lab/kit
-$ # The web interface is up and running at: http://localhost:5432
-$ # You could login using the default username and password kit:kitpw
-```
-
 ## Support
 
-Feel free to join the Cloud Proud [Slack](https://join.slack.com/t/cloudproud/shared_invite/zt-23094hi83-MnbKFknPmPsnqnMtXUYfUg) workspace to discuss feature requests or issues.
+Feel free to start a new discussion to discuss feature requests or issues.
 
 ## Contributing
 
