@@ -66,11 +66,6 @@ type Session struct {
 func (srv *Session) consumeCommands(ctx context.Context, conn net.Conn, reader *buffer.Reader, writer *buffer.Writer) error {
 	srv.logger.Debug("ready for query... starting to consume commands")
 
-	// TODO: Include a value to identify unique connections
-	//
-	// include a identification value inside the context that
-	// could be used to identify connections at a later stage.
-
 	err := readyForQuery(writer, types.ServerIdle)
 	if err != nil {
 		return err
