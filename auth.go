@@ -45,7 +45,7 @@ func (srv *Server) handleAuth(ctx context.Context, reader *buffer.Reader, writer
 // clear text password and validates if the provided username and password (received
 // inside the client parameters) are valid. If the provided credentials are invalid
 // or any unexpected error occurs, an error returned and the connection should be closed.
-func ClearTextPassword(validate func(ctx context.Context, username, password string) (context.Context, bool, error)) AuthStrategy {
+func ClearTextPassword(validate func(ctx context.Context, database, username, password string) (context.Context, bool, error)) AuthStrategy {
 	return func(ctx context.Context, writer *buffer.Writer, reader *buffer.Reader) (_ context.Context, err error) {
 		err = writeAuthType(writer, authClearTextPassword)
 		if err != nil {
@@ -67,7 +67,7 @@ func ClearTextPassword(validate func(ctx context.Context, username, password str
 			return ctx, err
 		}
 
-		ctx, valid, err := validate(ctx, params[ParamUsername], password)
+		ctx, valid, err := validate(ctx, params[ParamDatabase], params[ParamUsername], password)
 		if err != nil {
 			return ctx, err
 		}

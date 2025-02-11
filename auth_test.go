@@ -57,7 +57,7 @@ func TestClearTextPassword(t *testing.T) {
 	incoming.AddNullTerminate()
 	incoming.End() //nolint:errcheck
 
-	validate := func(ctx context.Context, username, password string) (context.Context, bool, error) {
+	validate := func(ctx context.Context, database, username, password string) (context.Context, bool, error) {
 		if password != expected {
 			return ctx, false, fmt.Errorf("unexpected password: %s", password)
 		}
