@@ -5,6 +5,7 @@ import (
 	"crypto/tls"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"net"
 	"sync"
@@ -114,7 +115,7 @@ func (srv *Server) Serve(listener net.Listener) error {
 		go func() {
 			ctx := context.Background()
 			err = srv.serve(ctx, conn)
-			if err != nil {
+			if err != nil && err != io.EOF {
 				srv.logger.Error("an unexpected error got returned while serving a client connection", "err", err)
 			}
 		}()
