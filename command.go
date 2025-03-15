@@ -86,7 +86,7 @@ func (srv *Session) consumeCommands(ctx context.Context, conn net.Conn, reader *
 func (srv *Session) consumeSingleCommand(ctx context.Context, reader *buffer.Reader, writer *buffer.Writer, conn net.Conn) error {
 	t, length, err := reader.ReadTypedMsg()
 	if err == io.EOF {
-		return nil
+		return err
 	}
 
 	// NOTE: we could recover from this scenario
