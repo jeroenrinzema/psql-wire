@@ -7,6 +7,8 @@ GOPATH		= $(HOME)/go
 GOBIN		= $(GOPATH)/bin
 GO			?= GOGC=off $(shell which go)
 
+PATH := $(BIN):$(GOBIN):$(PATH)
+
 # Printing
 V = 0
 Q = $(if $(filter 1,$V),,@)
@@ -21,6 +23,10 @@ $(BIN):
 $(BIN)/%: | $(BIN) ; $(info $(M) building $(@F)…)
 	$Q GOBIN=$(BIN) $(GO) install $(shell $(GO) list -e -tags=tools -f '{{ join .Imports "\n" }}' ./tools | grep $(@F))
 
+# golangci-lint is recommended to be installed via the install script instead of go get
+$(BIN)/golangci-lint: | $(BIN) ; $(info $(M) installing  golangci-lint…) @
+	curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/HEAD/install.sh | sh -s v1.64.7
+
 GOLANGCI_LINT = $(BIN)/golangci-lint
 STRINGER = $(BIN)/stringer
 GOIMPORTS = $(BIN)/goimports
@@ -33,6 +39,10 @@ lint: | $(GOLANGCI_LINT) ; $(info $(M) running golint…) @ ## Run the project l
 .PHONY: test
 test: ## Run all tests
 	$Q $(GO) test ./... -timeout 20s
+
+.PHONY: generate
+generate: | $(STRINGER) ; $(info $(M) running go generate…) @ ## Run go generate
+	$Q $(GO) generate ./...
 
 .PHONY: fmt
 fmt: ; $(info $(M) running gofmt…) @ ## Run gofmt on all source files
