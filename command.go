@@ -56,6 +56,7 @@ type Session struct {
 	*Server
 	Statements StatementCache
 	Portals    PortalCache
+	Attributes map[string]interface{}
 }
 
 // consumeCommands consumes incoming commands sent over the Postgres wire connection.

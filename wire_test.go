@@ -496,6 +496,69 @@ func TestServerNULLValues(t *testing.T) {
 	})
 }
 
+func TestSessionAttributes(t *testing.T) {
+	t.Parallel()
+
+	var sessionAttributes map[string]interface{}
+	handler := func(ctx context.Context, query string) (PreparedStatements, error) {
+		SetAttribute(ctx, "test_key", "test_value")
+		SetAttribute(ctx, "numeric_key", 42)
+
+		sess, ok := GetSession(ctx)
+		if ok {
+			sessionAttributes = sess.Attributes
+		}
+
+		statement := NewStatement(func(ctx context.Context, writer DataWriter, parameters []Parameter) error {
+			return writer.Complete("OK")
+		})
+
+		return Prepared(statement), nil
+	}
+
+	server, err := NewServer(handler, Logger(slogt.New(t)))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	address := TListenAndServe(t, server)
+
+	connstr := fmt.Sprintf("host=%s port=%d sslmode=disable", address.IP, address.Port)
+	conn, err := sql.Open("postgres", connstr)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	_, err = conn.Exec("SELECT 1")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	err = conn.Close()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	assert.Equal(t, "test_value", sessionAttributes["test_key"])
+	assert.Equal(t, 42, sessionAttributes["numeric_key"])
+
+	ctx := context.Background()
+	sess := &Session{Attributes: map[string]interface{}{"foo": "bar"}}
+	ctx = context.WithValue(ctx, sessionKey, sess)
+
+	val, ok := GetAttribute(ctx, "foo")
+	assert.True(t, ok)
+	assert.Equal(t, "bar", val)
+
+	val, ok = GetAttribute(ctx, "non_existent")
+	assert.False(t, ok)
+	assert.Nil(t, val)
+
+	ok = SetAttribute(ctx, "new_key", "new_value")
+	assert.True(t, ok)
+	assert.Equal(t, "new_value", sess.Attributes["new_key"])
+}
+
 func TestServerCopyIn(t *testing.T) {
 	t.Parallel()
 

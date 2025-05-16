@@ -16,6 +16,55 @@ import (
 	"github.com/jeroenrinzema/psql-wire/pkg/types"
 )
 
+type contextKey string
+
+const sessionKey contextKey = "pgsession"
+
+// GetSession retrieves the session from the context.
+// The first return value is the session object, which can be used to access all session data.
+// The second return value indicates whether the session was found in the context.
+func GetSession(ctx context.Context) (*Session, bool) {
+	session, ok := ctx.Value(sessionKey).(*Session)
+	return session, ok
+}
+
+// GetAttribute retrieves a custom attribute from the session by key.
+// The first return value is the attribute value, which will be nil if the attribute doesn't exist.
+// The second return value indicates whether the attribute was found.
+//
+// Example:
+//
+//	tenantID, ok := wire.GetAttribute(ctx, "tenant_id")
+//	if ok {
+//	    // Use tenantID
+//	}
+func GetAttribute(ctx context.Context, key string) (interface{}, bool) {
+	session, ok := GetSession(ctx)
+	if !ok {
+		return nil, false
+	}
+
+	value, exists := session.Attributes[key]
+	return value, exists
+}
+
+// SetAttribute sets a custom attribute in the session.
+// The key is the attribute name, and value can be any type.
+// Returns true if the attribute was set successfully, false if the session wasn't found.
+//
+// Example:
+//
+//	wire.SetAttribute(ctx, "tenant_id", "tenant-123")
+func SetAttribute(ctx context.Context, key string, value interface{}) bool {
+	session, ok := GetSession(ctx)
+	if !ok {
+		return false
+	}
+
+	session.Attributes[key] = value
+	return true
+}
+
 // ListenAndServe opens a new Postgres server using the given address and
 // default configurations. The given handler function is used to handle simple
 // queries. This method should be used to construct a simple Postgres server for
@@ -167,7 +216,10 @@ func (srv *Server) serve(ctx context.Context, conn net.Conn) error {
 		Server:     srv,
 		Statements: srv.Statements(),
 		Portals:    srv.Portals(),
+		Attributes: make(map[string]interface{}),
 	}
+
+	ctx = context.WithValue(ctx, sessionKey, session)
 
 	return session.consumeCommands(ctx, conn, reader, writer)
 }
