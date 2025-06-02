@@ -34,6 +34,20 @@ func handler(ctx context.Context, query string) (wire.PreparedStatements, error)
 
 ---
 
+## Session Attributes
+
+You can store custom session attributes for each client connection, allowing you to track session state:
+
+```go
+// Set a session attribute
+wire.SetAttribute(ctx, "tenant_id", "tenant-123")
+
+// Get a session attribute
+tenantID, ok := wire.GetAttribute(ctx, "tenant_id")
+```
+
+---
+
 > 🚧 When wanting to debug issues and or inspect the PostgreSQL wire protocol please check out the [psql-proxy](https://github.com/cloudproud/psql-proxy) cli
 
 ## Support
