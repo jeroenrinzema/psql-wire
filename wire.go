@@ -81,6 +81,8 @@ func ListenAndServe(address string, handler ParseFn) error {
 
 // NewServer constructs a new Postgres server using the given address and server options.
 func NewServer(parse ParseFn, options ...OptionFn) (*Server, error) {
+	shutdownCtx, shutdownCancel := context.WithCancel(context.Background())
+
 	srv := &Server{
 		parse:                   parse,
 		logger:                  slog.Default(),
@@ -90,6 +92,8 @@ func NewServer(parse ParseFn, options ...OptionFn) (*Server, error) {
 		Portals:                 DefaultPortalCacheFn,
 		Session:                 func(ctx context.Context) (context.Context, error) { return ctx, nil },
 		GracefulShutdownTimeout: 1 * time.Second,
+		shutdownCtx:             shutdownCtx,
+		shutdownCancel:          shutdownCancel,
 	}
 
 	for _, option := range options {
@@ -105,7 +109,7 @@ func NewServer(parse ParseFn, options ...OptionFn) (*Server, error) {
 // Server contains options for listening to an address.
 type Server struct {
 	closing                 atomic.Bool
-	wg                      sync.WaitGroup
+	connectionWG            sync.WaitGroup  // Track active connections
 	logger                  *slog.Logger
 	types                   *pgtype.Map
 	Auth                    AuthStrategy
@@ -121,6 +125,8 @@ type Server struct {
 	Version                 string
 	GracefulShutdownTimeout time.Duration
 	closer                  chan struct{}
+	shutdownCtx             context.Context
+	shutdownCancel          context.CancelFunc
 }
 
 // ListenAndServe opens a new Postgres server on the preconfigured address and
@@ -141,11 +147,9 @@ func (srv *Server) Serve(listener net.Listener) error {
 	defer srv.logger.Info("closing server")
 
 	srv.logger.Info("serving incoming connections", slog.String("addr", listener.Addr().String()))
-	srv.wg.Add(1)
 
-	// NOTE: handle graceful shutdowns
+	// NOTE: handle graceful shutdowns - this is infrastructure, not a client connection
 	go func() {
-		defer srv.wg.Done()
 		<-srv.closer
 
 		err := listener.Close()
@@ -155,11 +159,6 @@ func (srv *Server) Serve(listener net.Listener) error {
 	}()
 
 	for {
-		// Check if server is closing before accepting new connections
-		if srv.closing.Load() {
-			return nil
-		}
-
 		conn, err := listener.Accept()
 		if errors.Is(err, net.ErrClosed) {
 			return nil
@@ -169,13 +168,24 @@ func (srv *Server) Serve(listener net.Listener) error {
 			return err
 		}
 
-		go func() {
-			ctx := context.Background()
+		// Check if server is closing after accepting connection to avoid race
+		if srv.closing.Load() {
+			conn.Close()
+			return nil
+		}
+
+		// Track this connection in connection waitgroup
+		srv.connectionWG.Add(1)
+		go func(conn net.Conn) {
+			defer srv.connectionWG.Done()
+			// Use shutdown context to allow forced termination
+			ctx, cancel := context.WithCancel(srv.shutdownCtx)
+			defer cancel()
 			err = srv.serve(ctx, conn)
-			if err != nil && err != io.EOF {
+			if err != nil && err != io.EOF && !errors.Is(err, context.Canceled) {
 				srv.logger.Error("an unexpected error got returned while serving a client connection", "err", err)
 			}
-		}()
+		}(conn)
 	}
 }
 
@@ -238,14 +248,15 @@ func (srv *Server) Close() error {
 		return nil
 	}
 
+	srv.logger.Info("initiating server shutdown")
 	srv.closing.Store(true)
 	close(srv.closer)
 
-	// Wait for goroutines to finish with configurable timeout
+	// Wait for connections to finish with configurable timeout
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		srv.wg.Wait()
+		srv.connectionWG.Wait()
 	}()
 
 	timeout := srv.GracefulShutdownTimeout
@@ -255,9 +266,20 @@ func (srv *Server) Close() error {
 
 	select {
 	case <-done:
-		// All goroutines finished within timeout
+		srv.logger.Info("server shutdown completed gracefully")
 	case <-time.After(timeout):
-		// Timeout reached, continue with shutdown
+		srv.logger.Warn("graceful shutdown timeout reached, forcing termination", "timeout", timeout)
+		// Cancel shutdown context to force all operations to stop
+		srv.shutdownCancel()
+
+		// Give a brief moment for context cancellation to propagate
+		forceTimeout := 100 * time.Millisecond
+		select {
+		case <-done:
+			srv.logger.Info("server shutdown completed after forced termination")
+		case <-time.After(forceTimeout):
+			srv.logger.Error("server shutdown incomplete after forced termination")
+		}
 	}
 
 	return nil

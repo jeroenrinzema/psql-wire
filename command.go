@@ -80,6 +80,14 @@ func (srv *Session) consumeCommands(ctx context.Context, conn net.Conn, reader *
 }
 
 func (srv *Session) consumeSingleCommand(ctx context.Context, reader *buffer.Reader, writer *buffer.Writer, conn net.Conn) error {
+	// Check for context cancellation (forced shutdown)
+	select {
+	case <-ctx.Done():
+		srv.logger.Debug("connection cancelled due to shutdown")
+		return ctx.Err()
+	default:
+	}
+
 	t, length, err := reader.ReadTypedMsg()
 	if err == io.EOF {
 		return err
@@ -103,12 +111,9 @@ func (srv *Session) consumeSingleCommand(ctx context.Context, reader *buffer.Rea
 		return nil
 	}
 
-	// NOTE: we increase the wait group by one in order to make sure that idle
-	// connections are not blocking a close.
-	srv.wg.Add(1)
+	// Process the command (connection-level tracking handles shutdown coordination)
 	srv.logger.Debug("<- incoming command", slog.Int("length", length), slog.String("type", t.String()))
 	err = srv.handleCommand(ctx, conn, t, reader, writer)
-	srv.wg.Done()
 	if errors.Is(err, io.EOF) {
 		return nil
 	}
