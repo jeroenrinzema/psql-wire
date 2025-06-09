@@ -190,7 +190,9 @@ func (srv *Server) Serve(listener net.Listener) error {
 }
 
 func (srv *Server) serve(ctx context.Context, conn net.Conn) error {
-	ctx = setTypeInfo(ctx, srv.types)
+	// Create a new type map for each connection to avoid race conditions
+	connTypes := pgtype.NewMap()
+	ctx = setTypeInfo(ctx, connTypes)
 	ctx = setRemoteAddress(ctx, conn.RemoteAddr())
 	defer conn.Close()
 
