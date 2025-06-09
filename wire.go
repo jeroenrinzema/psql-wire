@@ -10,6 +10,7 @@ import (
 	"net"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jeroenrinzema/psql-wire/pkg/buffer"
@@ -81,13 +82,14 @@ func ListenAndServe(address string, handler ParseFn) error {
 // NewServer constructs a new Postgres server using the given address and server options.
 func NewServer(parse ParseFn, options ...OptionFn) (*Server, error) {
 	srv := &Server{
-		parse:      parse,
-		logger:     slog.Default(),
-		closer:     make(chan struct{}),
-		types:      pgtype.NewMap(),
-		Statements: DefaultStatementCacheFn,
-		Portals:    DefaultPortalCacheFn,
-		Session:    func(ctx context.Context) (context.Context, error) { return ctx, nil },
+		parse:                   parse,
+		logger:                  slog.Default(),
+		closer:                  make(chan struct{}),
+		types:                   pgtype.NewMap(),
+		Statements:              DefaultStatementCacheFn,
+		Portals:                 DefaultPortalCacheFn,
+		Session:                 func(ctx context.Context) (context.Context, error) { return ctx, nil },
+		GracefulShutdownTimeout: 1 * time.Second,
 	}
 
 	for _, option := range options {
@@ -102,22 +104,23 @@ func NewServer(parse ParseFn, options ...OptionFn) (*Server, error) {
 
 // Server contains options for listening to an address.
 type Server struct {
-	closing         atomic.Bool
-	wg              sync.WaitGroup
-	logger          *slog.Logger
-	types           *pgtype.Map
-	Auth            AuthStrategy
-	BufferedMsgSize int
-	Parameters      Parameters
-	TLSConfig       *tls.Config
-	parse           ParseFn
-	Session         SessionHandler
-	Statements      func() StatementCache
-	Portals         func() PortalCache
-	CloseConn       CloseFn
-	TerminateConn   CloseFn
-	Version         string
-	closer          chan struct{}
+	closing                 atomic.Bool
+	wg                      sync.WaitGroup
+	logger                  *slog.Logger
+	types                   *pgtype.Map
+	Auth                    AuthStrategy
+	BufferedMsgSize         int
+	Parameters              Parameters
+	TLSConfig               *tls.Config
+	parse                   ParseFn
+	Session                 SessionHandler
+	Statements              func() StatementCache
+	Portals                 func() PortalCache
+	CloseConn               CloseFn
+	TerminateConn           CloseFn
+	Version                 string
+	GracefulShutdownTimeout time.Duration
+	closer                  chan struct{}
 }
 
 // ListenAndServe opens a new Postgres server on the preconfigured address and
@@ -152,6 +155,11 @@ func (srv *Server) Serve(listener net.Listener) error {
 	}()
 
 	for {
+		// Check if server is closing before accepting new connections
+		if srv.closing.Load() {
+			return nil
+		}
+
 		conn, err := listener.Accept()
 		if errors.Is(err, net.ErrClosed) {
 			return nil
@@ -232,6 +240,25 @@ func (srv *Server) Close() error {
 
 	srv.closing.Store(true)
 	close(srv.closer)
-	srv.wg.Wait()
+
+	// Wait for goroutines to finish with configurable timeout
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		srv.wg.Wait()
+	}()
+
+	timeout := srv.GracefulShutdownTimeout
+	if timeout <= 0 {
+		timeout = 1 * time.Second // Default fallback
+	}
+
+	select {
+	case <-done:
+		// All goroutines finished within timeout
+	case <-time.After(timeout):
+		// Timeout reached, continue with shutdown
+	}
+
 	return nil
 }
