@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/tls"
 	"errors"
+	"fmt"
 	"log/slog"
 	"maps"
 	"net"
@@ -118,6 +119,7 @@ func (srv *Server) writeParameters(ctx context.Context, writer *buffer.Writer, p
 	}
 	params[ParamIsSuperuser] = buffer.EncodeBoolean(IsSuperUser(ctx))
 	params[ParamSessionAuthorization] = AuthenticatedUsername(ctx)
+	params[ParamServerVersion] = fmt.Sprintf("%d", 15*10000) // 15.1.2 => 15*10000 + 1*100 + 2*1 => 15102
 
 	for key, value := range params {
 		srv.logger.Debug("server parameter", slog.String("key", string(key)), slog.String("value", value))
