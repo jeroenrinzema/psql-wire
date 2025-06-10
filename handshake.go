@@ -143,12 +143,22 @@ func (srv *Server) writeParameters(ctx context.Context, writer *buffer.Writer, p
 // server does not support a secure connection.
 func (srv *Server) potentialConnUpgrade(conn net.Conn, reader *buffer.Reader, version types.Version) (_ net.Conn, _ *buffer.Reader, _ types.Version, err error) {
 	if version != types.VersionSSLRequest {
+		if srv.ClientAuth == tls.RequireAndVerifyClientCert {
+			srv.logger.Warn("client is requesting nil TLS, but the server mandates TLS")
+			return conn, reader, version, fmt.Errorf("client is requesting nil TLS, but the server mandates TLS")
+		}
+
 		return conn, reader, version, nil
 	}
 
 	srv.logger.Debug("attempting to upgrade the client to a TLS connection")
 
 	if srv.TLSConfig == nil || len(srv.TLSConfig.Certificates) == 0 {
+		if srv.ClientAuth == tls.RequireAndVerifyClientCert {
+			srv.logger.Warn("server mandates TLS, but does not possess the requisite certificates")
+			return conn, reader, version, fmt.Errorf("server mandates TLS, but does not possess the requisite certificates")
+		}
+
 		srv.logger.Debug("no TLS certificates available continuing with a insecure connection")
 		return srv.sslUnsupported(conn, reader, version)
 	}

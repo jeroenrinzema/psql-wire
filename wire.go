@@ -85,6 +85,7 @@ func NewServer(parse ParseFn, options ...OptionFn) (*Server, error) {
 		logger:     slog.Default(),
 		closer:     make(chan struct{}),
 		types:      pgtype.NewMap(),
+		ClientAuth: tls.NoClientCert,
 		Statements: DefaultStatementCacheFn,
 		Portals:    DefaultPortalCacheFn,
 		Session:    func(ctx context.Context) (context.Context, error) { return ctx, nil },
@@ -110,6 +111,7 @@ type Server struct {
 	BufferedMsgSize int
 	Parameters      Parameters
 	TLSConfig       *tls.Config
+	ClientAuth      tls.ClientAuthType
 	parse           ParseFn
 	Session         SessionHandler
 	Statements      func() StatementCache

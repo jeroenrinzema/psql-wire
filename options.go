@@ -145,6 +145,16 @@ func MessageBufferSize(size int) OptionFn {
 	}
 }
 
+// ClientAuth sets the client authentication type which is used to authenticate
+// the client connection. The default value is [tls.NoClientCert] which means
+// that no client authentication is performed.
+func ClientAuth(auth tls.ClientAuthType) OptionFn {
+	return func(srv *Server) error {
+		srv.ClientAuth = auth
+		return nil
+	}
+}
+
 // TLSConfig sets the given TLS config to be used to initialize a
 // secure connection between the front-end (client) and back-end (server).
 func TLSConfig(config *tls.Config) OptionFn {
