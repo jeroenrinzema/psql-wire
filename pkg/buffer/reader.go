@@ -182,6 +182,10 @@ func (reader *Reader) GetPrepareType() (PrepareType, error) {
 
 // GetBytes returns the buffer's contents as a []byte.
 func (reader *Reader) GetBytes(n int) ([]byte, error) {
+	// NULL parameter
+	if n == -1 {
+		return nil, nil
+	}
 	if len(reader.Msg) < n {
 		return nil, NewInsufficientData(len(reader.Msg))
 	}
@@ -211,4 +215,16 @@ func (reader *Reader) GetUint32() (uint32, error) {
 	v := binary.BigEndian.Uint32(reader.Msg[:4])
 	reader.Msg = reader.Msg[4:]
 	return v, nil
+}
+
+// GetInt32 returns the buffer's contents as an int32.
+func (reader *Reader) GetInt32() (int32, error) {
+	if len(reader.Msg) < 4 {
+		return 0, NewInsufficientData(len(reader.Msg))
+	}
+
+	unsignedVal := binary.BigEndian.Uint32(reader.Msg[:4])
+	signedVal := int32(unsignedVal)
+	reader.Msg = reader.Msg[4:]
+	return signedVal, nil
 }
