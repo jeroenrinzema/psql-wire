@@ -130,4 +130,40 @@ func TestBindMessageParameters(t *testing.T) {
 		}
 	})
 
+	t.Run("pgx nil parameter", func(t *testing.T) {
+		conn, err := pgx.Connect(ctx, connstr)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		defer conn.Close(ctx)
+
+		// changed to nil
+		rows, err := conn.Query(ctx, "SELECT $1 $2;", "John Doe", nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		assert.True(t, rows.Next())
+
+		var name string
+		var answer string
+
+		err = rows.Scan(&name, &answer)
+		require.NoError(t, err)
+
+		t.Logf("scan result: %s, %s", name, answer)
+
+		assert.Equal(t, name, "John Doe")
+		assert.Equal(t, answer, "")
+
+		assert.False(t, rows.Next())
+
+		rows.Close()
+
+		err = conn.Close(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+	})
 }
