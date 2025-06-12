@@ -135,9 +135,15 @@ func (srv *Server) ListenAndServe(address string) error {
 // preconfigured configurations. The given listener will be closed once the
 // server is gracefully closed.
 func (srv *Server) Serve(listener net.Listener) error {
-	defer srv.logger.Info("closing server")
+	defer func() {
+		if srv.logger != nil && !srv.closing.Load() {
+			srv.logger.Info("closing server")
+		}
+	}()
 
-	srv.logger.Info("serving incoming connections", slog.String("addr", listener.Addr().String()))
+	if srv.logger != nil {
+		srv.logger.Info("serving incoming connections", slog.String("addr", listener.Addr().String()))
+	}
 	srv.wg.Add(1)
 
 	// NOTE: handle graceful shutdowns
@@ -146,7 +152,7 @@ func (srv *Server) Serve(listener net.Listener) error {
 		<-srv.closer
 
 		err := listener.Close()
-		if err != nil {
+		if err != nil && srv.logger != nil && !srv.closing.Load() {
 			srv.logger.Error("unexpected error while attempting to close the net listener", "err", err)
 		}
 	}()
@@ -164,7 +170,7 @@ func (srv *Server) Serve(listener net.Listener) error {
 		go func() {
 			ctx := context.Background()
 			err = srv.serve(ctx, conn)
-			if err != nil && err != io.EOF {
+			if err != nil && err != io.EOF && srv.logger != nil && !srv.closing.Load() {
 				srv.logger.Error("an unexpected error got returned while serving a client connection", "err", err)
 			}
 		}()
@@ -176,7 +182,9 @@ func (srv *Server) serve(ctx context.Context, conn net.Conn) error {
 	ctx = setRemoteAddress(ctx, conn.RemoteAddr())
 	defer conn.Close()
 
-	srv.logger.Debug("serving a new client connection")
+	if srv.logger != nil {
+		srv.logger.Debug("serving a new client connection")
+	}
 
 	conn, version, reader, err := srv.Handshake(conn)
 	if err != nil {
@@ -187,9 +195,15 @@ func (srv *Server) serve(ctx context.Context, conn net.Conn) error {
 		return conn.Close()
 	}
 
-	srv.logger.Debug("handshake successfull, validating authentication")
+	if srv.logger != nil {
+		srv.logger.Debug("handshake successfull, validating authentication")
+	}
 
-	writer := buffer.NewWriter(srv.logger, conn)
+	logger := srv.logger
+	if logger == nil {
+		logger = slog.Default()
+	}
+	writer := buffer.NewWriter(logger, conn)
 	ctx, err = srv.readClientParameters(ctx, reader)
 	if err != nil {
 		return err
@@ -200,7 +214,9 @@ func (srv *Server) serve(ctx context.Context, conn net.Conn) error {
 		return err
 	}
 
-	srv.logger.Debug("connection authenticated, writing server parameters")
+	if srv.logger != nil {
+		srv.logger.Debug("connection authenticated, writing server parameters")
+	}
 
 	ctx, err = srv.writeParameters(ctx, writer, srv.Parameters)
 	if err != nil {
