@@ -1,0 +1,17 @@
+name: psql-wire
+
+type: go
+
+up:
+  - go:
+      version: 1.23.0
+      modules: true
+  - packages:
+      - golangci-lint
+
+# `dev run` runs `dev build` and then `dev run-built` if these are both defined.
+commands:
+  test:
+    run: go test -v -race -cover ./...
+  style:
+    run: golangci-lint run --fix ./...
