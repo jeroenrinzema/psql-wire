@@ -10,6 +10,7 @@ import (
 	"net"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jeroenrinzema/psql-wire/pkg/buffer"
@@ -81,14 +82,15 @@ func ListenAndServe(address string, handler ParseFn) error {
 // NewServer constructs a new Postgres server using the given address and server options.
 func NewServer(parse ParseFn, options ...OptionFn) (*Server, error) {
 	srv := &Server{
-		parse:      parse,
-		logger:     slog.Default(),
-		closer:     make(chan struct{}),
-		types:      pgtype.NewMap(),
-		ClientAuth: tls.NoClientCert,
-		Statements: DefaultStatementCacheFn,
-		Portals:    DefaultPortalCacheFn,
-		Session:    func(ctx context.Context) (context.Context, error) { return ctx, nil },
+		parse:           parse,
+		logger:          slog.Default(),
+		closer:          make(chan struct{}),
+		types:           pgtype.NewMap(),
+		ClientAuth:      tls.NoClientCert,
+		Statements:      DefaultStatementCacheFn,
+		Portals:         DefaultPortalCacheFn,
+		Session:         func(ctx context.Context) (context.Context, error) { return ctx, nil },
+		ShutdownTimeout: 1 * time.Second,
 	}
 
 	for _, option := range options {
@@ -119,6 +121,7 @@ type Server struct {
 	CloseConn       CloseFn
 	TerminateConn   CloseFn
 	Version         string
+	ShutdownTimeout time.Duration
 	closer          chan struct{}
 }
 
@@ -137,10 +140,25 @@ func (srv *Server) ListenAndServe(address string) error {
 // preconfigured configurations. The given listener will be closed once the
 // server is gracefully closed.
 func (srv *Server) Serve(listener net.Listener) error {
-	defer srv.logger.Info("closing server")
+	defer func() {
+		if !srv.closing.Load() {
+			srv.logger.Info("closing server")
+		}
+	}()
+
+	// Early check to avoid logging and work if shutdown already started
+	if srv.closing.Load() {
+		return nil
+	}
 
 	srv.logger.Info("serving incoming connections", slog.String("addr", listener.Addr().String()))
 	srv.wg.Add(1)
+
+	// Double-check: if shutdown started between the check and Add, we must undo
+	if srv.closing.Load() {
+		srv.wg.Done()
+		return nil
+	}
 
 	// NOTE: handle graceful shutdowns
 	go func() {
@@ -161,6 +179,12 @@ func (srv *Server) Serve(listener net.Listener) error {
 
 		if err != nil {
 			return err
+		}
+
+		// If shutdown has started, close the connection immediately
+		if srv.closing.Load() {
+			_ = conn.Close()
+			continue
 		}
 
 		go func() {
@@ -236,4 +260,70 @@ func (srv *Server) Close() error {
 	close(srv.closer)
 	srv.wg.Wait()
 	return nil
+}
+
+// Shutdown gracefully shuts down the server with context and timeout support.
+// It stops accepting new connections and waits for active connections to finish
+// within the shorter of the context deadline or the server's configured ShutdownTimeout.
+// If the context has no deadline, the server's ShutdownTimeout is used.
+func (srv *Server) Shutdown(ctx context.Context) error {
+	// Check if already shutting down or shut down
+	if srv.closing.Load() {
+		// If already closing, just wait for existing shutdown to complete
+		srv.wg.Wait()
+		return nil
+	}
+
+	// Use the shorter of context deadline or server timeout
+	var shutdownCtx context.Context
+	var cancel context.CancelFunc
+
+	timeout := srv.ShutdownTimeout
+	if deadline, ok := ctx.Deadline(); ok {
+		// Use whichever is shorter: context deadline or server timeout
+		if timeout == 0 || time.Until(deadline) < timeout {
+			// Context deadline is shorter (or server has no timeout)
+			shutdownCtx, cancel = context.WithDeadline(context.Background(), deadline)
+		} else {
+			// Server timeout is shorter
+			shutdownCtx, cancel = context.WithTimeout(context.Background(), timeout)
+		}
+	} else {
+		// No context deadline, use server timeout
+		if timeout == 0 {
+			// Zero timeout means wait indefinitely
+			shutdownCtx, cancel = context.WithCancel(context.Background())
+		} else {
+			shutdownCtx, cancel = context.WithTimeout(context.Background(), timeout)
+		}
+	}
+	defer cancel()
+
+	// Atomically check and set closing state
+	if !srv.closing.CompareAndSwap(false, true) {
+		// Another goroutine beat us to it, just wait for shutdown to complete
+		srv.wg.Wait()
+		return nil
+	}
+
+	srv.logger.Info("starting graceful shutdown")
+
+	// Close the closer channel (we're the first/only one to get here)
+	close(srv.closer)
+
+	// Wait for active connections to finish or timeout
+	done := make(chan struct{})
+	go func() {
+		srv.wg.Wait()
+		close(done)
+	}()
+
+	select {
+	case <-done:
+		srv.logger.Info("graceful shutdown completed")
+		return nil
+	case <-shutdownCtx.Done():
+		srv.logger.Warn("graceful shutdown timed out, some connections may be forcefully closed")
+		return shutdownCtx.Err()
+	}
 }

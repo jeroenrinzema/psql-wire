@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"regexp"
 	"strconv"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jeroenrinzema/psql-wire/pkg/buffer"
@@ -195,6 +196,17 @@ func Logger(logger *slog.Logger) OptionFn {
 func Version(version string) OptionFn {
 	return func(srv *Server) error {
 		srv.Version = version
+		return nil
+	}
+}
+
+// WithShutdownTimeout sets the timeout duration for graceful shutdown.
+// When Shutdown is called, the server will wait up to this duration for
+// active connections to finish before forcing closure.
+// A timeout of 0 means wait indefinitely (no timeout).
+func WithShutdownTimeout(timeout time.Duration) OptionFn {
+	return func(srv *Server) error {
+		srv.ShutdownTimeout = timeout
 		return nil
 	}
 }
