@@ -110,4 +110,21 @@ func TestClearTextPasswordIncorrect(t *testing.T) {
 	// Authentication should fail with an error
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "invalid username/password")
+
+	// Verify what was written to the client
+	result := buffer.NewReader(slogt.New(t), sink, buffer.DefaultBufferSize)
+
+	// First message should be the auth request (asking for password)
+	ty, _, err := result.ReadTypedMsg()
+	require.NoError(t, err)
+	require.Equal(t, types.ServerMessage(ty), types.ServerAuth)
+
+	// The client SHOULD receive an error response message
+	ty, _, err = result.ReadTypedMsg()
+	require.NoError(t, err)
+	require.Equal(t, types.ServerMessage(ty), types.ServerErrorResponse)
+
+	// No ready for query message should follow (connection will be closed)
+	_, _, err = result.ReadTypedMsg()
+	require.Error(t, err, "Expected no ready for query message after auth failure")
 }
