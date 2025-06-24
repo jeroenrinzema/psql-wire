@@ -73,7 +73,12 @@ func ClearTextPassword(validate func(ctx context.Context, database, username, pa
 		}
 
 		if !valid {
-			return ctx, ErrorCode(writer, pgerror.WithCode(errors.New("invalid username/password"), codes.InvalidPassword))
+			authErr := pgerror.WithCode(errors.New("invalid username/password"), codes.InvalidPassword)
+			err = ErrorCode(writer, authErr)
+			if err != nil {
+				return ctx, err
+			}
+			return ctx, authErr
 		}
 
 		return ctx, writeAuthType(writer, authOK)

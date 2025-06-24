@@ -1,6 +1,7 @@
 package wire
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
 	"errors"
@@ -10,6 +11,8 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jeroenrinzema/psql-wire/codes"
 	psqlerr "github.com/jeroenrinzema/psql-wire/errors"
+	"github.com/jeroenrinzema/psql-wire/pkg/buffer"
+	"github.com/jeroenrinzema/psql-wire/pkg/types"
 	"github.com/neilotoole/slogt"
 	"github.com/stretchr/testify/assert"
 )
@@ -52,5 +55,50 @@ func TestErrorCode(t *testing.T) {
 
 		err = conn.Close(ctx)
 		assert.NoError(t, err)
+	})
+}
+
+func TestErrorCodeAuthFailure(t *testing.T) {
+	t.Run("regular error includes ready for query", func(t *testing.T) {
+		sink := bytes.NewBuffer([]byte{})
+		writer := buffer.NewWriter(slogt.New(t), sink)
+
+		// Regular error should include ready for query message
+		err := ErrorCode(writer, psqlerr.WithCode(errors.New("some error"), codes.Syntax))
+		assert.NoError(t, err)
+
+		// Check that we have both ErrorResponse and Ready messages
+		reader := buffer.NewReader(slogt.New(t), sink, buffer.DefaultBufferSize)
+
+		// First message should be ErrorResponse
+		msgType, _, err := reader.ReadTypedMsg()
+		assert.NoError(t, err)
+		assert.Equal(t, types.ServerMessage(msgType), types.ServerErrorResponse)
+
+		// Second message should be Ready
+		msgType, _, err = reader.ReadTypedMsg()
+		assert.NoError(t, err)
+		assert.Equal(t, types.ServerMessage(msgType), types.ServerReady)
+	})
+
+	t.Run("auth failure skips ready for query", func(t *testing.T) {
+		sink := bytes.NewBuffer([]byte{})
+		writer := buffer.NewWriter(slogt.New(t), sink)
+
+		// Authentication error should NOT include ready for query message
+		err := ErrorCode(writer, psqlerr.WithCode(errors.New("invalid username/password"), codes.InvalidPassword))
+		assert.NoError(t, err)
+
+		// Check that we only have ErrorResponse, no Ready message
+		reader := buffer.NewReader(slogt.New(t), sink, buffer.DefaultBufferSize)
+
+		// First message should be ErrorResponse
+		msgType, _, err := reader.ReadTypedMsg()
+		assert.NoError(t, err)
+		assert.Equal(t, types.ServerMessage(msgType), types.ServerErrorResponse)
+
+		// There should be no more messages
+		_, _, err = reader.ReadTypedMsg()
+		assert.Error(t, err) // Should get EOF or similar
 	})
 }

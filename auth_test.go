@@ -76,3 +76,38 @@ func TestClearTextPassword(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, ctx, out)
 }
+
+func TestClearTextPasswordIncorrect(t *testing.T) {
+	correctPassword := "correct-password"
+	incorrectPassword := "wrong-password"
+
+	input := bytes.NewBuffer([]byte{})
+	incoming := buffer.NewWriter(slogt.New(t), input)
+
+	// Client sends the incorrect password
+	incoming.Start(types.ServerMessage(types.ClientPassword))
+	incoming.AddString(incorrectPassword)
+	incoming.AddNullTerminate()
+	incoming.End() //nolint:errcheck
+
+	validate := func(ctx context.Context, database, username, password string) (context.Context, bool, error) {
+		// Only accept the correct password
+		if password == correctPassword {
+			return ctx, true, nil
+		}
+		return ctx, false, nil
+	}
+
+	sink := bytes.NewBuffer([]byte{})
+
+	ctx := context.Background()
+	reader := buffer.NewReader(slogt.New(t), input, buffer.DefaultBufferSize)
+	writer := buffer.NewWriter(slogt.New(t), sink)
+
+	server := &Server{logger: slogt.New(t), Auth: ClearTextPassword(validate)}
+	_, err := server.handleAuth(ctx, reader, writer)
+
+	// Authentication should fail with an error
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "invalid username/password")
+}
