@@ -1,6 +1,7 @@
 package wire
 
 import (
+	"github.com/jeroenrinzema/psql-wire/codes"
 	psqlerr "github.com/jeroenrinzema/psql-wire/errors"
 	"github.com/jeroenrinzema/psql-wire/pkg/buffer"
 	"github.com/jeroenrinzema/psql-wire/pkg/types"
@@ -76,6 +77,11 @@ func ErrorCode(writer *buffer.Writer, err error) error {
 	}
 
 	// NOTE: we are writing a ready for query message to indicate the end of a
-	// command cycle.
+	// command cycle. However, for authentication failures, we skip this
+	// because the connection will be terminated.
+	if desc.Code == codes.InvalidPassword {
+		return nil
+	}
+
 	return readyForQuery(writer, types.ServerIdle)
 }
