@@ -140,30 +140,24 @@ func (srv *Server) ListenAndServe(address string) error {
 // preconfigured configurations. The given listener will be closed once the
 // server is gracefully closed.
 func (srv *Server) Serve(listener net.Listener) error {
-	defer func() {
-		if !srv.closing.Load() {
-			srv.logger.Info("closing server")
-		}
-	}()
-
 	// Early check to avoid logging and work if shutdown already started
 	if srv.closing.Load() {
 		return nil
 	}
 
 	srv.logger.Info("serving incoming connections", slog.String("addr", listener.Addr().String()))
-	srv.wg.Add(1)
 
 	// Double-check: if shutdown started between the check and Add, we must undo
 	if srv.closing.Load() {
-		srv.wg.Done()
 		return nil
 	}
 
-	// NOTE: handle graceful shutdowns
+	srv.wg.Add(1)
 	go func() {
 		defer srv.wg.Done()
 		<-srv.closer
+
+		srv.logger.Info("closing server")
 
 		err := listener.Close()
 		if err != nil {
