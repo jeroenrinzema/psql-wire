@@ -184,7 +184,7 @@ func (srv *Server) Serve(listener net.Listener) error {
 		go func() {
 			ctx := context.Background()
 			err = srv.serve(ctx, conn)
-			if err != nil && err != io.EOF {
+			if err != nil && !srv.isNormalConnectionClosure(err) {
 				srv.logger.Error("an unexpected error got returned while serving a client connection", "err", err)
 			}
 		}()
@@ -320,4 +320,10 @@ func (srv *Server) Shutdown(ctx context.Context) error {
 		srv.logger.Warn("graceful shutdown timed out, some connections may be forcefully closed")
 		return shutdownCtx.Err()
 	}
+}
+
+// isNormalConnectionClosure checks if an error represents a normal client connection closure
+// that shouldn't be logged as an error.
+func (srv *Server) isNormalConnectionClosure(err error) bool {
+	return errors.Is(err, io.EOF) || errors.Is(err, net.ErrClosed)
 }
