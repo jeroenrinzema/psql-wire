@@ -495,7 +495,7 @@ func (srv *Session) readParameters(ctx context.Context, reader *buffer.Reader) (
 
 	parameters := make([]Parameter, length)
 	for i := 0; i < int(length); i++ {
-		length, err := reader.GetUint32()
+		length, err := reader.GetInt32()
 		if err != nil {
 			return nil, err
 		}
