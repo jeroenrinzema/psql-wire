@@ -10,6 +10,7 @@ import (
 	"net"
 	"sync"
 	"sync/atomic"
+	"syscall"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgtype"
@@ -184,8 +185,12 @@ func (srv *Server) Serve(listener net.Listener) error {
 		go func() {
 			ctx := context.Background()
 			err = srv.serve(ctx, conn)
-			if err != nil && !srv.isNormalConnectionClosure(err) {
-				srv.logger.Error("an unexpected error got returned while serving a client connection", "err", err)
+			if err != nil {
+				if srv.isNormalConnectionClosure(err) {
+					srv.logger.Debug("client connection closed", "err", err)
+				} else {
+					srv.logger.Error("an unexpected error got returned while serving a client connection", "err", err)
+				}
 			}
 		}()
 	}
@@ -325,5 +330,19 @@ func (srv *Server) Shutdown(ctx context.Context) error {
 // isNormalConnectionClosure checks if an error represents a normal client connection closure
 // that shouldn't be logged as an error.
 func (srv *Server) isNormalConnectionClosure(err error) bool {
-	return errors.Is(err, io.EOF) || errors.Is(err, net.ErrClosed)
+	// Check for conn closed or conn termination normally
+	if errors.Is(err, io.EOF) || errors.Is(err, net.ErrClosed) {
+		return true
+	}
+
+	// Check for syscall errors that indicate normal connection closure
+	var errno syscall.Errno
+	if errors.As(err, &errno) {
+		switch errno {
+		case syscall.EPIPE, syscall.ECONNRESET:
+			return true
+		}
+	}
+
+	return false
 }
