@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"fmt"
 	"io"
+	"log/slog"
 	"net"
 	"sync"
 	"testing"
@@ -13,6 +14,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	_ "github.com/jackc/pgx/v5/stdlib"
 	"github.com/jeroenrinzema/psql-wire/pkg/mock"
+	"github.com/jeroenrinzema/psql-wire/pkg/types"
 	"github.com/lib/pq"
 	"github.com/lib/pq/oid"
 	"github.com/neilotoole/slogt"
@@ -1105,6 +1107,119 @@ func TestServerShutdownInfiniteTimeoutWithActiveConnection(t *testing.T) {
 		assert.NoError(t, err)
 	case <-time.After(200 * time.Millisecond):
 		t.Error("Shutdown took too long after query finished")
+	}
+}
+
+// testLogHandler captures log messages for testing
+type testLogHandler struct {
+	errorLogs *[]string
+	debugLogs *[]string
+	mu        *sync.Mutex
+}
+
+func (h *testLogHandler) Enabled(ctx context.Context, level slog.Level) bool {
+	return true
+}
+
+func (h *testLogHandler) Handle(ctx context.Context, r slog.Record) error {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
+	if r.Level >= slog.LevelError {
+		*h.errorLogs = append(*h.errorLogs, r.Message)
+	} else if r.Level == slog.LevelDebug {
+		*h.debugLogs = append(*h.debugLogs, r.Message)
+	}
+	return nil
+}
+
+func (h *testLogHandler) WithAttrs(attrs []slog.Attr) slog.Handler {
+	return h
+}
+
+func (h *testLogHandler) WithGroup(name string) slog.Handler {
+	return h
+}
+
+// TestClientDisconnectDuringWrite tests that the server handles client disconnections gracefully
+// without logging them as unexpected errors when they occur during result writing.
+func TestClientDisconnectDuringWrite(t *testing.T) {
+	t.Parallel()
+
+	// Capture logs
+	var errorLogs []string
+	var debugLogs []string
+	var mu sync.Mutex
+
+	handler := func(ctx context.Context, query string) (PreparedStatements, error) {
+		// Handler that writes multiple rows to trigger broken pipe when client disconnects
+		statement := NewStatement(func(ctx context.Context, writer DataWriter, parameters []Parameter) error {
+			// Write enough data to fill buffers and ensure we hit the broken pipe
+			for i := 0; i < 1000; i++ {
+				if err := writer.Row([]any{fmt.Sprintf("Row %d with some data to fill buffers", i)}); err != nil {
+					return err // This will be a broken pipe error after client disconnects
+				}
+			}
+			return writer.Complete("SELECT 1000")
+		}, WithColumns(Columns{{Name: "data", Oid: oid.T_text}}))
+		return Prepared(statement), nil
+	}
+
+	// Create custom logger that captures ERROR and DEBUG logs
+	logHandler := &testLogHandler{
+		errorLogs: &errorLogs,
+		debugLogs: &debugLogs,
+		mu:        &mu,
+	}
+
+	server, err := NewServer(handler, Logger(slog.New(logHandler)))
+	require.NoError(t, err)
+	address := TListenAndServe(t, server)
+
+	// Connect and send query
+	conn, err := net.Dial("tcp", fmt.Sprintf("%s:%d", address.IP, address.Port))
+	require.NoError(t, err)
+
+	client := mock.NewClient(t, conn)
+	client.Handshake(t)
+	client.Authenticate(t)
+	client.ReadyForQuery(t)
+
+	// Send query
+	client.Start(types.ClientSimpleQuery)
+	client.AddString("SELECT 1")
+	client.AddNullTerminate()
+	err = client.End()
+	require.NoError(t, err)
+
+	// Close connection immediately to cause broken pipe
+	conn.Close()
+
+	// Give server time to attempt writing and hit the broken pipe
+	time.Sleep(100 * time.Millisecond)
+
+	// Check logs
+	mu.Lock()
+	defer mu.Unlock()
+
+	// The test fails if we see the error log about unexpected connection error
+	for _, log := range errorLogs {
+		if log == "an unexpected error got returned while serving a client connection" {
+			t.Errorf("Server logged broken pipe as unexpected error - the fix is not working")
+		}
+	}
+
+	// Verify we got a debug log about the connection closure
+	foundDebugLog := false
+	for _, log := range debugLogs {
+		if log == "client connection closed" {
+			foundDebugLog = true
+			break
+		}
+	}
+
+	if !foundDebugLog {
+		t.Error("Expected to find debug log about client connection closure")
 	}
 }
 
