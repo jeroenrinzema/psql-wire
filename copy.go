@@ -203,7 +203,17 @@ type TextCopyReader struct {
 	nullValue  string // PostgreSQL NULL value string (default empty)
 }
 
-func NewTextColumnReader(ctx context.Context, copy *CopyReader, separator rune) (_ *TextCopyReader, err error) {
+type TextCopyReaderOptions struct {
+	separator rune
+	nullValue string
+}
+
+func NewTextColumnReader(ctx context.Context, copy *CopyReader, options TextCopyReaderOptions) (_ *TextCopyReader, err error) {
+	if options.separator == 0 {
+		// set to default separator
+		options.separator = ','
+	}
+
 	tm := TypeMap(ctx)
 	if tm == nil {
 		return nil, errors.New("postgres connection info has not been defined inside the given context")
@@ -219,7 +229,7 @@ func NewTextColumnReader(ctx context.Context, copy *CopyReader, separator rune) 
 
 	csvReaderBuffer := &bytes.Buffer{}
 	csvReader := csv.NewReader(csvReaderBuffer)
-	csvReader.Comma = separator
+	csvReader.Comma = options.separator
 	csvReader.TrimLeadingSpace = false
 	csvReader.LazyQuotes = true // Handle non-standard quoting
 
@@ -230,7 +240,7 @@ func NewTextColumnReader(ctx context.Context, copy *CopyReader, separator rune) 
 		csvReader:  csvReader,
 		buffer:     csvReaderBuffer,
 		bufScanner: bufio.NewScanner(csvReaderBuffer),
-		nullValue:  "", // Default NULL value is empty string
+		nullValue:  options.nullValue,
 	}
 
 	return reader, nil
@@ -307,9 +317,4 @@ func (r *TextCopyReader) preprocessPostgreSQLCSV(data []byte) []byte {
 	// Convert PostgreSQL \" to "" for RFC 4180 compliance
 	result := bytes.ReplaceAll(data, []byte(`\"`), []byte(`""`))
 	return result
-}
-
-// SetNullValue sets the string that represents NULL values in the CSV
-func (r *TextCopyReader) SetNullValue(nullValue string) {
-	r.nullValue = nullValue
 }

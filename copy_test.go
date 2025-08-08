@@ -52,7 +52,10 @@ func TestCopyReaderText(t *testing.T) {
 			}
 
 			var length int
-			reader, err := NewTextColumnReader(ctx, copyText, ',')
+			reader, err := NewTextColumnReader(ctx, copyText, TextCopyReaderOptions{
+				separator: ',',
+				nullValue: "",
+			})
 			if err != nil {
 				return err
 			}
@@ -157,13 +160,13 @@ func TestCopyReaderTextNullAndEscape(t *testing.T) {
 			}
 
 			var length int
-			reader, err := NewTextColumnReader(ctx, copyText, ',')
+			reader, err := NewTextColumnReader(ctx, copyText, TextCopyReaderOptions{
+				separator: ',',
+				nullValue: "attNULL",
+			})
 			if err != nil {
 				return err
 			}
-
-			// Set NULL value for this test
-			reader.SetNullValue("attNULL")
 
 			for {
 				columns, err := reader.Read(ctx)
