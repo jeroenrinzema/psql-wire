@@ -1,8 +1,10 @@
 package wire
 
 import (
+	"bufio"
 	"bytes"
 	"context"
+	"encoding/csv"
 	"errors"
 	"fmt"
 	"io"
@@ -187,4 +189,116 @@ func (r *BinaryCopyReader) Read(ctx context.Context) (_ []any, err error) {
 	}
 
 	return row, nil
+}
+
+// read text data
+
+type TextCopyReader struct {
+	typeMap    *pgtype.Map
+	reader     *CopyReader
+	scanners   []Scanner
+	csvReader  *csv.Reader
+	buffer     *bytes.Buffer
+	bufScanner *bufio.Scanner
+	nullValue  string // PostgreSQL NULL value string (default empty)
+}
+
+func NewTextColumnReader(ctx context.Context, copy *CopyReader, csvReader *csv.Reader, csvReaderBuffer *bytes.Buffer, nullValue string) (_ *TextCopyReader, err error) {
+	tm := TypeMap(ctx)
+	if tm == nil {
+		return nil, errors.New("postgres connection info has not been defined inside the given context")
+	}
+
+	scanners := make([]Scanner, len(copy.columns))
+	for index, column := range copy.columns {
+		scanners[index], err = NewScanner(tm, column, TextFormat)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	reader := &TextCopyReader{
+		typeMap:    tm,
+		reader:     copy,
+		scanners:   scanners,
+		csvReader:  csvReader,
+		buffer:     csvReaderBuffer,
+		bufScanner: bufio.NewScanner(csvReaderBuffer),
+		nullValue:  nullValue,
+	}
+
+	return reader, nil
+}
+
+// Read reads a single row from the copy-in stream. The read row is returned as a
+// slice of any values. If the end of the copy-in stream is reached, an io.EOF error
+// is returned.
+func (r *TextCopyReader) Read(ctx context.Context) (_ []any, err error) {
+	if ctx.Err() != nil {
+		return nil, ctx.Err()
+	}
+
+	for {
+		// Try to read a CSV record from the current buffer
+		record, err := r.csvReader.Read()
+		if err == io.EOF {
+			// CSV reader hit EOF, need more data from copy stream
+			err = r.reader.Read()
+			if err == io.EOF {
+				// End of copy stream, no more data
+				return nil, io.EOF
+			}
+			if err != nil {
+				return nil, err
+			}
+
+			// Process PostgreSQL CSV escape sequences before adding to buffer
+			processedData := r.preprocessPostgreSQLCSV(r.reader.Msg)
+			r.buffer.Write(processedData)
+
+			// Clear the message after copying to buffer
+			r.reader.Msg = r.reader.Msg[:0]
+
+			// Continue loop to try reading CSV record again
+			continue
+		}
+		if err != nil && err != io.EOF {
+			return nil, fmt.Errorf("CSV parsing error: %w", err)
+		}
+		// Successfully read a CSV record, convert to row
+		return r.convertRecord(record)
+	}
+}
+
+// convertRecord converts a CSV record to a slice of typed values
+func (r *TextCopyReader) convertRecord(record []string) ([]any, error) {
+	if len(record) != len(r.scanners) {
+		return nil, fmt.Errorf("CSV record has %d fields, expected %d", len(record), len(r.scanners))
+	}
+
+	row := make([]any, len(record))
+	for i, field := range record {
+		// Handle NULL values - check both empty string (default) and custom NULL value
+		if field == r.nullValue || (r.nullValue == "" && field == "") {
+			row[i] = nil
+			continue
+		}
+
+		// Convert string field to appropriate type using scanner
+		value, err := r.scanners[i]([]byte(field))
+		if err != nil {
+			return nil, fmt.Errorf("failed to scan field %d: %w", i, err)
+		}
+		row[i] = value
+	}
+
+	return row, nil
+}
+
+// preprocessPostgreSQLCSV converts PostgreSQL CSV escape sequences to RFC 4180 format
+// PostgreSQL uses \ as escape character, but Go's csv package expects "" for quote escaping
+func (r *TextCopyReader) preprocessPostgreSQLCSV(data []byte) []byte {
+	// Convert PostgreSQL \" to "" for RFC 4180 compliance
+	result := bytes.ReplaceAll(data, []byte(`\"`), []byte(`""`))
+	return result
 }
