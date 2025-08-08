@@ -267,10 +267,10 @@ func (r *TextCopyReader) Read(ctx context.Context) (_ []any, err error) {
 
 			// Continue loop to try reading CSV record again
 			continue
+		}
 		if err != nil && err != io.EOF {
 			return nil, fmt.Errorf("CSV parsing error: %w", err)
 		}
-
 		// Successfully read a CSV record, convert to row
 		return r.convertRecord(record)
 	}
