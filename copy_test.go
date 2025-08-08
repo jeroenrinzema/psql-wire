@@ -1,15 +1,18 @@
 package wire
 
 import (
+	"bytes"
 	"context"
+	"encoding/csv"
 	"fmt"
-	"github.com/jackc/pgx/v5"
-	"github.com/lib/pq/oid"
-	"github.com/neilotoole/slogt"
 	"io"
 	"log"
 	"os"
 	"testing"
+
+	"github.com/jackc/pgx/v5"
+	"github.com/lib/pq/oid"
+	"github.com/neilotoole/slogt"
 )
 
 func TestCopyReaderText(t *testing.T) {
@@ -52,10 +55,12 @@ func TestCopyReaderText(t *testing.T) {
 			}
 
 			var length int
-			reader, err := NewTextColumnReader(ctx, copyText, TextCopyReaderOptions{
-				separator: ',',
-				nullValue: "",
-			})
+			csvReaderBuffer := &bytes.Buffer{}
+			csvReader := csv.NewReader(csvReaderBuffer)
+			csvReader.Comma = ','
+			csvReader.TrimLeadingSpace = false
+			csvReader.LazyQuotes = true
+			reader, err := NewTextColumnReader(ctx, copyText, csvReader, csvReaderBuffer, "")
 			if err != nil {
 				return err
 			}
@@ -160,10 +165,12 @@ func TestCopyReaderTextNullAndEscape(t *testing.T) {
 			}
 
 			var length int
-			reader, err := NewTextColumnReader(ctx, copyText, TextCopyReaderOptions{
-				separator: ',',
-				nullValue: "attNULL",
-			})
+			csvReaderBuffer := &bytes.Buffer{}
+			csvReader := csv.NewReader(csvReaderBuffer)
+			csvReader.Comma = ','
+			csvReader.TrimLeadingSpace = false
+			csvReader.LazyQuotes = true
+			reader, err := NewTextColumnReader(ctx, copyText, csvReader, csvReaderBuffer, "attNULL")
 			if err != nil {
 				return err
 			}
