@@ -203,7 +203,7 @@ type TextCopyReader struct {
 	nullValue  string // PostgreSQL NULL value string (default empty)
 }
 
-func NewTextColumnReader(ctx context.Context, copy *CopyReader) (_ *TextCopyReader, err error) {
+func NewTextColumnReader(ctx context.Context, copy *CopyReader, separator rune) (_ *TextCopyReader, err error) {
 	tm := TypeMap(ctx)
 	if tm == nil {
 		return nil, errors.New("postgres connection info has not been defined inside the given context")
@@ -219,7 +219,7 @@ func NewTextColumnReader(ctx context.Context, copy *CopyReader) (_ *TextCopyRead
 
 	csvReaderBuffer := &bytes.Buffer{}
 	csvReader := csv.NewReader(csvReaderBuffer)
-	csvReader.Comma = ','
+	csvReader.Comma = separator
 	csvReader.TrimLeadingSpace = false
 	csvReader.LazyQuotes = true // Handle non-standard quoting
 

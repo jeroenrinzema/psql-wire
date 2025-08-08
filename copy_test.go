@@ -52,7 +52,7 @@ func TestCopyReaderText(t *testing.T) {
 			}
 
 			var length int
-			reader, err := NewTextColumnReader(ctx, copyText)
+			reader, err := NewTextColumnReader(ctx, copyText, ',')
 			if err != nil {
 				return err
 			}
@@ -157,7 +157,7 @@ func TestCopyReaderTextNullAndEscape(t *testing.T) {
 			}
 
 			var length int
-			reader, err := NewTextColumnReader(ctx, copyText)
+			reader, err := NewTextColumnReader(ctx, copyText, ',')
 			if err != nil {
 				return err
 			}
