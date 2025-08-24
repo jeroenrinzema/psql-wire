@@ -86,14 +86,25 @@ type StatementCache interface {
 	// Get attempts to get the prepared statement for the given name. An error
 	// is returned when no statement has been found.
 	Get(ctx context.Context, name string) (*Statement, error)
+	// Close is called at the end of a connection. Close releases all resources
+	// held by the statement cache.
+	Close()
 }
 
 // PortalCache represents a cache which could be used to bind and execute
 // prepared statements with parameters.
 type PortalCache interface {
+	// Bind attempts to bind the given statement to the given name. Any
+	// previously defined statement is overridden.
 	Bind(ctx context.Context, name string, statement *Statement, parameters []Parameter, columns []FormatCode) error
+	// Get attempts to get the portal for the given name. An error is returned
+	// when no portal has been found.
 	Get(ctx context.Context, name string) (*Portal, error)
+	// Execute executes the prepared statement with the given name and parameters.
 	Execute(ctx context.Context, name string, reader *buffer.Reader, writer *buffer.Writer) error
+	// Close is called at the end of a connection. Close releases all resources
+	// held by the portal cache.
+	Close()
 }
 
 type CloseFn func(ctx context.Context) error

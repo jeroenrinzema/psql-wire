@@ -61,6 +61,8 @@ func (cache *DefaultStatementCache) Get(ctx context.Context, name string) (*Stat
 	return stmt, nil
 }
 
+func (cache *DefaultStatementCache) Close() {}
+
 type Portal struct {
 	statement  *Statement
 	parameters []Parameter
@@ -131,3 +133,5 @@ func (cache *DefaultPortalCache) Execute(ctx context.Context, name string, reade
 
 	return portal.statement.fn(ctx, NewDataWriter(ctx, portal.statement.columns, portal.formats, reader, writer), portal.parameters)
 }
+
+func (cache *DefaultPortalCache) Close() {}
