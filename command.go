@@ -72,6 +72,8 @@ func (srv *Session) consumeCommands(ctx context.Context, conn net.Conn, reader *
 		return err
 	}
 
+	defer srv.Close()
+
 	for {
 		if err = srv.consumeSingleCommand(ctx, reader, writer, conn); err != nil {
 			return err
@@ -217,7 +219,6 @@ func (srv *Session) handleCommand(ctx context.Context, conn net.Conn, t types.Cl
 		// https://github.com/postgres/postgres/blob/6e1dd2773eb60a6ab87b27b8d9391b756e904ac3/src/backend/tcop/postgres.c#L4295
 		return nil
 	case types.ClientClose:
-		// TODO: close the statement or portal
 		writer.Start(types.ServerCloseComplete) //nolint:errcheck
 		writer.End()                            //nolint:errcheck
 		return nil
@@ -589,4 +590,9 @@ func singleStatement(stmts PreparedStatements, err error) (*PreparedStatement, e
 	}
 
 	return stmts[0], nil
+}
+
+func (srv *Session) Close() {
+	srv.Statements.Close()
+	srv.Portals.Close()
 }
