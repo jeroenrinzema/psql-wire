@@ -86,7 +86,6 @@ func NewServer(parse ParseFn, options ...OptionFn) (*Server, error) {
 		parse:           parse,
 		logger:          slog.Default(),
 		closer:          make(chan struct{}),
-		types:           pgtype.NewMap(),
 		ClientAuth:      tls.NoClientCert,
 		Statements:      DefaultStatementCacheFn,
 		Portals:         DefaultPortalCacheFn,
@@ -109,7 +108,6 @@ type Server struct {
 	closing         atomic.Bool
 	wg              sync.WaitGroup
 	logger          *slog.Logger
-	types           *pgtype.Map
 	Auth            AuthStrategy
 	BufferedMsgSize int
 	Parameters      Parameters
@@ -123,6 +121,7 @@ type Server struct {
 	TerminateConn   CloseFn
 	Version         string
 	ShutdownTimeout time.Duration
+	typeExtension   func(*pgtype.Map)
 	closer          chan struct{}
 }
 
@@ -197,7 +196,17 @@ func (srv *Server) Serve(listener net.Listener) error {
 }
 
 func (srv *Server) serve(ctx context.Context, conn net.Conn) error {
-	ctx = setTypeInfo(ctx, srv.types)
+	// Create a per-connection pgx Map to avoid concurrent map writes
+	// Each connection gets its own type map instance to prevent race conditions
+	// when multiple goroutines access the same map concurrently during query execution
+	connectionTypes := pgtype.NewMap()
+	
+	// Apply any type extension configured via ExtendTypes
+	if srv.typeExtension != nil {
+		srv.typeExtension(connectionTypes)
+	}
+	
+	ctx = setTypeInfo(ctx, connectionTypes)
 	ctx = setRemoteAddress(ctx, conn.RemoteAddr())
 	defer conn.Close()
 

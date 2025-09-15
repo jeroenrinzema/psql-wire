@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 
+	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/lib/pq/oid"
 	"github.com/neilotoole/slogt"
 	"github.com/stretchr/testify/assert"
@@ -85,4 +86,19 @@ func TestSessionHandler(t *testing.T) {
 			assert.Equal(t, value, result)
 		})
 	}
+}
+
+func TestExtendTypes(t *testing.T) {
+	extensionCalled := false
+	
+	srv, err := NewServer(nil,
+		Logger(slogt.New(t)),
+		ExtendTypes(func(typeMap *pgtype.Map) {
+			extensionCalled = true
+		}),
+	)
+	assert.NoError(t, err)
+	assert.NotNil(t, srv)
+	assert.NotNil(t, srv.typeExtension)
+	assert.False(t, extensionCalled, "Extension should not be called during server creation")
 }
