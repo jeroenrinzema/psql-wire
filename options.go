@@ -227,7 +227,7 @@ func WithShutdownTimeout(timeout time.Duration) OptionFn {
 // registered to all incoming connections.
 func ExtendTypes(fn func(*pgtype.Map)) OptionFn {
 	return func(srv *Server) error {
-		fn(srv.types)
+		srv.typeExtension = fn
 		return nil
 	}
 }
