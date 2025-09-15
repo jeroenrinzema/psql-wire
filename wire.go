@@ -114,6 +114,7 @@ type Server struct {
 	wg              sync.WaitGroup
 	logger          *slog.Logger
 	Auth            AuthStrategy
+	BackendKeyData  BackendKeyDataFunc
 	BufferedMsgSize int
 	Parameters      Parameters
 	TLSConfig       *tls.Config
@@ -238,6 +239,16 @@ func (srv *Server) serve(ctx context.Context, conn net.Conn) error {
 	ctx, err = srv.handleAuth(ctx, reader, writer)
 	if err != nil {
 		return err
+	}
+
+	// Send BackendKeyData if a BackendKeyDataFunc is configured
+	if srv.BackendKeyData != nil {
+		srv.logger.Debug("sending backend key data")
+		processID, secretKey := srv.BackendKeyData(ctx)
+		err = writeBackendKeyData(writer, processID, secretKey)
+		if err != nil {
+			return err
+		}
 	}
 
 	srv.logger.Debug("connection authenticated, writing server parameters")

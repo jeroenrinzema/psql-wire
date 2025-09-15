@@ -26,6 +26,7 @@ const (
 	ClientTerminate   ClientMessage = 'X'
 
 	ServerAuth                 ServerMessage = 'R'
+	ServerBackendKeyData       ServerMessage = 'K'
 	ServerBindComplete         ServerMessage = '2'
 	ServerCommandComplete      ServerMessage = 'C'
 	ServerCloseComplete        ServerMessage = '3'
@@ -83,6 +84,8 @@ func (m ServerMessage) String() string {
 	switch m {
 	case ServerAuth:
 		return "Auth"
+	case ServerBackendKeyData:
+		return "BackendKeyData"
 	case ServerBindComplete:
 		return "BindComplete"
 	case ServerCommandComplete:

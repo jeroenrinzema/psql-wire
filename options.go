@@ -202,6 +202,16 @@ func SessionAuthStrategy(fn AuthStrategy) OptionFn {
 	}
 }
 
+// BackendKeyData sets the function that generates backend key data for query cancellation.
+// The provided function should return a process ID and secret key that can be used by
+// clients to cancel queries. If not set, no BackendKeyData message will be sent.
+func BackendKeyData(fn BackendKeyDataFunc) OptionFn {
+	return func(srv *Server) error {
+		srv.BackendKeyData = fn
+		return nil
+	}
+}
+
 // GlobalParameters sets the server parameters which are send back to the
 // front-end (client) once a handshake has been established.
 func GlobalParameters(params Parameters) OptionFn {
