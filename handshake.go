@@ -23,6 +23,27 @@ func (srv *Server) Handshake(conn net.Conn) (_ net.Conn, version types.Version, 
 	}
 
 	if version == types.VersionCancel {
+		processID, secretKey, err := srv.readCancelRequest(reader)
+		if err != nil {
+			return conn, version, reader, err
+		}
+
+		srv.logger.Debug("received cancel request",
+			slog.Int("process_id", int(processID)),
+			slog.Int("secret_key", int(secretKey)))
+
+		if srv.CancelRequest != nil {
+			ctx := context.Background()
+			err = srv.CancelRequest(ctx, processID, secretKey)
+			if err != nil {
+				srv.logger.Error("failed to handle cancel request", "err", err)
+			}
+		} else {
+			srv.logger.Info("cancel request received but no handler configured",
+				slog.Int("process_id", int(processID)),
+				slog.Int("secret_key", int(secretKey)))
+		}
+
 		return conn, version, reader, nil
 	}
 
@@ -57,6 +78,26 @@ func (srv *Server) readVersion(reader *buffer.Reader) (_ types.Version, err erro
 	}
 
 	return types.Version(version), nil
+}
+
+// readCancelRequest reads the cancel request parameters (processID and secretKey)
+// from the client connection. The cancel request format is:
+// Int32(16) - Length of message contents in bytes, including self
+// Int32(80877102) - The cancel request code (already read as version)
+// Int32 - The process ID of the target backend
+// Int32 - The secret key for the target backend
+func (srv *Server) readCancelRequest(reader *buffer.Reader) (processID int32, secretKey int32, err error) {
+	processID, err = reader.GetInt32()
+	if err != nil {
+		return 0, 0, fmt.Errorf("failed to read process ID from cancel request: %w", err)
+	}
+
+	secretKey, err = reader.GetInt32()
+	if err != nil {
+		return 0, 0, fmt.Errorf("failed to read secret key from cancel request: %w", err)
+	}
+
+	return processID, secretKey, nil
 }
 
 // readyForQuery indicates that the server is ready to receive queries.
