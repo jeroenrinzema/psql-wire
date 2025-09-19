@@ -86,10 +86,16 @@ func (cache *DefaultPortalCache) Bind(ctx context.Context, name string, stmt *St
 		cache.portals = map[string]*Portal{}
 	}
 
+	// Optimize formats for binary-compatible types when client supports binary
+	optimizedFormats := optimizeColumnFormats(stmt.columns, formats)
+
+	// Debug logging can be enabled by uncommenting the line below
+	// fmt.Printf("DEBUG: Portal.Bind - original formats: %v, optimized formats: %v, columns: %d\n", formats, optimizedFormats, len(stmt.columns))
+
 	cache.portals[name] = &Portal{
 		statement:  stmt,
 		parameters: parameters,
-		formats:    formats,
+		formats:    optimizedFormats,
 	}
 
 	return nil
@@ -135,3 +141,53 @@ func (cache *DefaultPortalCache) Execute(ctx context.Context, name string, reade
 }
 
 func (cache *DefaultPortalCache) Close() {}
+
+// optimizeColumnFormats respects client format preferences and automatically enables binary
+// for timestamp types when client sends empty formats (which indicates binaryTransfer=true)
+func optimizeColumnFormats(columns Columns, clientFormats []FormatCode) []FormatCode {
+	// Create formats array matching columns length exactly  
+	optimized := make([]FormatCode, len(columns))
+
+	for i, column := range columns {
+		// Use exactly what the client requested, with proper fallbacks
+		format := getClientRequestedFormat(clientFormats, i, len(columns))
+		
+		// If client sends empty formats array, they may have binaryTransfer=true
+		// In this case, auto-enable binary for timestamp types
+		if len(clientFormats) == 0 && isTimestampType(column.Oid) {
+			format = BinaryFormat
+		}
+		
+		optimized[i] = format
+	}
+
+	return optimized
+}
+
+
+// getClientRequestedFormat returns the format requested by the client for a specific column
+// following PostgreSQL wire protocol semantics exactly
+func getClientRequestedFormat(clientFormats []FormatCode, columnIndex int, totalColumns int) FormatCode {
+	if len(clientFormats) == 0 {
+		// No format codes specified - use default text format
+		return TextFormat
+	}
+	
+	if len(clientFormats) == 1 {
+		// Single format code applies to all columns
+		return clientFormats[0]
+	}
+	
+	if columnIndex < len(clientFormats) {
+		// Per-column format specified
+		return clientFormats[columnIndex]
+	}
+	
+	// Client provided fewer formats than columns - default remaining to text
+	return TextFormat
+}
+
+// isTimestampType checks if the given OID is a timestamp type
+func isTimestampType(columnOid oid.Oid) bool {
+	return columnOid == oid.T_timestamp || columnOid == oid.T_timestamptz
+}
