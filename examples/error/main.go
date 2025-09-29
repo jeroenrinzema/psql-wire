@@ -12,7 +12,7 @@ import (
 
 func main() {
 	log.Println("PostgreSQL server is up and running at [127.0.0.1:5432]")
-	wire.ListenAndServe("127.0.0.1:5432", handler)
+	wire.ListenAndServe("127.0.0.1:5432", handler) //nolint:errcheck
 }
 
 func handler(ctx context.Context, query string) (wire.PreparedStatements, error) {

@@ -109,8 +109,8 @@ func (s *PostgreServer) wireHandler(ctx context.Context, query string) (wire.Pre
 	s.logger.Printf("incoming SQL query: %s", query)
 
 	handle := func(ctx context.Context, writer wire.DataWriter, parameters []wire.Parameter) error {
-		writer.Row([]any{"John", true, 29})
-		writer.Row([]any{"Marry", false, 21})
+		writer.Row([]any{"John", true, 29})   //nolint:errcheck
+		writer.Row([]any{"Marry", false, 21}) //nolint:errcheck
 		return writer.Complete("SELECT 2")
 	}
 

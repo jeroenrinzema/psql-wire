@@ -308,7 +308,7 @@ func TestServerHandlingMultipleConnections(t *testing.T) {
 		rows, err := conn.Query("select age from person")
 		require.NoError(t, err)
 		t.Cleanup(func() {
-			rows.Close()
+			rows.Close() //nolint:errcheck
 		})
 		assert.True(t, rows.Next())
 		require.NoError(t, rows.Err())
@@ -325,12 +325,12 @@ func TestServerHandlingMultipleConnections(t *testing.T) {
 				stmt, err := conn.Prepare(query)
 				require.NoError(t, err)
 				t.Cleanup(func() {
-					stmt.Close()
+					stmt.Close() //nolint:errcheck
 				})
 				rows, err := stmt.Query(1)
 				require.NoError(t, err)
 				t.Cleanup(func() {
-					rows.Close()
+					rows.Close() //nolint:errcheck
 				})
 				require.True(t, rows.Next())
 				require.NoError(t, rows.Err())
@@ -819,7 +819,7 @@ func TestServerShutdownShorterTimeoutWins(t *testing.T) {
 		if err != nil {
 			return
 		}
-		defer conn.Close()
+		defer conn.Close() //nolint:errcheck
 		_, _ = conn.Exec("SELECT 1")
 	}()
 
@@ -843,7 +843,7 @@ func TestServerShutdownShorterTimeoutWins(t *testing.T) {
 	// Cleanup
 	queryCanFinish.Done()
 	time.Sleep(10 * time.Millisecond)
-	server.Close()
+	server.Close() //nolint:errcheck
 }
 
 func TestServerShutdownServerTimeoutWins(t *testing.T) {
@@ -877,7 +877,7 @@ func TestServerShutdownServerTimeoutWins(t *testing.T) {
 		if err != nil {
 			return
 		}
-		defer conn.Close()
+		defer conn.Close() //nolint:errcheck
 		_, _ = conn.Exec("SELECT 1")
 	}()
 
@@ -901,7 +901,7 @@ func TestServerShutdownServerTimeoutWins(t *testing.T) {
 	// Cleanup
 	queryCanFinish.Done()
 	time.Sleep(10 * time.Millisecond)
-	server.Close()
+	server.Close() //nolint:errcheck
 }
 
 func TestServerShutdownTimeout(t *testing.T) {
@@ -935,7 +935,7 @@ func TestServerShutdownTimeout(t *testing.T) {
 		if err != nil {
 			return
 		}
-		defer conn.Close()
+		defer conn.Close() //nolint:errcheck
 		_, _ = conn.Exec("SELECT 1")
 	}()
 
@@ -957,7 +957,7 @@ func TestServerShutdownTimeout(t *testing.T) {
 	// Allow query to finish and cleanup
 	queryCanFinish.Done()
 	time.Sleep(10 * time.Millisecond)
-	server.Close()
+	server.Close() //nolint:errcheck
 }
 
 func TestServerShutdownConcurrent(t *testing.T) {
@@ -1076,7 +1076,7 @@ func TestServerShutdownInfiniteTimeoutWithActiveConnection(t *testing.T) {
 		if err != nil {
 			return
 		}
-		defer conn.Close()
+		defer conn.Close() //nolint:errcheck
 		_, _ = conn.Exec("SELECT 1")
 	}()
 
@@ -1199,7 +1199,7 @@ func TestClientDisconnectDuringWrite(t *testing.T) {
 	require.NoError(t, err)
 
 	// Close connection immediately to cause broken pipe
-	conn.Close()
+	conn.Close() //nolint:errcheck
 
 	// Wait for the handler to encounter the broken pipe error
 	done := make(chan struct{})

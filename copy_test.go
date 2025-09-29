@@ -100,7 +100,7 @@ func TestCopyReaderText(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		defer conn.Close(ctx)
+		defer conn.Close(ctx) //nolint:errcheck
 
 		file, err := os.Open("jedis.csv")
 		if err != nil {
@@ -210,7 +210,7 @@ func TestCopyReaderTextNullAndEscape(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		defer conn.Close(ctx)
+		defer conn.Close(ctx) //nolint:errcheck
 
 		file, err := os.Open("jedis_null_escape.csv")
 		if err != nil {
