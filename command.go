@@ -207,7 +207,11 @@ func (srv *Session) handleCommand(ctx context.Context, conn net.Conn, t types.Cl
 		// Flush, messages returned by the backend will be combined into the
 		// minimum possible number of packets to minimize network overhead.
 		// https://www.postgresql.org/docs/current/protocol-flow.html#PROTOCOL-FLOW-EXT-QUERY
-		return srv.FlushConn(ctx)
+		if srv.FlushConn != nil {
+			return srv.FlushConn(ctx)
+		}
+
+		return nil
 	case types.ClientCopyData, types.ClientCopyDone, types.ClientCopyFail:
 		// We're supposed to ignore these messages, per the protocol spec. This
 		// state will happen when an error occurs on the server-side during a copy
