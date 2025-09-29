@@ -107,6 +107,8 @@ type PortalCache interface {
 	Close()
 }
 
+type FlushFn func(ctx context.Context) error
+
 type CloseFn func(ctx context.Context) error
 
 // OptionFn options pattern used to define and set options for the given
@@ -143,6 +145,21 @@ func CloseConn(fn CloseFn) OptionFn {
 func TerminateConn(fn CloseFn) OptionFn {
 	return func(srv *Server) error {
 		srv.TerminateConn = fn
+		return nil
+	}
+}
+
+// FlushConn registers a handler for Flush messages.
+//
+// The provided handler is invoked when the frontend sends a Flush command.
+// This allows the server to force any pending data in its output buffers
+// to be delivered immediately.
+//
+// Typically, a Flush is sent after an extended-query command (except Sync)
+// when the frontend wants to inspect results before issuing more commands.
+func FlushConn(fn FlushFn) OptionFn {
+	return func(srv *Server) error {
+		srv.FlushConn = fn
 		return nil
 	}
 }

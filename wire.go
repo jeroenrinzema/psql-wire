@@ -119,6 +119,7 @@ type Server struct {
 	Portals         func() PortalCache
 	CloseConn       CloseFn
 	TerminateConn   CloseFn
+	FlushConn       FlushFn
 	Version         string
 	ShutdownTimeout time.Duration
 	typeExtension   func(*pgtype.Map)
@@ -200,12 +201,12 @@ func (srv *Server) serve(ctx context.Context, conn net.Conn) error {
 	// Each connection gets its own type map instance to prevent race conditions
 	// when multiple goroutines access the same map concurrently during query execution
 	connectionTypes := pgtype.NewMap()
-	
+
 	// Apply any type extension configured via ExtendTypes
 	if srv.typeExtension != nil {
 		srv.typeExtension(connectionTypes)
 	}
-	
+
 	ctx = setTypeInfo(ctx, connectionTypes)
 	ctx = setRemoteAddress(ctx, conn.RemoteAddr())
 	defer conn.Close()
