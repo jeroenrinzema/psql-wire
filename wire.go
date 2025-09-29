@@ -8,6 +8,7 @@ import (
 	"io"
 	"log/slog"
 	"net"
+	"os"
 	"sync"
 	"sync/atomic"
 	"syscall"
@@ -72,7 +73,11 @@ func SetAttribute(ctx context.Context, key string, value interface{}) bool {
 // queries. This method should be used to construct a simple Postgres server for
 // testing purposes or simple use cases.
 func ListenAndServe(address string, handler ParseFn) error {
-	server, err := NewServer(handler)
+	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{
+		Level: slog.LevelDebug,
+	}))
+
+	server, err := NewServer(handler, Logger(logger))
 	if err != nil {
 		return err
 	}

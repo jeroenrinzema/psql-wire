@@ -281,7 +281,7 @@ func (srv *Session) handleSimpleQuery(ctx context.Context, reader *buffer.Reader
 			return ErrorCode(writer, err)
 		}
 
-		err = statements[index].fn(ctx, NewDataWriter(ctx, statements[index].columns, nil, reader, writer), nil)
+		err = statements[index].fn(ctx, NewDataWriter(ctx, statements[index].columns, nil, NoLimit, reader, writer), nil)
 		if err != nil {
 			return ErrorCode(writer, err)
 		}
@@ -550,9 +550,7 @@ func (srv *Session) handleExecute(ctx context.Context, reader *buffer.Reader, wr
 		return err
 	}
 
-	// TODO: Limit the maximum number of records to be returned.
-	//
-	// Maximum number of limit to return, if portal contains a
+	// NOTE: maximum number of limit to return, if portal contains a
 	// query that returns limit (ignored otherwise). Zero denotes “no limit”.
 	limit, err := reader.GetUint32()
 	if err != nil {
@@ -560,7 +558,7 @@ func (srv *Session) handleExecute(ctx context.Context, reader *buffer.Reader, wr
 	}
 
 	srv.logger.Debug("executing", slog.String("name", name), slog.Uint64("limit", uint64(limit)))
-	err = srv.Portals.Execute(ctx, name, reader, writer)
+	err = srv.Portals.Execute(ctx, name, Limit(limit), reader, writer)
 	if err != nil {
 		return ErrorCode(writer, err)
 	}

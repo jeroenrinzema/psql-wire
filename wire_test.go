@@ -1199,7 +1199,8 @@ func TestClientDisconnectDuringWrite(t *testing.T) {
 	require.NoError(t, err)
 
 	// Close connection immediately to cause broken pipe
-	conn.Close() //nolint:errcheck
+	err = conn.Close()
+	require.NoError(t, err)
 
 	// Wait for the handler to encounter the broken pipe error
 	done := make(chan struct{})
