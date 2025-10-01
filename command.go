@@ -199,9 +199,6 @@ func (srv *Session) handleCommand(ctx context.Context, conn net.Conn, t types.Cl
 	case types.ClientBind:
 		return srv.handleBind(ctx, reader, writer)
 	case types.ClientFlush:
-		// TODO: Flush all remaining rows inside connection buffer if
-		// any are remaining.
-		//
 		// The Flush message does not cause any specific
 		// output to be generated, but forces the backend to deliver any data
 		// pending in its output buffers. A Flush must be sent after any
@@ -210,6 +207,10 @@ func (srv *Session) handleCommand(ctx context.Context, conn net.Conn, t types.Cl
 		// Flush, messages returned by the backend will be combined into the
 		// minimum possible number of packets to minimize network overhead.
 		// https://www.postgresql.org/docs/current/protocol-flow.html#PROTOCOL-FLOW-EXT-QUERY
+		if srv.FlushConn != nil {
+			return srv.FlushConn(ctx)
+		}
+
 		return nil
 	case types.ClientCopyData, types.ClientCopyDone, types.ClientCopyFail:
 		// We're supposed to ignore these messages, per the protocol spec. This
