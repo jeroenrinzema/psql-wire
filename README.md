@@ -8,6 +8,10 @@ Build your own PostgreSQL server within a few lines of code.
 This project attempts to make it as straight forward as possible to set-up and configure your own PSQL server.
 Feel free to check out the [examples](https://github.com/jeroenrinzema/psql-wire/tree/main/examples) directory for various ways on how to configure/set-up your own server.
 
+You can use this package to build your own fully fledged, PostgreSQL compatible database, or simply play with the wire protocol by creating a PSQL honeypot, testing drivers, or experimenting with third-party integrations.
+
+It’s designed to give you a high-level implementation out of the box, while staying hackable so you can bend it to whatever you want to build.
+
 > 🚧 This project does not include a PSQL parser. Please check out other projects such as [auxten/postgresql-parser](https://github.com/auxten/postgresql-parser) to parse PSQL SQL queries.
 
 ```go
