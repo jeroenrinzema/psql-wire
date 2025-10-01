@@ -100,7 +100,7 @@ func TestBindMessageParameters(t *testing.T) {
 			t.Fatal(err)
 		}
 
-		defer conn.Close(ctx)
+		defer conn.Close(ctx) //nolint:errcheck
 
 		rows, err := conn.Query(ctx, "SELECT $1 $2;", "John Doe", 42)
 		if err != nil {
@@ -136,7 +136,7 @@ func TestBindMessageParameters(t *testing.T) {
 			t.Fatal(err)
 		}
 
-		defer conn.Close(ctx)
+		defer conn.Close(ctx) //nolint:errcheck
 
 		// changed to nil
 		rows, err := conn.Query(ctx, "SELECT $1 $2;", "John Doe", nil)

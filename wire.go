@@ -209,7 +209,7 @@ func (srv *Server) serve(ctx context.Context, conn net.Conn) error {
 
 	ctx = setTypeInfo(ctx, connectionTypes)
 	ctx = setRemoteAddress(ctx, conn.RemoteAddr())
-	defer conn.Close()
+	defer conn.Close() //nolint:errcheck
 
 	srv.logger.Debug("serving a new client connection")
 
@@ -222,7 +222,7 @@ func (srv *Server) serve(ctx context.Context, conn net.Conn) error {
 		return conn.Close()
 	}
 
-	srv.logger.Debug("handshake successfull, validating authentication")
+	srv.logger.Debug("handshake successful, validating authentication")
 
 	writer := buffer.NewWriter(srv.logger, conn)
 	ctx, err = srv.readClientParameters(ctx, reader)

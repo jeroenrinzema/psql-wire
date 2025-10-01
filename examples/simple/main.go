@@ -10,7 +10,7 @@ import (
 
 func main() {
 	log.Println("PostgreSQL server is up and running at [127.0.0.1:5432]")
-	wire.ListenAndServe("127.0.0.1:5432", handler)
+	wire.ListenAndServe("127.0.0.1:5432", handler) //nolint:errcheck
 }
 
 var table = wire.Columns{
@@ -38,8 +38,8 @@ func handler(ctx context.Context, query string) (wire.PreparedStatements, error)
 	log.Println("incoming SQL query:", query)
 
 	handle := func(ctx context.Context, writer wire.DataWriter, parameters []wire.Parameter) error {
-		writer.Row([]any{"John", true, 29})
-		writer.Row([]any{"Marry", false, 21})
+		writer.Row([]any{"John", true, 29})   //nolint:errcheck
+		writer.Row([]any{"Marry", false, 21}) //nolint:errcheck
 		return writer.Complete("SELECT 2")
 	}
 

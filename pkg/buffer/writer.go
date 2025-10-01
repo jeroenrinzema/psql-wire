@@ -133,7 +133,7 @@ func (writer *Writer) End() error {
 	bytes := writer.frame.Bytes()
 	length := uint32(writer.frame.Len() - 1) // total message length minus the message type byte
 	binary.BigEndian.PutUint32(bytes[1:5], length)
-	_, err := writer.Writer.Write(bytes)
+	_, err := writer.Write(bytes)
 
 	writer.logger.Debug("-> writing message", slog.String("type", types.ServerMessage(bytes[0]).String()))
 	return err
