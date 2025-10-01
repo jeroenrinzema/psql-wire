@@ -221,7 +221,7 @@ func (srv *Server) serve(ctx context.Context, conn net.Conn) error {
 		return conn.Close()
 	}
 
-	srv.logger.Debug("handshake successfull, validating authentication")
+	srv.logger.Debug("handshake successful, validating authentication")
 
 	writer := buffer.NewWriter(srv.logger, conn)
 	ctx, err = srv.readClientParameters(ctx, reader)
