@@ -18,15 +18,11 @@ import (
 
 func TestMessageSizeExceeded(t *testing.T) {
 	server, err := NewServer(nil, Logger(slogt.New(t)))
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 
 	address := TListenAndServe(t, server)
 	conn, err := net.Dial("tcp", address.String())
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 
 	client := mock.NewClient(t, conn)
 	client.Handshake(t)
@@ -40,9 +36,7 @@ func TestMessageSizeExceeded(t *testing.T) {
 	client.Start(types.ClientSimpleQuery)
 	client.AddBytes(make([]byte, size))
 	err = client.End()
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 
 	client.Error(t)
 	client.Close(t)
@@ -85,9 +79,7 @@ func TestBindMessageParameters(t *testing.T) {
 	}
 
 	server, err := NewServer(handler, Logger(slogt.New(t)))
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 
 	address := TListenAndServe(t, server)
 
@@ -96,16 +88,12 @@ func TestBindMessageParameters(t *testing.T) {
 
 	t.Run("pgx", func(t *testing.T) {
 		conn, err := pgx.Connect(ctx, connstr)
-		if err != nil {
-			t.Fatal(err)
-		}
+		require.NoError(t, err)
 
 		defer conn.Close(ctx) //nolint:errcheck
 
 		rows, err := conn.Query(ctx, "SELECT $1 $2;", "John Doe", 42)
-		if err != nil {
-			t.Fatal(err)
-		}
+		require.NoError(t, err)
 
 		assert.True(t, rows.Next())
 
@@ -125,24 +113,18 @@ func TestBindMessageParameters(t *testing.T) {
 		rows.Close()
 
 		err = conn.Close(ctx)
-		if err != nil {
-			t.Fatal(err)
-		}
+		require.NoError(t, err)
 	})
 
 	t.Run("pgx nil parameter", func(t *testing.T) {
 		conn, err := pgx.Connect(ctx, connstr)
-		if err != nil {
-			t.Fatal(err)
-		}
+		require.NoError(t, err)
 
 		defer conn.Close(ctx) //nolint:errcheck
 
 		// changed to nil
 		rows, err := conn.Query(ctx, "SELECT $1 $2;", "John Doe", nil)
-		if err != nil {
-			t.Fatal(err)
-		}
+		require.NoError(t, err)
 
 		assert.True(t, rows.Next())
 
@@ -162,8 +144,28 @@ func TestBindMessageParameters(t *testing.T) {
 		rows.Close()
 
 		err = conn.Close(ctx)
-		if err != nil {
-			t.Fatal(err)
-		}
+		require.NoError(t, err)
 	})
+}
+
+func TestServerLimit(t *testing.T) {
+	server, err := NewServer(nil, Logger(slogt.New(t)))
+	require.NoError(t, err)
+
+	address := TListenAndServe(t, server)
+	conn, err := net.Dial("tcp", address.String())
+	require.NoError(t, err)
+
+	client := mock.NewClient(t, conn)
+	client.Handshake(t)
+	client.Authenticate(t)
+	client.ReadyForQuery(t)
+
+	// client.Start(types.ClientExecute)
+	// client.AddString("limited")
+	// client.AddInt32(1)
+	// err = client.End()
+	// require.NoError(t, err)
+
+	client.Close(t)
 }

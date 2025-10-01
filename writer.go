@@ -4,9 +4,17 @@ import (
 	"context"
 	"errors"
 
+	"github.com/jeroenrinzema/psql-wire/codes"
+	pgerror "github.com/jeroenrinzema/psql-wire/errors"
 	"github.com/jeroenrinzema/psql-wire/pkg/buffer"
 	"github.com/jeroenrinzema/psql-wire/pkg/types"
 )
+
+// Limit represents the maximum number of rows to be written.
+// Zero denotes “no limit”.
+type Limit uint32
+
+const NoLimit Limit = 0
 
 // DataWriter represents a writer interface for writing columns and data rows
 // using the Postgres wire to the connected client.
@@ -18,8 +26,12 @@ type DataWriter interface {
 	// values are encoded as NULL values.
 	Row([]any) error
 
+	// Limit returns the maximum number of rows to be written passed within the
+	// wire protocol. A value of 0 indicates no limit.
+	Limit() uint32
+
 	// Written returns the number of rows written to the client.
-	Written() uint64
+	Written() uint32
 
 	// Empty announces to the client an empty response and that no data rows should
 	// be expected.
@@ -50,15 +62,18 @@ var ErrDataWritten = errors.New("data has already been written")
 // ErrClosedWriter is returned when the data writer has been closed.
 var ErrClosedWriter = errors.New("closed writer")
 
+var ErrRowLimitExceeded = pgerror.WithCode(errors.New("row limit exceeded"), codes.ProgramLimitExceeded)
+
 // NewDataWriter constructs a new data writer using the given context and
 // buffer. The returned writer should be handled with caution as it is not safe
 // for concurrent use. Concurrent access to the same data without proper
 // synchronization can result in unexpected behavior and data corruption.
-func NewDataWriter(ctx context.Context, columns Columns, formats []FormatCode, reader *buffer.Reader, writer *buffer.Writer) DataWriter {
+func NewDataWriter(ctx context.Context, columns Columns, formats []FormatCode, limit Limit, reader *buffer.Reader, writer *buffer.Writer) DataWriter {
 	return &dataWriter{
 		ctx:     ctx,
 		columns: columns,
 		formats: formats,
+		limit:   limit,
 		client:  writer,
 		reader:  reader,
 	}
@@ -69,10 +84,11 @@ type dataWriter struct {
 	ctx     context.Context
 	columns Columns
 	formats []FormatCode
+	limit   Limit
 	client  *buffer.Writer
 	reader  *buffer.Reader
 	closed  bool
-	written uint64
+	written uint32
 }
 
 func (writer *dataWriter) Columns() Columns {
@@ -91,6 +107,10 @@ func (writer *dataWriter) Define(columns Columns) error {
 func (writer *dataWriter) Row(values []any) error {
 	if writer.closed {
 		return ErrClosedWriter
+	}
+
+	if writer.limit != 0 && Limit(writer.written) >= writer.limit {
+		return ErrRowLimitExceeded
 	}
 
 	writer.written++
@@ -124,7 +144,11 @@ func (writer *dataWriter) Empty() error {
 	return nil
 }
 
-func (writer *dataWriter) Written() uint64 {
+func (writer *dataWriter) Limit() uint32 {
+	return uint32(writer.limit)
+}
+
+func (writer *dataWriter) Written() uint32 {
 	return writer.written
 }
 

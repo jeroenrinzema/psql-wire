@@ -101,7 +101,7 @@ type PortalCache interface {
 	// when no portal has been found.
 	Get(ctx context.Context, name string) (*Portal, error)
 	// Execute executes the prepared statement with the given name and parameters.
-	Execute(ctx context.Context, name string, reader *buffer.Reader, writer *buffer.Writer) error
+	Execute(ctx context.Context, name string, limit Limit, reader *buffer.Reader, writer *buffer.Writer) error
 	// Close is called at the end of a connection. Close releases all resources
 	// held by the portal cache.
 	Close()
