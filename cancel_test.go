@@ -99,7 +99,7 @@ func (ts *testServer) handler(ctx context.Context, query string) (PreparedStatem
 			case <-queryCtx.Done():
 				return queryCtx.Err()
 			case <-time.After(2 * time.Second):
-				writer.Row([]any{i})
+				_ = writer.Row([]any{i})
 			}
 		}
 
@@ -159,8 +159,12 @@ func startTestServer(t *testing.T, withTLS bool) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	go server.server.Serve(listener)
 
+	go func() {
+		if err := server.server.Serve(listener); err != nil {
+			t.Errorf("Server failed: %v", err)
+		}
+	}()
 }
 
 func testCancellation(t *testing.T, sslMode string) {
