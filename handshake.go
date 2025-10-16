@@ -22,33 +22,7 @@ func (srv *Server) Handshake(conn net.Conn) (_ net.Conn, version types.Version, 
 		return conn, version, reader, err
 	}
 
-	if version == types.VersionCancel {
-		processID, secretKey, err := srv.readCancelRequest(reader)
-		if err != nil {
-			return conn, version, reader, err
-		}
-
-		srv.logger.Debug("received cancel request",
-			slog.Int("process_id", int(processID)),
-			slog.Int("secret_key", int(secretKey)))
-
-		if srv.CancelRequest != nil {
-			ctx := context.Background()
-			err = srv.CancelRequest(ctx, processID, secretKey)
-			if err != nil {
-				srv.logger.Error("failed to handle cancel request", "err", err)
-			}
-		} else {
-			srv.logger.Info("cancel request received but no handler configured",
-				slog.Int("process_id", int(processID)),
-				slog.Int("secret_key", int(secretKey)))
-		}
-
-		return conn, version, reader, nil
-	}
-
 	// TODO: support GSS encryption
-	//
 	// `psql-wire` currently does not support GSS encrypted connections. The GSS
 	// authentication API is supported inside the PostgreSQL wire protocol and
 	// API's should be made available to support these type of connections.
@@ -58,6 +32,27 @@ func (srv *Server) Handshake(conn net.Conn) (_ net.Conn, version types.Version, 
 	conn, reader, version, err = srv.potentialConnUpgrade(conn, reader, version)
 	if err != nil {
 		return conn, version, reader, err
+	}
+
+	if version == types.VersionCancel {
+		processID, secretKey, err := srv.readCancelRequest(reader)
+		if err != nil {
+			return conn, version, reader, err
+		}
+
+		srv.logger.Debug("Received cancel request")
+
+		if srv.CancelRequest != nil {
+			ctx := context.Background()
+			err = srv.CancelRequest(ctx, processID, secretKey)
+			if err != nil {
+				srv.logger.Error("Failed to handle cancel request", "err", err)
+			}
+		} else {
+			srv.logger.Info("Cancel request received but no handler configured")
+		}
+
+		return conn, version, reader, nil
 	}
 
 	return conn, version, reader, nil
