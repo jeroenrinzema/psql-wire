@@ -93,14 +93,10 @@ func (ts *testServer) handler(ctx context.Context, query string) (PreparedStatem
 		}
 		ts.mutex.Unlock()
 
-		// Write initial row
-		writer.Row([]any{1, "data", time.Now()})
-
-		// Simulate long operation that can be cancelled
+		// Simulate long operation
 		for i := range 3 {
 			select {
 			case <-queryCtx.Done():
-				fmt.Printf("query cancelled, %s\n", queryCtx.Err())
 				return queryCtx.Err()
 			case <-time.After(2 * time.Second):
 				writer.Row([]any{i})
@@ -197,7 +193,7 @@ func testCancellation(t *testing.T, sslMode string) {
 	}
 	defer rows.Close()
 
-	// Try to iterate through rows - this should trigger cancellation
+	// Try to iterate through rows - expect to see cancellation here
 	rowCount := 0
 	for rows.Next() {
 		var val int
@@ -205,7 +201,7 @@ func testCancellation(t *testing.T, sslMode string) {
 		if err != nil {
 			errStr := err.Error()
 			if strings.Contains(errStr, "canceled") {
-				return // Success - got cancellation error during iteration
+				return // Success - got cancellation error
 			}
 			t.Errorf("Unexpected scan error: %v", err)
 			return

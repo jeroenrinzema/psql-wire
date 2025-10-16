@@ -23,6 +23,7 @@ func (srv *Server) Handshake(conn net.Conn) (_ net.Conn, version types.Version, 
 	}
 
 	// TODO: support GSS encryption
+	//
 	// `psql-wire` currently does not support GSS encrypted connections. The GSS
 	// authentication API is supported inside the PostgreSQL wire protocol and
 	// API's should be made available to support these type of connections.
@@ -49,7 +50,7 @@ func (srv *Server) Handshake(conn net.Conn) (_ net.Conn, version types.Version, 
 				srv.logger.Error("Failed to handle cancel request", "err", err)
 			}
 		} else {
-			srv.logger.Info("Cancel request received but no handler configured")
+			srv.logger.Debug("Cancel request received but no handler configured")
 		}
 
 		return conn, version, reader, nil
@@ -76,11 +77,13 @@ func (srv *Server) readVersion(reader *buffer.Reader) (_ types.Version, err erro
 }
 
 // readCancelRequest reads the cancel request parameters (processID and secretKey)
-// from the client connection. The cancel request format is:
+// from the client connection. The full cancel request format is:
 // Int32(16) - Length of message contents in bytes, including self
 // Int32(80877102) - The cancel request code (already read as version)
 // Int32 - The process ID of the target backend
 // Int32 - The secret key for the target backend
+// The first two fields are already handled by readVersion, so this only needs
+// to read the last two fields.
 func (srv *Server) readCancelRequest(reader *buffer.Reader) (processID int32, secretKey int32, err error) {
 	processID, err = reader.GetInt32()
 	if err != nil {
