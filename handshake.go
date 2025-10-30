@@ -22,10 +22,6 @@ func (srv *Server) Handshake(conn net.Conn) (_ net.Conn, version types.Version, 
 		return conn, version, reader, err
 	}
 
-	if version == types.VersionCancel {
-		return conn, version, reader, nil
-	}
-
 	// TODO: support GSS encryption
 	//
 	// `psql-wire` currently does not support GSS encrypted connections. The GSS
@@ -37,6 +33,27 @@ func (srv *Server) Handshake(conn net.Conn) (_ net.Conn, version types.Version, 
 	conn, reader, version, err = srv.potentialConnUpgrade(conn, reader, version)
 	if err != nil {
 		return conn, version, reader, err
+	}
+
+	if version == types.VersionCancel {
+		processID, secretKey, err := srv.readCancelRequest(reader)
+		if err != nil {
+			return conn, version, reader, err
+		}
+
+		srv.logger.Debug("Received cancel request")
+
+		if srv.CancelRequest != nil {
+			ctx := context.Background()
+			err = srv.CancelRequest(ctx, processID, secretKey)
+			if err != nil {
+				srv.logger.Error("Failed to handle cancel request", "err", err)
+			}
+		} else {
+			srv.logger.Debug("Cancel request received but no handler configured")
+		}
+
+		return conn, version, reader, nil
 	}
 
 	return conn, version, reader, nil
@@ -57,6 +74,28 @@ func (srv *Server) readVersion(reader *buffer.Reader) (_ types.Version, err erro
 	}
 
 	return types.Version(version), nil
+}
+
+// readCancelRequest reads the cancel request parameters (processID and secretKey)
+// from the client connection. The full cancel request format is:
+// Int32(16) - Length of message contents in bytes, including self
+// Int32(80877102) - The cancel request code (already read as version)
+// Int32 - The process ID of the target backend
+// Int32 - The secret key for the target backend
+// The first two fields are already handled by readVersion, so this only needs
+// to read the last two fields.
+func (srv *Server) readCancelRequest(reader *buffer.Reader) (processID int32, secretKey int32, err error) {
+	processID, err = reader.GetInt32()
+	if err != nil {
+		return 0, 0, fmt.Errorf("failed to read process ID from cancel request: %w", err)
+	}
+
+	secretKey, err = reader.GetInt32()
+	if err != nil {
+		return 0, 0, fmt.Errorf("failed to read secret key from cancel request: %w", err)
+	}
+
+	return processID, secretKey, nil
 }
 
 // readyForQuery indicates that the server is ready to receive queries.

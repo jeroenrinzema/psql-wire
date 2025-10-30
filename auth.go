@@ -25,6 +25,10 @@ const (
 // AuthStrategy represents an authentication strategy used to authenticate a user.
 type AuthStrategy func(ctx context.Context, writer *buffer.Writer, reader *buffer.Reader) (_ context.Context, err error)
 
+// BackendKeyDataFunc represents a function that generates backend key data for query cancellation.
+// It should return a process ID and secret key that can be used by clients to cancel queries.
+type BackendKeyDataFunc func(ctx context.Context) (processID int32, secretKey int32)
+
 // handleAuth handles the client authentication for the given connection.
 // This methods validates the incoming credentials and writes to the client whether
 // the provided credentials are correct. When the provided credentials are invalid
@@ -90,6 +94,16 @@ func ClearTextPassword(validate func(ctx context.Context, database, username, pa
 func writeAuthType(writer *buffer.Writer, status authType) error {
 	writer.Start(types.ServerAuth)
 	writer.AddInt32(int32(status))
+	return writer.End()
+}
+
+// writeBackendKeyData writes the backend key data to the client. This message contains
+// cancellation key data that the frontend must save if it wishes to be able to issue
+// CancelRequest messages later.
+func writeBackendKeyData(writer *buffer.Writer, processID int32, secretKey int32) error {
+	writer.Start(types.ServerBackendKeyData)
+	writer.AddInt32(processID)
+	writer.AddInt32(secretKey)
 	return writer.End()
 }
 
