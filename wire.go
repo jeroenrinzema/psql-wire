@@ -265,10 +265,11 @@ func (srv *Server) serve(ctx context.Context, conn net.Conn) error {
 	}
 
 	session := &Session{
-		Server:     srv,
-		Statements: srv.Statements(),
-		Portals:    srv.Portals(),
-		Attributes: make(map[string]interface{}),
+		Server:        srv,
+		Statements:    srv.Statements(),
+		Portals:       srv.Portals(),
+		Attributes:    make(map[string]interface{}),
+		ResponseQueue: NewResponseQueue(),
 	}
 
 	ctx = context.WithValue(ctx, sessionKey, session)
@@ -305,13 +306,23 @@ func (srv *Server) Shutdown(ctx context.Context) error {
 	var cancel context.CancelFunc
 
 	timeout := srv.ShutdownTimeout
-	// Add our own timeout on top of the provided context. The earliest
-	// deadline will win.
-	if timeout == 0 {
-		// Zero timeout means wait indefinitely
-		shutdownCtx, cancel = context.WithCancel(ctx)
+	if deadline, ok := ctx.Deadline(); ok {
+		// Use whichever is shorter: context deadline or server timeout
+		if timeout == 0 || time.Until(deadline) < timeout {
+			// Context deadline is shorter (or server has no timeout)
+			shutdownCtx, cancel = context.WithDeadline(context.Background(), deadline)
+		} else {
+			// Server timeout is shorter
+			shutdownCtx, cancel = context.WithTimeout(context.Background(), timeout)
+		}
 	} else {
-		shutdownCtx, cancel = context.WithTimeout(ctx, timeout)
+		// No context deadline, use server timeout
+		if timeout == 0 {
+			// Zero timeout means wait indefinitely
+			shutdownCtx, cancel = context.WithCancel(context.Background())
+		} else {
+			shutdownCtx, cancel = context.WithTimeout(context.Background(), timeout)
+		}
 	}
 	defer cancel()
 
