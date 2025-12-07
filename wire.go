@@ -306,23 +306,13 @@ func (srv *Server) Shutdown(ctx context.Context) error {
 	var cancel context.CancelFunc
 
 	timeout := srv.ShutdownTimeout
-	if deadline, ok := ctx.Deadline(); ok {
-		// Use whichever is shorter: context deadline or server timeout
-		if timeout == 0 || time.Until(deadline) < timeout {
-			// Context deadline is shorter (or server has no timeout)
-			shutdownCtx, cancel = context.WithDeadline(context.Background(), deadline)
-		} else {
-			// Server timeout is shorter
-			shutdownCtx, cancel = context.WithTimeout(context.Background(), timeout)
-		}
+	// Add our own timeout on top of the provided context. The earliest
+	// deadline will win.
+	if timeout == 0 {
+		// Zero timeout means wait indefinitely
+		shutdownCtx, cancel = context.WithCancel(ctx)
 	} else {
-		// No context deadline, use server timeout
-		if timeout == 0 {
-			// Zero timeout means wait indefinitely
-			shutdownCtx, cancel = context.WithCancel(context.Background())
-		} else {
-			shutdownCtx, cancel = context.WithTimeout(context.Background(), timeout)
-		}
+		shutdownCtx, cancel = context.WithTimeout(ctx, timeout)
 	}
 	defer cancel()
 
