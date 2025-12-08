@@ -107,6 +107,14 @@ type PortalCache interface {
 	Close()
 }
 
+// ParallelPipelineConfig controls *parallel* execution of pipelined executes.
+// Sequential pipelining (sending multiple extended-query messages before Sync)
+// remains supported regardless of this flag.
+type ParallelPipelineConfig struct {
+	Enabled     bool // enable/disable parallel pipelining
+	MaxInFlight int  // max concurrently in-flight Execute events per session (0 = no cap)
+}
+
 type FlushFn func(ctx context.Context) error
 
 type CloseFn func(ctx context.Context) error
@@ -165,6 +173,15 @@ func TerminateConn(fn CloseFn) OptionFn {
 func FlushConn(fn FlushFn) OptionFn {
 	return func(srv *Server) error {
 		srv.FlushConn = fn
+		return nil
+	}
+}
+
+// ParallelPipeline sets the parallel pipeline configuration for the server.
+// This controls whether Execute events can run concurrently within a session.
+func ParallelPipeline(config ParallelPipelineConfig) OptionFn {
+	return func(srv *Server) error {
+		srv.ParallelPipeline = config
 		return nil
 	}
 }

@@ -126,8 +126,9 @@ type Server struct {
 	Portals         func() PortalCache
 	CloseConn       CloseFn
 	TerminateConn   CloseFn
-	FlushConn       FlushFn
-	Version         string
+	FlushConn        FlushFn
+	ParallelPipeline ParallelPipelineConfig
+	Version          string
 	ShutdownTimeout time.Duration
 	typeExtension   func(*pgtype.Map)
 	closer          chan struct{}
