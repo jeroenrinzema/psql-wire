@@ -30,9 +30,10 @@ func TestHandleDescribeStatementSuccess(t *testing.T) {
 	require.NoError(t, statements.Set(ctx, "test_stmt", stmt))
 
 	session := &Session{
-		Server:        &Server{logger: logger},
-		Statements:    statements,
-		ResponseQueue: NewResponseQueue(),
+		Server:           &Server{logger: logger},
+		Statements:       statements,
+		ParallelPipeline: ParallelPipelineConfig{Enabled: true},
+		ResponseQueue:    NewResponseQueue(),
 	}
 
 	inputBuf := &bytes.Buffer{}
@@ -86,9 +87,10 @@ func TestHandleDescribePortalSuccess(t *testing.T) {
 	require.NoError(t, err)
 
 	session := &Session{
-		Server:        &Server{logger: logger},
-		Portals:       portals,
-		ResponseQueue: NewResponseQueue(),
+		Server:           &Server{logger: logger},
+		Portals:          portals,
+		ParallelPipeline: ParallelPipelineConfig{Enabled: true},
+		ResponseQueue:    NewResponseQueue(),
 	}
 
 	inputBuf := &bytes.Buffer{}
@@ -128,9 +130,10 @@ func TestHandleDescribeError(t *testing.T) {
 	logger := slogt.New(t)
 
 	session := &Session{
-		Server:        &Server{logger: logger},
-		Statements:    &DefaultStatementCache{statements: map[string]*Statement{"unknown_stmt": nil}},
-		ResponseQueue: NewResponseQueue(),
+		Server:           &Server{logger: logger},
+		Statements:       &DefaultStatementCache{statements: map[string]*Statement{"unknown_stmt": nil}},
+		ParallelPipeline: ParallelPipelineConfig{Enabled: true},
+		ResponseQueue:    NewResponseQueue(),
 	}
 
 	// Enqueue a previous event

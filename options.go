@@ -111,8 +111,7 @@ type PortalCache interface {
 // Sequential pipelining (sending multiple extended-query messages before Sync)
 // remains supported regardless of this flag.
 type ParallelPipelineConfig struct {
-	Enabled     bool // enable/disable parallel pipelining
-	MaxInFlight int  // max concurrently in-flight Execute events per session (0 = no cap)
+	Enabled bool // enable/disable parallel pipelining
 }
 
 type FlushFn func(ctx context.Context) error

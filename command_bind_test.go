@@ -33,9 +33,10 @@ func TestHandleBindSuccess(t *testing.T) {
 		Server: &Server{
 			logger: logger,
 		},
-		Statements:    statements,
-		Portals:       &DefaultPortalCache{},
-		ResponseQueue: NewResponseQueue(),
+		Statements:       statements,
+		Portals:          &DefaultPortalCache{},
+		ParallelPipeline: ParallelPipelineConfig{Enabled: true},
+		ResponseQueue:    NewResponseQueue(),
 	}
 
 	inputBuf := &bytes.Buffer{}
@@ -82,8 +83,9 @@ func TestHandleBindError(t *testing.T) {
 				"unknown_stmt": nil,
 			},
 		},
-		Portals:       &DefaultPortalCache{},
-		ResponseQueue: NewResponseQueue(),
+		Portals:          &DefaultPortalCache{},
+		ParallelPipeline: ParallelPipelineConfig{Enabled: true},
+		ResponseQueue:    NewResponseQueue(),
 	}
 
 	// Enqueue a previous event

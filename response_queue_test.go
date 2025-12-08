@@ -45,7 +45,7 @@ func TestResponseQueueFlushBoundary(t *testing.T) {
 	// Flush should stop at incomplete Execute
 	queue.Enqueue(NewParseCompleteEvent())
 	queue.Enqueue(NewBindCompleteEvent())
-	queue.Enqueue(NewExecuteEvent(make(chan *ResultCollector), nil)) // Empty channel = not ready
+	queue.Enqueue(NewExecuteEvent(make(chan *QueuedDataWriter), nil)) // Empty channel = not ready
 	queue.Enqueue(NewParseCompleteEvent())
 	queue.Enqueue(NewBindCompleteEvent())
 
@@ -101,7 +101,7 @@ func TestResponseQueueStatementDescribe(t *testing.T) {
 			{Name: "name", Oid: oid.T_text},
 		},
 	))
-	queue.Enqueue(NewExecuteEvent(make(chan *ResultCollector), nil)) // Not ready
+	queue.Enqueue(NewExecuteEvent(make(chan *QueuedDataWriter), nil)) // Not ready
 
 	// Flush should include Statement Describe but stop at incomplete Execute
 	flushable := queue.DrainFlushable()
@@ -127,7 +127,7 @@ func TestResponseQueuePortalDescribe(t *testing.T) {
 		},
 		[]FormatCode{TextFormat},
 	))
-	queue.Enqueue(NewExecuteEvent(make(chan *ResultCollector), nil)) // Not ready
+	queue.Enqueue(NewExecuteEvent(make(chan *QueuedDataWriter), nil)) // Not ready
 
 	flushable := queue.DrainFlushable()
 	require.Len(t, flushable, 2)
@@ -169,10 +169,10 @@ func TestResponseQueuePipelineSequence(t *testing.T) {
 	queue.Enqueue(NewParseCompleteEvent())
 	queue.Enqueue(NewBindCompleteEvent())
 	queue.Enqueue(NewPortalDescribeEvent(nil, nil))
-	queue.Enqueue(NewExecuteEvent(make(chan *ResultCollector), nil)) // Not ready
+	queue.Enqueue(NewExecuteEvent(make(chan *QueuedDataWriter), nil)) // Not ready
 	queue.Enqueue(NewParseCompleteEvent())
 	queue.Enqueue(NewBindCompleteEvent())
-	queue.Enqueue(NewExecuteEvent(make(chan *ResultCollector), nil)) // Not ready
+	queue.Enqueue(NewExecuteEvent(make(chan *QueuedDataWriter), nil)) // Not ready
 
 	// First Flush stops at first incomplete Execute
 	flush1 := queue.DrainFlushable()
@@ -206,8 +206,8 @@ func TestResponseQueueCompletedFlush(t *testing.T) {
 	queue.Enqueue(NewPortalDescribeEvent(nil, nil))
 
 	// Create result channel with completed result
-	resultChan1 := make(chan *ResultCollector, 1)
-	resultChan1 <- &ResultCollector{} // Simulate completed result
+	resultChan1 := make(chan *QueuedDataWriter, 1)
+	resultChan1 <- &QueuedDataWriter{} // Simulate completed result
 	queue.Enqueue(NewExecuteEvent(resultChan1, nil))
 
 	queue.Enqueue(NewParseCompleteEvent())
@@ -215,7 +215,7 @@ func TestResponseQueueCompletedFlush(t *testing.T) {
 	queue.Enqueue(NewPortalDescribeEvent(nil, nil))
 
 	// Second Execute not ready yet
-	resultChan2 := make(chan *ResultCollector, 1)
+	resultChan2 := make(chan *QueuedDataWriter, 1)
 	queue.Enqueue(NewExecuteEvent(resultChan2, nil)) // Empty channel = not ready
 
 	// Flush should emit all events up to the first incomplete Execute
@@ -244,19 +244,19 @@ func TestResponseQueueMultipleCompletedFlush(t *testing.T) {
 	// Two completed executes followed by an incomplete one
 	queue.Enqueue(NewParseCompleteEvent())
 	queue.Enqueue(NewBindCompleteEvent())
-	resultChan1 := make(chan *ResultCollector, 1)
-	resultChan1 <- &ResultCollector{} // Completed
+	resultChan1 := make(chan *QueuedDataWriter, 1)
+	resultChan1 <- &QueuedDataWriter{} // Completed
 	queue.Enqueue(NewExecuteEvent(resultChan1, nil))
 
 	queue.Enqueue(NewParseCompleteEvent())
 	queue.Enqueue(NewBindCompleteEvent())
-	resultChan2 := make(chan *ResultCollector, 1)
-	resultChan2 <- &ResultCollector{} // Also completed
+	resultChan2 := make(chan *QueuedDataWriter, 1)
+	resultChan2 <- &QueuedDataWriter{} // Also completed
 	queue.Enqueue(NewExecuteEvent(resultChan2, nil))
 
 	queue.Enqueue(NewParseCompleteEvent())
 	queue.Enqueue(NewBindCompleteEvent())
-	resultChan3 := make(chan *ResultCollector) // Not ready (no buffer)
+	resultChan3 := make(chan *QueuedDataWriter) // Not ready (no buffer)
 	queue.Enqueue(NewExecuteEvent(resultChan3, nil))
 
 	// Flush should get both completed executes and stop at the incomplete one
@@ -288,8 +288,8 @@ func TestDrainSyncNormalOperation(t *testing.T) {
 	queue.Enqueue(NewBindCompleteEvent())
 
 	// Add Execute events with results ready
-	resultChan1 := make(chan *ResultCollector, 1)
-	result1 := &ResultCollector{}
+	resultChan1 := make(chan *QueuedDataWriter, 1)
+	result1 := &QueuedDataWriter{}
 	result1.rows = [][]any{{"value1"}, {"value2"}}
 	resultChan1 <- result1
 
@@ -299,8 +299,8 @@ func TestDrainSyncNormalOperation(t *testing.T) {
 	queue.Enqueue(NewParseCompleteEvent())
 
 	// Add another Execute
-	resultChan2 := make(chan *ResultCollector, 1)
-	result2 := &ResultCollector{}
+	resultChan2 := make(chan *QueuedDataWriter, 1)
+	result2 := &QueuedDataWriter{}
 	result2.rows = [][]any{{"value3"}}
 	resultChan2 <- result2
 
@@ -335,16 +335,16 @@ func TestDrainSyncWithError(t *testing.T) {
 	queue.Enqueue(NewBindCompleteEvent())
 
 	// Add Execute with successful result
-	resultChan1 := make(chan *ResultCollector, 1)
-	result1 := &ResultCollector{}
+	resultChan1 := make(chan *QueuedDataWriter, 1)
+	result1 := &QueuedDataWriter{}
 	result1.rows = [][]any{{"success"}}
 	resultChan1 <- result1
 
 	queue.Enqueue(NewExecuteEvent(resultChan1, nil))
 
 	// Add Execute with error result
-	resultChan2 := make(chan *ResultCollector, 1)
-	result2 := &ResultCollector{}
+	resultChan2 := make(chan *QueuedDataWriter, 1)
+	result2 := &QueuedDataWriter{}
 	testError := errors.New("query execution failed")
 	result2.SetError(testError)
 	resultChan2 <- result2
@@ -354,8 +354,8 @@ func TestDrainSyncWithError(t *testing.T) {
 	// Add more events that shouldn't be processed
 	queue.Enqueue(NewParseCompleteEvent())
 
-	resultChan3 := make(chan *ResultCollector, 1)
-	result3 := &ResultCollector{}
+	resultChan3 := make(chan *QueuedDataWriter, 1)
+	result3 := &QueuedDataWriter{}
 	resultChan3 <- result3
 
 	queue.Enqueue(NewExecuteEvent(resultChan3, nil))
@@ -387,14 +387,14 @@ func TestDrainSyncContextCancellation(t *testing.T) {
 	queue.Enqueue(NewBindCompleteEvent())
 
 	// Add Execute with successful result (instant)
-	resultChan1 := make(chan *ResultCollector, 1)
-	result1 := &ResultCollector{}
+	resultChan1 := make(chan *QueuedDataWriter, 1)
+	result1 := &QueuedDataWriter{}
 	resultChan1 <- result1
 
 	queue.Enqueue(NewExecuteEvent(resultChan1, nil))
 
 	// Add Execute that will block (no result sent)
-	resultChan2 := make(chan *ResultCollector)
+	resultChan2 := make(chan *QueuedDataWriter)
 
 	queue.Enqueue(NewExecuteEvent(resultChan2, nil))
 
@@ -431,7 +431,7 @@ func TestDrainSyncWithTimeout(t *testing.T) {
 	queue := NewResponseQueue()
 
 	// Add Execute that will block forever
-	resultChan := make(chan *ResultCollector)
+	resultChan := make(chan *QueuedDataWriter)
 
 	queue.Enqueue(NewExecuteEvent(resultChan, nil))
 

@@ -37,8 +37,8 @@ type ResponseEvent struct {
 	Formats []FormatCode
 
 	// For ResponseExecute: tracks completion and results
-	ResultChannel chan *ResultCollector // channel to receive results
-	Result        *ResultCollector      // cached result once received
+	ResultChannel chan *QueuedDataWriter // channel to receive results
+	Result        *QueuedDataWriter      // cached result once received
 }
 
 // NewParseCompleteEvent creates a ParseComplete response event
@@ -74,7 +74,7 @@ func NewPortalDescribeEvent(columns Columns, formats []FormatCode) *ResponseEven
 }
 
 // NewExecuteEvent creates an Execute response event
-func NewExecuteEvent(resultChan chan *ResultCollector, formats []FormatCode) *ResponseEvent {
+func NewExecuteEvent(resultChan chan *QueuedDataWriter, formats []FormatCode) *ResponseEvent {
 	return &ResponseEvent{
 		Kind:          ResponseExecute,
 		ResultChannel: resultChan,

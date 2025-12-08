@@ -31,9 +31,10 @@ func TestHandleParseSuccess(t *testing.T) {
 	}
 
 	session := &Session{
-		Server:        &Server{logger: slogt.New(t), parse: mockParse},
-		Statements:    &DefaultStatementCache{},
-		ResponseQueue: NewResponseQueue(),
+		Server:           &Server{logger: slogt.New(t), parse: mockParse},
+		Statements:       &DefaultStatementCache{},
+		ParallelPipeline: ParallelPipelineConfig{Enabled: true},
+		ResponseQueue:    NewResponseQueue(),
 	}
 
 	inputBuf := &bytes.Buffer{}
@@ -78,9 +79,10 @@ func TestHandleParseMultipleCommands(t *testing.T) {
 	}
 
 	session := &Session{
-		Server:        &Server{logger: slogt.New(t), parse: mockParse},
-		Statements:    &DefaultStatementCache{},
-		ResponseQueue: NewResponseQueue(),
+		Server:           &Server{logger: slogt.New(t), parse: mockParse},
+		Statements:       &DefaultStatementCache{},
+		ParallelPipeline: ParallelPipelineConfig{Enabled: true},
+		ResponseQueue:    NewResponseQueue(),
 	}
 
 	queries := []struct {
@@ -132,9 +134,10 @@ func TestHandleParseError(t *testing.T) {
 	}
 
 	session := &Session{
-		Server:        &Server{logger: slogt.New(t), parse: mockParse},
-		Statements:    &DefaultStatementCache{},
-		ResponseQueue: NewResponseQueue(),
+		Server:           &Server{logger: slogt.New(t), parse: mockParse},
+		Statements:       &DefaultStatementCache{},
+		ParallelPipeline: ParallelPipelineConfig{Enabled: true},
+		ResponseQueue:    NewResponseQueue(),
 	}
 
 	// Enqueue a previous event

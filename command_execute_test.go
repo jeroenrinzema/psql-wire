@@ -47,9 +47,10 @@ func TestHandleExecuteSuccess(t *testing.T) {
 			logger: logger,
 			parse:  mockParse,
 		},
-		Statements:    &DefaultStatementCache{},
-		Portals:       &DefaultPortalCache{},
-		ResponseQueue: NewResponseQueue(),
+		Statements:       &DefaultStatementCache{},
+		Portals:          &DefaultPortalCache{},
+		ParallelPipeline: ParallelPipelineConfig{Enabled: true},
+		ResponseQueue:    NewResponseQueue(),
 	}
 
 	outBuf := &bytes.Buffer{}
@@ -206,10 +207,11 @@ func TestHandleExecuteStatementError(t *testing.T) {
 	require.NoError(t, err)
 
 	session := &Session{
-		Server:        &Server{logger: logger},
-		Statements:    &DefaultStatementCache{},
-		Portals:       portals,
-		ResponseQueue: NewResponseQueue(),
+		Server:           &Server{logger: logger},
+		Statements:       &DefaultStatementCache{},
+		Portals:          portals,
+		ParallelPipeline: ParallelPipelineConfig{Enabled: true},
+		ResponseQueue:    NewResponseQueue(),
 	}
 
 	outBuf := &bytes.Buffer{}
@@ -249,10 +251,11 @@ func TestHandleExecuteUnknownPortal(t *testing.T) {
 	logger := slogt.New(t)
 
 	session := &Session{
-		Server:        &Server{logger: logger},
-		Statements:    &DefaultStatementCache{},
-		Portals:       &DefaultPortalCache{},
-		ResponseQueue: NewResponseQueue(),
+		Server:           &Server{logger: logger},
+		Statements:       &DefaultStatementCache{},
+		Portals:          &DefaultPortalCache{},
+		ParallelPipeline: ParallelPipelineConfig{Enabled: true},
+		ResponseQueue:    NewResponseQueue(),
 	}
 
 	// Pre-enqueue a successful event to ensure it's flushed before the error
@@ -314,10 +317,11 @@ func TestExecuteAsyncPanic(t *testing.T) {
 	require.NoError(t, err)
 
 	session := &Session{
-		Server:        &Server{logger: logger},
-		Statements:    &DefaultStatementCache{},
-		Portals:       portals,
-		ResponseQueue: NewResponseQueue(),
+		Server:           &Server{logger: logger},
+		Statements:       &DefaultStatementCache{},
+		Portals:          portals,
+		ParallelPipeline: ParallelPipelineConfig{Enabled: true},
+		ResponseQueue:    NewResponseQueue(),
 	}
 
 	outBuf := &bytes.Buffer{}
