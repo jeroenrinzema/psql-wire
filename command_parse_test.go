@@ -15,8 +15,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestHandleParseSuccess verifies that successful parse operations enqueue the right events
-func TestHandleParseSuccess(t *testing.T) {
+// TestHandleParse_ParallelPipeline_Success verifies that successful parse operations enqueue the right events
+func TestHandleParse_ParallelPipeline_Success(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
@@ -30,33 +30,25 @@ func TestHandleParseSuccess(t *testing.T) {
 		return PreparedStatements{stmt}, nil
 	}
 
+	logger := slogt.New(t)
+
 	session := &Session{
-		Server:           &Server{logger: slogt.New(t), parse: mockParse},
+		Server:           &Server{logger: logger, parse: mockParse},
 		Statements:       &DefaultStatementCache{},
 		ParallelPipeline: ParallelPipelineConfig{Enabled: true},
 		ResponseQueue:    NewResponseQueue(),
 	}
 
-	inputBuf := &bytes.Buffer{}
-	mockWriter := mock.NewWriter(t, inputBuf)
-	mockWriter.Start(types.ClientParse)
-	mockWriter.AddString("test_stmt")
-	mockWriter.AddNullTerminate()
-	mockWriter.AddString("SELECT 1")
-	mockWriter.AddNullTerminate()
-	mockWriter.AddInt16(0)
-	require.NoError(t, mockWriter.End())
-
-	reader := buffer.NewReader(slogt.New(t), inputBuf, buffer.DefaultBufferSize)
-	msgType, _, err := reader.ReadTypedMsg()
-	require.NoError(t, err)
-	require.Equal(t, types.ClientMessage(types.ClientParse), msgType)
+	reader := mock.NewParseReader(t, logger, "test_stmt", "SELECT 1", 0)
 
 	outBuf := &bytes.Buffer{}
-	writer := buffer.NewWriter(slogt.New(t), outBuf)
+	writer := buffer.NewWriter(logger, outBuf)
 
-	err = session.handleParse(ctx, reader, writer)
+	err := session.handleParse(ctx, reader, writer)
 	require.NoError(t, err)
+
+	// In parallel pipeline mode, nothing should be written to the wire immediately
+	assert.Equal(t, 0, outBuf.Len(), "parallel pipeline should not write to wire on success")
 
 	assert.Equal(t, 1, session.ResponseQueue.Len())
 	events := session.ResponseQueue.DrainAll()
@@ -68,18 +60,19 @@ func TestHandleParseSuccess(t *testing.T) {
 	assert.NotNil(t, stmt)
 }
 
-// TestHandleParseMultipleCommands verifies queue accumulates multiple parse events
-func TestHandleParseMultipleCommands(t *testing.T) {
+// TestHandleParse_ParallelPipeline_MultipleCommands verifies queue accumulates multiple parse events
+func TestHandleParse_ParallelPipeline_MultipleCommands(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
+	logger := slogt.New(t)
 	mockParse := func(ctx context.Context, query string) (PreparedStatements, error) {
 		stmt := NewStatement(func(ctx context.Context, writer DataWriter, parameters []Parameter) error { return nil })
 		return PreparedStatements{stmt}, nil
 	}
 
 	session := &Session{
-		Server:           &Server{logger: slogt.New(t), parse: mockParse},
+		Server:           &Server{logger: logger, parse: mockParse},
 		Statements:       &DefaultStatementCache{},
 		ParallelPipeline: ParallelPipelineConfig{Enabled: true},
 		ResponseQueue:    NewResponseQueue(),
@@ -95,21 +88,9 @@ func TestHandleParseMultipleCommands(t *testing.T) {
 	}
 
 	for _, q := range queries {
-		inputBuf := &bytes.Buffer{}
-		mockWriter := mock.NewWriter(t, inputBuf)
-		mockWriter.Start(types.ClientParse)
-		mockWriter.AddString(q.name)
-		mockWriter.AddNullTerminate()
-		mockWriter.AddString(q.query)
-		mockWriter.AddNullTerminate()
-		mockWriter.AddInt16(0)
-		require.NoError(t, mockWriter.End())
+		reader := mock.NewParseReader(t, logger, q.name, q.query, 0)
 
-		reader := buffer.NewReader(slogt.New(t), inputBuf, buffer.DefaultBufferSize)
-		_, _, err := reader.ReadTypedMsg()
-		require.NoError(t, err)
-
-		err = session.handleParse(ctx, reader, buffer.NewWriter(slogt.New(t), &bytes.Buffer{}))
+		err := session.handleParse(ctx, reader, buffer.NewWriter(logger, &bytes.Buffer{}))
 		require.NoError(t, err)
 	}
 
@@ -120,11 +101,12 @@ func TestHandleParseMultipleCommands(t *testing.T) {
 	}
 }
 
-// TestHandleParseError verifies error handling drains the queue
-func TestHandleParseError(t *testing.T) {
+// TestHandleParse_ParallelPipeline_Error verifies error handling drains the queue
+func TestHandleParse_ParallelPipeline_Error(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
+	logger := slogt.New(t)
 
 	mockParse := func(ctx context.Context, query string) (PreparedStatements, error) {
 		if query == "INVALID SQL" {
@@ -134,7 +116,7 @@ func TestHandleParseError(t *testing.T) {
 	}
 
 	session := &Session{
-		Server:           &Server{logger: slogt.New(t), parse: mockParse},
+		Server:           &Server{logger: logger, parse: mockParse},
 		Statements:       &DefaultStatementCache{},
 		ParallelPipeline: ParallelPipelineConfig{Enabled: true},
 		ResponseQueue:    NewResponseQueue(),
@@ -143,24 +125,12 @@ func TestHandleParseError(t *testing.T) {
 	// Enqueue a previous event
 	session.ResponseQueue.Enqueue(NewBindCompleteEvent())
 
-	inputBuf := &bytes.Buffer{}
-	mockWriter := mock.NewWriter(t, inputBuf)
-	mockWriter.Start(types.ClientParse)
-	mockWriter.AddString("bad_stmt")
-	mockWriter.AddNullTerminate()
-	mockWriter.AddString("INVALID SQL")
-	mockWriter.AddNullTerminate()
-	mockWriter.AddInt16(0)
-	require.NoError(t, mockWriter.End())
-
-	reader := buffer.NewReader(slogt.New(t), inputBuf, buffer.DefaultBufferSize)
-	_, _, err := reader.ReadTypedMsg()
-	require.NoError(t, err)
+	reader := mock.NewParseReader(t, logger, "bad_stmt", "INVALID SQL", 0)
 
 	outBuf := &bytes.Buffer{}
-	writer := buffer.NewWriter(slogt.New(t), outBuf)
+	writer := buffer.NewWriter(logger, outBuf)
 
-	err = session.handleParse(ctx, reader, writer)
+	err := session.handleParse(ctx, reader, writer)
 	require.NoError(t, err)
 
 	assert.Equal(t, 0, session.ResponseQueue.Len())

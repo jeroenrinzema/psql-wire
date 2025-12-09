@@ -14,8 +14,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestHandleDescribeStatementSuccess verifies that successful describe statement enqueues the right event
-func TestHandleDescribeStatementSuccess(t *testing.T) {
+// TestHandleDescribe_ParallelPipeline_StatementSuccess verifies that successful describe statement enqueues the right event
+func TestHandleDescribe_ParallelPipeline_StatementSuccess(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
@@ -36,23 +36,16 @@ func TestHandleDescribeStatementSuccess(t *testing.T) {
 		ResponseQueue:    NewResponseQueue(),
 	}
 
-	inputBuf := &bytes.Buffer{}
-	mockWriter := mock.NewWriter(t, inputBuf)
-	mockWriter.Start(types.ClientDescribe)
-	mockWriter.AddByte(byte(types.DescribeStatement))
-	mockWriter.AddString("test_stmt")
-	mockWriter.AddNullTerminate()
-	require.NoError(t, mockWriter.End())
-
-	reader := buffer.NewReader(logger, inputBuf, buffer.DefaultBufferSize)
-	_, _, err := reader.ReadTypedMsg()
-	require.NoError(t, err)
+	reader := mock.NewDescribeReader(t, logger, types.DescribeStatement, "test_stmt")
 
 	outBuf := &bytes.Buffer{}
 	writer := buffer.NewWriter(logger, outBuf)
 
-	err = session.handleDescribe(ctx, reader, writer)
+	err := session.handleDescribe(ctx, reader, writer)
 	require.NoError(t, err)
+
+	// In parallel pipeline mode, nothing should be written to the wire immediately
+	assert.Equal(t, 0, outBuf.Len(), "parallel pipeline should not write to wire on success")
 
 	assert.Equal(t, 1, session.ResponseQueue.Len())
 	events := session.ResponseQueue.DrainAll()
@@ -65,8 +58,8 @@ func TestHandleDescribeStatementSuccess(t *testing.T) {
 	assert.Equal(t, "col1", event.Columns[0].Name)
 }
 
-// TestHandleDescribePortalSuccess verifies that successful describe portal enqueues the right event
-func TestHandleDescribePortalSuccess(t *testing.T) {
+// TestHandleDescribe_ParallelPipeline_PortalSuccess verifies that successful describe portal enqueues the right event
+func TestHandleDescribe_ParallelPipeline_PortalSuccess(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
@@ -93,23 +86,16 @@ func TestHandleDescribePortalSuccess(t *testing.T) {
 		ResponseQueue:    NewResponseQueue(),
 	}
 
-	inputBuf := &bytes.Buffer{}
-	mockWriter := mock.NewWriter(t, inputBuf)
-	mockWriter.Start(types.ClientDescribe)
-	mockWriter.AddByte(byte(types.DescribePortal))
-	mockWriter.AddString("test_portal")
-	mockWriter.AddNullTerminate()
-	require.NoError(t, mockWriter.End())
-
-	reader := buffer.NewReader(logger, inputBuf, buffer.DefaultBufferSize)
-	_, _, err = reader.ReadTypedMsg()
-	require.NoError(t, err)
+	reader := mock.NewDescribeReader(t, logger, types.DescribePortal, "test_portal")
 
 	outBuf := &bytes.Buffer{}
 	writer := buffer.NewWriter(logger, outBuf)
 
 	err = session.handleDescribe(ctx, reader, writer)
 	require.NoError(t, err)
+
+	// In parallel pipeline mode, nothing should be written to the wire immediately
+	assert.Equal(t, 0, outBuf.Len(), "parallel pipeline should not write to wire on success")
 
 	assert.Equal(t, 1, session.ResponseQueue.Len())
 	events := session.ResponseQueue.DrainAll()
@@ -122,8 +108,8 @@ func TestHandleDescribePortalSuccess(t *testing.T) {
 	assert.Equal(t, formats, event.Formats)
 }
 
-// TestHandleDescribeError verifies error handling drains the queue
-func TestHandleDescribeError(t *testing.T) {
+// TestHandleDescribe_ParallelPipeline_Error verifies error handling drains the queue
+func TestHandleDescribe_ParallelPipeline_Error(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
@@ -139,22 +125,12 @@ func TestHandleDescribeError(t *testing.T) {
 	// Enqueue a previous event
 	session.ResponseQueue.Enqueue(NewParseCompleteEvent())
 
-	inputBuf := &bytes.Buffer{}
-	mockWriter := mock.NewWriter(t, inputBuf)
-	mockWriter.Start(types.ClientDescribe)
-	mockWriter.AddByte(byte(types.DescribeStatement))
-	mockWriter.AddString("unknown_stmt")
-	mockWriter.AddNullTerminate()
-	require.NoError(t, mockWriter.End())
-
-	reader := buffer.NewReader(logger, inputBuf, buffer.DefaultBufferSize)
-	_, _, err := reader.ReadTypedMsg()
-	require.NoError(t, err)
+	reader := mock.NewDescribeReader(t, logger, types.DescribeStatement, "unknown_stmt")
 
 	outBuf := &bytes.Buffer{}
 	writer := buffer.NewWriter(logger, outBuf)
 
-	err = session.handleDescribe(ctx, reader, writer)
+	err := session.handleDescribe(ctx, reader, writer)
 	require.NoError(t, err)
 
 	assert.Equal(t, 0, session.ResponseQueue.Len())

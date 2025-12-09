@@ -107,11 +107,13 @@ type PortalCache interface {
 	Close()
 }
 
-// ParallelPipelineConfig controls *parallel* execution of pipelined executes.
-// Sequential pipelining (sending multiple extended-query messages before Sync)
-// remains supported regardless of this flag.
+// ParallelPipelineConfig controls whether multiple Execute messages within a pipeline
+// can run concurrently. When Enabled is true, the server may process Execute commands
+// in parallel before the Sync message. When false, Execute commands are processed
+// sequentially. Note that pipelining itself (batching multiple messages before Sync)
+// is always supported; this setting only affects parallel execution of those messages.
 type ParallelPipelineConfig struct {
-	Enabled bool // enable/disable parallel pipelining
+	Enabled bool // when true, allows concurrent execution of pipelined Execute messages
 }
 
 type FlushFn func(ctx context.Context) error

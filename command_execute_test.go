@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"errors"
-	"log/slog"
 	"testing"
 
 	"github.com/jackc/pgx/v5/pgtype"
@@ -17,7 +16,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestHandleExecuteSuccess(t *testing.T) {
+func TestHandleExecute_ParallelPipeline_Success(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
@@ -57,73 +56,19 @@ func TestHandleExecuteSuccess(t *testing.T) {
 	writer := buffer.NewWriter(logger, outBuf)
 
 	// Parse
-	inputBuf := &bytes.Buffer{}
-	mockWriter := mock.NewWriter(t, inputBuf)
-	mockWriter.Start(types.ClientParse)
-	mockWriter.AddString("stmt1")
-	mockWriter.AddNullTerminate()
-	mockWriter.AddString("SELECT 'Hello World'")
-	mockWriter.AddNullTerminate()
-	mockWriter.AddInt16(0)
-	require.NoError(t, mockWriter.End())
-
-	reader := buffer.NewReader(logger, inputBuf, buffer.DefaultBufferSize)
-	_, _, err := reader.ReadTypedMsg()
-	require.NoError(t, err)
-
-	err = session.handleParse(ctx, reader, writer)
+	err := session.handleParse(ctx, mock.NewParseReader(t, logger, "stmt1", "SELECT 'Hello World'", 0), writer)
 	require.NoError(t, err)
 
 	// Bind
-	inputBuf = &bytes.Buffer{}
-	mockWriter = mock.NewWriter(t, inputBuf)
-	mockWriter.Start(types.ClientBind)
-	mockWriter.AddString("portal1")
-	mockWriter.AddNullTerminate()
-	mockWriter.AddString("stmt1")
-	mockWriter.AddNullTerminate()
-	mockWriter.AddInt16(0) // param formats
-	mockWriter.AddInt16(0) // param values
-	mockWriter.AddInt16(0) // result formats
-	require.NoError(t, mockWriter.End())
-
-	reader = buffer.NewReader(logger, inputBuf, buffer.DefaultBufferSize)
-	_, _, err = reader.ReadTypedMsg()
-	require.NoError(t, err)
-
-	err = session.handleBind(ctx, reader, writer)
+	err = session.handleBind(ctx, mock.NewBindReader(t, logger, "portal1", "stmt1", 0, 0, 0), writer)
 	require.NoError(t, err)
 
 	// Describe portal
-	inputBuf = &bytes.Buffer{}
-	mockWriter = mock.NewWriter(t, inputBuf)
-	mockWriter.Start(types.ClientDescribe)
-	mockWriter.AddByte(byte(types.DescribePortal))
-	mockWriter.AddString("portal1")
-	mockWriter.AddNullTerminate()
-	require.NoError(t, mockWriter.End())
-
-	reader = buffer.NewReader(logger, inputBuf, buffer.DefaultBufferSize)
-	_, _, err = reader.ReadTypedMsg()
-	require.NoError(t, err)
-
-	err = session.handleDescribe(ctx, reader, writer)
+	err = session.handleDescribe(ctx, mock.NewDescribeReader(t, logger, types.DescribePortal, "portal1"), writer)
 	require.NoError(t, err)
 
 	// Execute
-	inputBuf = &bytes.Buffer{}
-	mockWriter = mock.NewWriter(t, inputBuf)
-	mockWriter.Start(types.ClientExecute)
-	mockWriter.AddString("portal1")
-	mockWriter.AddNullTerminate()
-	mockWriter.AddInt32(0) // no limit
-	require.NoError(t, mockWriter.End())
-
-	reader = buffer.NewReader(logger, inputBuf, buffer.DefaultBufferSize)
-	_, _, err = reader.ReadTypedMsg()
-	require.NoError(t, err)
-
-	err = session.handleExecute(ctx, reader, writer)
+	err = session.handleExecute(ctx, mock.NewExecuteReader(t, logger, "portal1", 0), writer)
 	require.NoError(t, err)
 
 	// Queue should have: ParseComplete, BindComplete, PortalDescribe, Execute
@@ -184,7 +129,7 @@ func TestHandleExecuteSuccess(t *testing.T) {
 	require.Error(t, err)
 }
 
-func TestHandleExecuteStatementError(t *testing.T) {
+func TestHandleExecute_ParallelPipeline_StatementError(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
@@ -217,7 +162,7 @@ func TestHandleExecuteStatementError(t *testing.T) {
 	outBuf := &bytes.Buffer{}
 	writer := buffer.NewWriter(logger, outBuf)
 
-	reader := newExecuteReader(t, logger, "err_portal", 0)
+	reader := mock.NewExecuteReader(t, logger, "err_portal", 0)
 
 	err = session.handleExecute(ctx, reader, writer)
 	require.NoError(t, err)
@@ -241,7 +186,7 @@ func TestHandleExecuteStatementError(t *testing.T) {
 	assert.Equal(t, types.ServerReady, msgType)
 }
 
-func TestHandleExecuteUnknownPortal(t *testing.T) {
+func TestHandleExecute_ParallelPipeline_UnknownPortal(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
@@ -264,7 +209,7 @@ func TestHandleExecuteUnknownPortal(t *testing.T) {
 	outBuf := &bytes.Buffer{}
 	writer := buffer.NewWriter(logger, outBuf)
 
-	reader := newExecuteReader(t, logger, "missing_portal", 0)
+	reader := mock.NewExecuteReader(t, logger, "missing_portal", 0)
 
 	err := session.handleExecute(ctx, reader, writer)
 	require.NoError(t, err)
@@ -293,7 +238,7 @@ func TestHandleExecuteUnknownPortal(t *testing.T) {
 	require.Error(t, err)
 }
 
-func TestExecuteAsyncPanic(t *testing.T) {
+func TestHandleExecute_ParallelPipeline_AsyncPanic(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
@@ -327,7 +272,7 @@ func TestExecuteAsyncPanic(t *testing.T) {
 	outBuf := &bytes.Buffer{}
 	writer := buffer.NewWriter(logger, outBuf)
 
-	reader := newExecuteReader(t, logger, "panic_portal", 0)
+	reader := mock.NewExecuteReader(t, logger, "panic_portal", 0)
 
 	err = session.handleExecute(ctx, reader, writer)
 	require.NoError(t, err)
@@ -342,22 +287,4 @@ func TestExecuteAsyncPanic(t *testing.T) {
 	msgType, _, err := responseReader.ReadTypedMsg()
 	require.NoError(t, err)
 	assert.Equal(t, types.ServerErrorResponse, msgType)
-}
-
-func newExecuteReader(t *testing.T, logger *slog.Logger, portal string, limit int32) *buffer.Reader {
-	t.Helper()
-
-	inputBuf := &bytes.Buffer{}
-	mockWriter := mock.NewWriter(t, inputBuf)
-	mockWriter.Start(types.ClientExecute)
-	mockWriter.AddString(portal)
-	mockWriter.AddNullTerminate()
-	mockWriter.AddInt32(limit)
-	require.NoError(t, mockWriter.End())
-
-	reader := buffer.NewReader(logger, inputBuf, buffer.DefaultBufferSize)
-	_, _, err := reader.ReadTypedMsg()
-	require.NoError(t, err)
-
-	return reader
 }

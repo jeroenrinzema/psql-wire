@@ -99,39 +99,6 @@ func (q *ResponseQueue) Enqueue(event *ResponseEvent) {
 	q.events = append(q.events, event)
 }
 
-// DrainFlushable drains all events up to the first incomplete Execute
-// This is used at Flush to emit everything that's ready
-func (q *ResponseQueue) DrainFlushable() []*ResponseEvent {
-	var result []*ResponseEvent
-	var remaining []*ResponseEvent
-
-	for i, event := range q.events {
-		if event.Kind == ResponseExecute {
-			// Try to receive from channel non-blocking
-			if event.ResultChannel != nil {
-				select {
-				case res := <-event.ResultChannel:
-					event.Result = res
-					result = append(result, event)
-					continue
-				default:
-					// Not ready - stop at this head-of-line execute
-				}
-			}
-
-			// No result available - stop here
-			remaining = q.events[i:]
-			break
-		}
-
-		// All other events are immediately ready
-		result = append(result, event)
-	}
-
-	q.events = remaining
-	return result
-}
-
 // DrainSync drains all events, waiting for all results to be received
 // It returns early if an error is encountered or the context is cancelled
 // Only returns events up to but not including an error event

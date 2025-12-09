@@ -14,8 +14,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestHandleBindSuccess verifies that successful bind operations enqueue the right events
-func TestHandleBindSuccess(t *testing.T) {
+// TestHandleBind_ParallelPipeline_Success verifies that successful bind operations enqueue the right events
+func TestHandleBind_ParallelPipeline_Success(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
@@ -39,25 +39,14 @@ func TestHandleBindSuccess(t *testing.T) {
 		ResponseQueue:    NewResponseQueue(),
 	}
 
-	inputBuf := &bytes.Buffer{}
-	mockWriter := mock.NewWriter(t, inputBuf)
-	mockWriter.Start(types.ClientBind)
-	mockWriter.AddString("test_portal")
-	mockWriter.AddNullTerminate()
-	mockWriter.AddString("test_stmt")
-	mockWriter.AddNullTerminate()
-	mockWriter.AddInt16(0) // Param formats
-	mockWriter.AddInt16(0) // Param values
-	mockWriter.AddInt16(0) // Result formats
-	require.NoError(t, mockWriter.End())
+	reader := mock.NewBindReader(t, logger, "test_portal", "test_stmt", 0, 0, 0)
 
-	reader := buffer.NewReader(logger, inputBuf, buffer.DefaultBufferSize)
-	msgType, _, err := reader.ReadTypedMsg()
+	outBuf := &bytes.Buffer{}
+	err := session.handleBind(ctx, reader, buffer.NewWriter(logger, outBuf))
 	require.NoError(t, err)
-	require.Equal(t, types.ClientMessage(types.ClientBind), msgType)
 
-	err = session.handleBind(ctx, reader, buffer.NewWriter(logger, &bytes.Buffer{}))
-	require.NoError(t, err)
+	// In parallel pipeline mode, nothing should be written to the wire immediately
+	assert.Equal(t, 0, outBuf.Len(), "parallel pipeline should not write to wire on success")
 
 	assert.Equal(t, 1, session.ResponseQueue.Len())
 	events := session.ResponseQueue.DrainAll()
@@ -67,8 +56,8 @@ func TestHandleBindSuccess(t *testing.T) {
 	assert.Equal(t, ResponseBindComplete, event.Kind)
 }
 
-// TestHandleBindError verifies error handling drains the queue
-func TestHandleBindError(t *testing.T) {
+// TestHandleBind_ParallelPipeline_Error verifies error handling drains the queue
+func TestHandleBind_ParallelPipeline_Error(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
@@ -91,27 +80,12 @@ func TestHandleBindError(t *testing.T) {
 	// Enqueue a previous event
 	session.ResponseQueue.Enqueue(NewParseCompleteEvent())
 
-	// Prepare Bind message for unknown statement
-	inputBuf := &bytes.Buffer{}
-	mockWriter := mock.NewWriter(t, inputBuf)
-	mockWriter.Start(types.ClientBind)
-	mockWriter.AddString("test_portal")
-	mockWriter.AddNullTerminate()
-	mockWriter.AddString("unknown_stmt")
-	mockWriter.AddNullTerminate()
-	mockWriter.AddInt16(0)
-	mockWriter.AddInt16(0)
-	mockWriter.AddInt16(0)
-	require.NoError(t, mockWriter.End())
-
-	reader := buffer.NewReader(logger, inputBuf, buffer.DefaultBufferSize)
-	_, _, err := reader.ReadTypedMsg()
-	require.NoError(t, err)
+	reader := mock.NewBindReader(t, logger, "test_portal", "unknown_stmt", 0, 0, 0)
 
 	outBuf := &bytes.Buffer{}
 	writer := buffer.NewWriter(logger, outBuf)
 
-	err = session.handleBind(ctx, reader, writer)
+	err := session.handleBind(ctx, reader, writer)
 	require.NoError(t, err)
 
 	assert.Equal(t, 0, session.ResponseQueue.Len())
