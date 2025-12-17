@@ -7,10 +7,10 @@ import (
 	"testing"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jeroenrinzema/psql-wire/pkg/buffer"
 	"github.com/jeroenrinzema/psql-wire/pkg/mock"
 	"github.com/jeroenrinzema/psql-wire/pkg/types"
-	"github.com/lib/pq/oid"
 	"github.com/neilotoole/slogt"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -49,13 +49,13 @@ func TestBindMessageParameters(t *testing.T) {
 		{
 			Table: 0,
 			Name:  "full_name",
-			Oid:   oid.T_text,
+			Oid:   pgtype.TextOID,
 			Width: 256,
 		},
 		{
 			Table: 0,
 			Name:  "answer_to_life_the_universe_and_everything",
-			Oid:   oid.T_text,
+			Oid:   pgtype.TextOID,
 			Width: 256,
 		},
 	}

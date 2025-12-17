@@ -7,7 +7,6 @@ import (
 
 	"github.com/jeroenrinzema/psql-wire/pkg/buffer"
 	"github.com/jeroenrinzema/psql-wire/pkg/types"
-	"github.com/lib/pq/oid"
 )
 
 // Columns represent a collection of columns.
@@ -108,7 +107,7 @@ type Column struct {
 	Attr         int16  // column attribute number
 	Name         string // column name
 	AttrNo       int16  // column attribute no (optional)
-	Oid          oid.Oid
+	Oid          uint32
 	Width        int16
 	TypeModifier int32
 }

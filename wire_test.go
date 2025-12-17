@@ -12,11 +12,11 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgtype"
 	_ "github.com/jackc/pgx/v5/stdlib"
 	"github.com/jeroenrinzema/psql-wire/pkg/mock"
 	"github.com/jeroenrinzema/psql-wire/pkg/types"
 	"github.com/lib/pq"
-	"github.com/lib/pq/oid"
 	"github.com/neilotoole/slogt"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -126,7 +126,7 @@ func TestClientParameters(t *testing.T) {
 			{
 				Table: 0,
 				Name:  "full_name",
-				Oid:   oid.T_text,
+				Oid:   pgtype.TextOID,
 				Width: 256,
 			},
 		}
@@ -201,19 +201,19 @@ func TestServerWritingResult(t *testing.T) {
 			{
 				Table: 0,
 				Name:  "name",
-				Oid:   oid.T_text,
+				Oid:   pgtype.TextOID,
 				Width: 256,
 			},
 			{
 				Table: 0,
 				Name:  "member",
-				Oid:   oid.T_bool,
+				Oid:   pgtype.BoolOID,
 				Width: 1,
 			},
 			{
 				Table: 0,
 				Name:  "age",
-				Oid:   oid.T_int4,
+				Oid:   pgtype.Int4OID,
 				Width: 1,
 			},
 		}
@@ -352,7 +352,7 @@ func TOpenMockServer(t *testing.T) *net.TCPAddr {
 			{
 				Table: 0,
 				Name:  "age",
-				Oid:   oid.T_int4,
+				Oid:   pgtype.Int4OID,
 				Width: 1,
 			},
 		}
@@ -387,7 +387,7 @@ func TestServerNULLValues(t *testing.T) {
 			{
 				Table: 0,
 				Name:  "name",
-				Oid:   oid.T_text,
+				Oid:   pgtype.TextOID,
 				Width: 256,
 			},
 		}
@@ -602,19 +602,19 @@ func TestServerCopyIn(t *testing.T) {
 			{
 				Table: 0,
 				Name:  "id",
-				Oid:   oid.T_int4,
+				Oid:   pgtype.Int4OID,
 				Width: 1,
 			},
 			{
 				Table: 0,
 				Name:  "name",
-				Oid:   oid.T_text,
+				Oid:   pgtype.TextOID,
 				Width: 256,
 			},
 			{
 				Table: 0,
 				Name:  "spotify_id",
-				Oid:   oid.T_text,
+				Oid:   pgtype.TextOID,
 				Width: 256,
 			},
 		}
@@ -1167,7 +1167,7 @@ func TestClientDisconnectDuringWrite(t *testing.T) {
 				}
 			}
 			return writer.Complete("SELECT 1000")
-		}, WithColumns(Columns{{Name: "data", Oid: oid.T_text}}))
+		}, WithColumns(Columns{{Name: "data", Oid: pgtype.TextOID}}))
 		return Prepared(statement), nil
 	}
 
