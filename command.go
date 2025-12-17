@@ -56,6 +56,10 @@ type Session struct {
 	Statements StatementCache
 	Portals    PortalCache
 	Attributes map[string]interface{}
+
+	// pipelining
+	ParallelPipeline ParallelPipelineConfig
+	ResponseQueue    *ResponseQueue
 }
 
 // consumeCommands consumes incoming commands sent over the Postgres wire connection.
@@ -142,12 +146,9 @@ func handleMessageSizeExceeded(reader *buffer.Reader, writer *buffer.Writer, exc
 
 // handleCommand handles the given client message. A client message includes a
 // message type and reader buffer containing the actual message. The type
-// indecates a action executed by the client.
+// indicates a action executed by the client.
 // https://www.postgresql.org/docs/14/protocol-message-formats.html
 func (srv *Session) handleCommand(ctx context.Context, conn net.Conn, t types.ClientMessage, reader *buffer.Reader, writer *buffer.Writer) error {
-	ctx, cancel := context.WithCancel(ctx)
-	defer cancel()
-
 	switch t {
 	case types.ClientSimpleQuery:
 		return srv.handleSimpleQuery(ctx, reader, writer)
@@ -194,7 +195,7 @@ func (srv *Session) handleCommand(ctx context.Context, conn net.Conn, t types.Cl
 		// — this ensures that there is one and only one ReadyForQuery sent for
 		// each Sync.)
 		// https://www.postgresql.org/docs/current/protocol-flow.html#PROTOCOL-FLOW-EXT-QUERY
-		return readyForQuery(writer, types.ServerIdle)
+		return srv.handleSync(ctx, writer)
 	case types.ClientBind:
 		return srv.handleBind(ctx, reader, writer)
 	case types.ClientFlush:
@@ -206,6 +207,18 @@ func (srv *Session) handleCommand(ctx context.Context, conn net.Conn, t types.Cl
 		// Flush, messages returned by the backend will be combined into the
 		// minimum possible number of packets to minimize network overhead.
 		// https://www.postgresql.org/docs/current/protocol-flow.html#PROTOCOL-FLOW-EXT-QUERY
+		if srv.ParallelPipeline.Enabled {
+			// NOTE: We use processResponseQueue which blocks until all pending
+			// results are ready. Since our main loop blocks on reading the next
+			// command, we cannot asynchronously stream results while waiting for
+			// the client. The client waits for results after Flush before sending
+			// the next command. This creates a deadlock if we don't deliver results here.
+			// Effectively, Flush becomes a synchronization barrier for the current batch.
+			if err := srv.processResponseQueue(ctx, writer); err != nil {
+				return err
+			}
+		}
+
 		if srv.FlushConn != nil {
 			return srv.FlushConn(ctx)
 		}
@@ -292,7 +305,11 @@ func (srv *Session) handleSimpleQuery(ctx context.Context, reader *buffer.Reader
 
 func (srv *Session) handleParse(ctx context.Context, reader *buffer.Reader, writer *buffer.Writer) error {
 	if srv.parse == nil || srv.Statements == nil {
-		return ErrorCode(writer, NewErrUnimplementedMessageType(types.ClientParse))
+		err := NewErrUnimplementedMessageType(types.ClientParse)
+		if srv.ParallelPipeline.Enabled {
+			return srv.drainQueueAndWriteError(ctx, writer, err)
+		}
+		return ErrorCode(writer, err)
 	}
 
 	name, err := reader.GetString()
@@ -324,6 +341,10 @@ func (srv *Session) handleParse(ctx context.Context, reader *buffer.Reader, writ
 		// `reader.GetUint32()`
 	}
 
+	if srv.ParallelPipeline.Enabled {
+		return srv.parsePipelined(ctx, writer, name, query)
+	}
+
 	statement, err := singleStatement(srv.parse(ctx, query))
 	if err != nil {
 		return ErrorCode(writer, err)
@@ -340,6 +361,24 @@ func (srv *Session) handleParse(ctx context.Context, reader *buffer.Reader, writ
 	return writer.End()
 }
 
+// parsePipelined handles Parse in parallel pipeline mode
+func (srv *Session) parsePipelined(ctx context.Context, writer *buffer.Writer, name, query string) error {
+	statement, err := singleStatement(srv.parse(ctx, query))
+	if err != nil {
+		return srv.drainQueueAndWriteError(ctx, writer, err)
+	}
+
+	srv.logger.Debug("incoming extended query", slog.String("query", query), slog.String("name", name), slog.Int("parameters", len(statement.parameters)))
+
+	err = srv.Statements.Set(ctx, name, statement)
+	if err != nil {
+		return srv.drainQueueAndWriteError(ctx, writer, err)
+	}
+
+	srv.ResponseQueue.Enqueue(NewParseCompleteEvent())
+	return nil
+}
+
 func (srv *Session) handleDescribe(ctx context.Context, reader *buffer.Reader, writer *buffer.Writer) error {
 	d, err := reader.GetBytes(1)
 	if err != nil {
@@ -353,6 +392,10 @@ func (srv *Session) handleDescribe(ctx context.Context, reader *buffer.Reader, w
 
 	srv.logger.Debug("incoming describe request", slog.String("type", types.DescribeMessage(d[0]).String()), slog.String("name", name))
 
+	if srv.ParallelPipeline.Enabled {
+		return srv.describePipelined(ctx, writer, types.DescribeMessage(d[0]), name)
+	}
+
 	switch types.DescribeMessage(d[0]) {
 	case types.DescribeStatement:
 		statement, err := srv.Statements.Get(ctx, name)
@@ -364,13 +407,11 @@ func (srv *Session) handleDescribe(ctx context.Context, reader *buffer.Reader, w
 			return ErrorCode(writer, errors.New("unknown statement"))
 		}
 
-		err = srv.writeParameterDescription(writer, statement.parameters)
-		if err != nil {
+		if err := srv.writeParameterDescription(writer, statement.parameters); err != nil {
 			return err
 		}
-
-		// NOTE: the format codes are not yet known at this point in time.
 		return srv.writeColumnDescription(ctx, writer, nil, statement.columns)
+
 	case types.DescribePortal:
 		portal, err := srv.Portals.Get(ctx, name)
 		if err != nil {
@@ -385,6 +426,39 @@ func (srv *Session) handleDescribe(ctx context.Context, reader *buffer.Reader, w
 	}
 
 	return ErrorCode(writer, fmt.Errorf("unknown describe command: %s", string(d[0])))
+}
+
+// describePipelined handles Describe in parallel pipeline mode
+func (srv *Session) describePipelined(ctx context.Context, writer *buffer.Writer, descType types.DescribeMessage, name string) error {
+	switch descType {
+	case types.DescribeStatement:
+		statement, err := srv.Statements.Get(ctx, name)
+		if err != nil {
+			return srv.drainQueueAndWriteError(ctx, writer, err)
+		}
+
+		if statement == nil {
+			return srv.drainQueueAndWriteError(ctx, writer, errors.New("unknown statement"))
+		}
+
+		srv.ResponseQueue.Enqueue(NewStmtDescribeEvent(statement.parameters, statement.columns))
+		return nil
+
+	case types.DescribePortal:
+		portal, err := srv.Portals.Get(ctx, name)
+		if err != nil {
+			return srv.drainQueueAndWriteError(ctx, writer, err)
+		}
+
+		if portal == nil {
+			return srv.drainQueueAndWriteError(ctx, writer, errors.New("unknown portal"))
+		}
+
+		srv.ResponseQueue.Enqueue(NewPortalDescribeEvent(portal.statement.columns, portal.formats))
+		return nil
+	}
+
+	return srv.drainQueueAndWriteError(ctx, writer, fmt.Errorf("unknown describe command: %s", string(descType)))
 }
 
 // https://www.postgresql.org/docs/15/protocol-message-formats.html
@@ -433,6 +507,10 @@ func (srv *Session) handleBind(ctx context.Context, reader *buffer.Reader, write
 		return err
 	}
 
+	if srv.ParallelPipeline.Enabled {
+		return srv.bindPipelined(ctx, writer, name, statement, parameters, formats)
+	}
+
 	stmt, err := srv.Statements.Get(ctx, statement)
 	if err != nil {
 		return err
@@ -449,6 +527,26 @@ func (srv *Session) handleBind(ctx context.Context, reader *buffer.Reader, write
 
 	writer.Start(types.ServerBindComplete)
 	return writer.End()
+}
+
+// bindPipelined handles Bind in parallel pipeline mode
+func (srv *Session) bindPipelined(ctx context.Context, writer *buffer.Writer, name, statement string, parameters []Parameter, formats []FormatCode) error {
+	stmt, err := srv.Statements.Get(ctx, statement)
+	if err != nil {
+		return srv.drainQueueAndWriteError(ctx, writer, err)
+	}
+
+	if stmt == nil {
+		return srv.drainQueueAndWriteError(ctx, writer, NewErrUnkownStatement(statement))
+	}
+
+	err = srv.Portals.Bind(ctx, name, stmt, parameters, formats)
+	if err != nil {
+		return srv.drainQueueAndWriteError(ctx, writer, err)
+	}
+
+	srv.ResponseQueue.Enqueue(NewBindCompleteEvent())
+	return nil
 }
 
 // readParameters attempts to read all incoming parameters from the given
@@ -542,7 +640,11 @@ func (srv *Session) readColumnTypes(reader *buffer.Reader) ([]FormatCode, error)
 
 func (srv *Session) handleExecute(ctx context.Context, reader *buffer.Reader, writer *buffer.Writer) error {
 	if srv.Statements == nil {
-		return ErrorCode(writer, NewErrUnimplementedMessageType(types.ClientExecute))
+		err := NewErrUnimplementedMessageType(types.ClientExecute)
+		if srv.ParallelPipeline.Enabled {
+			return srv.drainQueueAndWriteError(ctx, writer, err)
+		}
+		return ErrorCode(writer, err)
 	}
 
 	name, err := reader.GetString()
@@ -551,18 +653,106 @@ func (srv *Session) handleExecute(ctx context.Context, reader *buffer.Reader, wr
 	}
 
 	// NOTE: maximum number of limit to return, if portal contains a
-	// query that returns limit (ignored otherwise). Zero denotes “no limit”.
+	// query that returns limit (ignored otherwise). Zero denotes "no limit".
 	limit, err := reader.GetUint32()
 	if err != nil {
 		return err
 	}
 
 	srv.logger.Debug("executing", slog.String("name", name), slog.Uint64("limit", uint64(limit)))
+
+	if srv.ParallelPipeline.Enabled {
+		return srv.executePipelined(ctx, writer, name, limit)
+	}
+
 	err = srv.Portals.Execute(ctx, name, Limit(limit), reader, writer)
 	if err != nil {
 		return ErrorCode(writer, err)
 	}
 
+	return nil
+}
+
+// executePipelined handles Execute in parallel pipeline mode
+func (srv *Session) executePipelined(ctx context.Context, writer *buffer.Writer, name string, limit uint32) error {
+	portal, err := srv.Portals.Get(ctx, name)
+	if err != nil {
+		return srv.drainQueueAndWriteError(ctx, writer, err)
+	}
+
+	if portal == nil {
+		return srv.drainQueueAndWriteError(ctx, writer, errors.New("unknown portal"))
+	}
+
+	// Create result channel and queue the event
+	resultChan := make(chan *QueuedDataWriter, 1)
+	srv.ResponseQueue.Enqueue(NewExecuteEvent(resultChan, portal.formats))
+
+	// Launch async execution
+	go srv.executeAsync(ctx, portal, limit, resultChan)
+
+	return nil
+}
+
+// executeAsync runs the portal execution in a separate goroutine
+func (srv *Session) executeAsync(ctx context.Context, portal *Portal, limit uint32, resultChan chan<- *QueuedDataWriter) {
+	defer close(resultChan)
+	defer func() {
+		if r := recover(); r != nil {
+			collector := NewQueuedDataWriter(ctx, portal.statement.columns, Limit(limit))
+			collector.SetError(fmt.Errorf("panic during execution: %v", r))
+			resultChan <- collector
+		}
+	}()
+
+	srv.logger.Debug("starting async execution",
+		slog.Bool("has_function", portal.statement.fn != nil))
+
+	collector := NewQueuedDataWriter(ctx, portal.statement.columns, Limit(limit))
+
+	err := portal.statement.fn(ctx, collector, portal.parameters)
+	if err != nil {
+		collector.SetError(err)
+	}
+
+	srv.logger.Debug("async execution complete",
+		slog.Bool("has_error", collector.GetError() != nil),
+		slog.Int("rows", int(collector.Written())))
+
+	resultChan <- collector
+}
+
+// handleSync handles the Sync message (extended query protocol)
+func (srv *Session) handleSync(ctx context.Context, writer *buffer.Writer) error {
+	if srv.ParallelPipeline.Enabled {
+		srv.logger.Debug("draining response queue", slog.Int("length", srv.ResponseQueue.Len()))
+
+		if err := srv.processResponseQueue(ctx, writer); err != nil {
+			return err
+		}
+	}
+
+	// Original synchronous behavior - just return ReadyForQuery
+	return readyForQuery(writer, types.ServerIdle)
+}
+
+// processResponseQueue drains the queue and writes all events to the writer
+func (srv *Session) processResponseQueue(ctx context.Context, writer *buffer.Writer) error {
+	events, queueErr := srv.ResponseQueue.DrainSync(ctx)
+
+	for _, event := range events {
+		if err := srv.writeQueuedResponse(ctx, writer, event); err != nil {
+			return err
+		}
+	}
+
+	if queueErr != nil {
+		if err := ErrorCode(writer, queueErr); err != nil {
+			return err
+		}
+	}
+
+	srv.ResponseQueue.Clear()
 	return nil
 }
 
@@ -572,6 +762,39 @@ func (srv *Session) handleConnTerminate(ctx context.Context) error {
 	}
 
 	return srv.TerminateConn(ctx)
+}
+
+// drainQueueOnError drains the response queue and writes all pending responses.
+// This can be called when an error occurs to flush any queued successful operations
+// before reporting the error.
+func (srv *Session) drainQueueOnError(ctx context.Context, writer *buffer.Writer) error {
+	if srv.ResponseQueue == nil || srv.ResponseQueue.Len() == 0 {
+		return nil
+	}
+
+	events, queueErr := srv.ResponseQueue.DrainSync(ctx)
+	for _, event := range events {
+		if werr := srv.writeQueuedResponse(ctx, writer, event); werr != nil {
+			return werr
+		}
+	}
+
+	srv.ResponseQueue.Clear()
+
+	if queueErr != nil {
+		return ErrorCode(writer, queueErr)
+	}
+
+	return nil
+}
+
+// drainQueueAndWriteError drains the queue and returns an error code.
+// This ensures all pending successful responses are written before reporting an error.
+func (srv *Session) drainQueueAndWriteError(ctx context.Context, writer *buffer.Writer, err error) error {
+	if drainErr := srv.drainQueueOnError(ctx, writer); drainErr != nil {
+		return drainErr
+	}
+	return ErrorCode(writer, err)
 }
 
 func singleStatement(stmts PreparedStatements, err error) (*PreparedStatement, error) {
@@ -588,6 +811,52 @@ func singleStatement(stmts PreparedStatements, err error) (*PreparedStatement, e
 	}
 
 	return stmts[0], nil
+}
+
+// writeQueuedResponse writes a queued response event to the wire
+func (srv *Session) writeQueuedResponse(ctx context.Context, writer *buffer.Writer, event *ResponseEvent) error {
+	switch event.Kind {
+	case ResponseParseComplete:
+		writer.Start(types.ServerParseComplete)
+		return writer.End()
+
+	case ResponseBindComplete:
+		writer.Start(types.ServerBindComplete)
+		return writer.End()
+
+	case ResponseStmtDescribe:
+		// Statement Describe writes ParameterDescription followed by RowDescription
+		if err := srv.writeParameterDescription(writer, event.Parameters); err != nil {
+			return err
+		}
+		// Write column description (no formats for statement describe)
+		return srv.writeColumnDescription(ctx, writer, nil, event.Columns)
+
+	case ResponsePortalDescribe:
+		// Portal Describe only writes RowDescription
+		return srv.writeColumnDescription(ctx, writer, event.Formats, event.Columns)
+
+	case ResponseExecute:
+		// Execute writes DataRows followed by CommandComplete
+		if event.Result == nil {
+			// No result yet, this shouldn't happen in normal flow
+			return errors.New("execute event has no result")
+		}
+
+		// Check for execution error
+		if err := event.Result.GetError(); err != nil {
+			return ErrorCode(writer, err)
+		}
+
+		// Use DataWriter for correct encoding
+		// Note: We use NoLimit here because the result is already limited during execution
+		dataWriter := NewDataWriter(ctx, event.Result.Columns(), event.Formats, NoLimit, nil, writer)
+
+		return event.Result.Replay(ctx, dataWriter)
+
+	default:
+		return fmt.Errorf("unknown response event kind: %v", event.Kind)
+	}
 }
 
 func (srv *Session) Close() {

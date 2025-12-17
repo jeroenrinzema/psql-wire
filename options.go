@@ -106,6 +106,15 @@ type PortalCache interface {
 	Close()
 }
 
+// ParallelPipelineConfig controls whether multiple Execute messages within a pipeline
+// can run concurrently. When Enabled is true, the server may process Execute commands
+// in parallel before the Sync message. When false, Execute commands are processed
+// sequentially. Note that pipelining itself (batching multiple messages before Sync)
+// is always supported; this setting only affects parallel execution of those messages.
+type ParallelPipelineConfig struct {
+	Enabled bool // when true, allows concurrent execution of pipelined Execute messages
+}
+
 type FlushFn func(ctx context.Context) error
 
 type CloseFn func(ctx context.Context) error
@@ -164,6 +173,15 @@ func TerminateConn(fn CloseFn) OptionFn {
 func FlushConn(fn FlushFn) OptionFn {
 	return func(srv *Server) error {
 		srv.FlushConn = fn
+		return nil
+	}
+}
+
+// ParallelPipeline sets the parallel pipeline configuration for the server.
+// This controls whether Execute events can run concurrently within a session.
+func ParallelPipeline(config ParallelPipelineConfig) OptionFn {
+	return func(srv *Server) error {
+		srv.ParallelPipeline = config
 		return nil
 	}
 }

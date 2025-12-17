@@ -110,27 +110,28 @@ func NewServer(parse ParseFn, options ...OptionFn) (*Server, error) {
 
 // Server contains options for listening to an address.
 type Server struct {
-	closing         atomic.Bool
-	wg              sync.WaitGroup
-	logger          *slog.Logger
-	Auth            AuthStrategy
-	BackendKeyData  BackendKeyDataFunc
-	CancelRequest   CancelRequestFn
-	BufferedMsgSize int
-	Parameters      Parameters
-	TLSConfig       *tls.Config
-	ClientAuth      tls.ClientAuthType
-	parse           ParseFn
-	Session         SessionHandler
-	Statements      func() StatementCache
-	Portals         func() PortalCache
-	CloseConn       CloseFn
-	TerminateConn   CloseFn
-	FlushConn       FlushFn
-	Version         string
-	ShutdownTimeout time.Duration
-	typeExtension   func(*pgtype.Map)
-	closer          chan struct{}
+	closing          atomic.Bool
+	wg               sync.WaitGroup
+	logger           *slog.Logger
+	Auth             AuthStrategy
+	BackendKeyData   BackendKeyDataFunc
+	CancelRequest    CancelRequestFn
+	BufferedMsgSize  int
+	Parameters       Parameters
+	TLSConfig        *tls.Config
+	ClientAuth       tls.ClientAuthType
+	parse            ParseFn
+	Session          SessionHandler
+	Statements       func() StatementCache
+	Portals          func() PortalCache
+	CloseConn        CloseFn
+	TerminateConn    CloseFn
+	FlushConn        FlushFn
+	ParallelPipeline ParallelPipelineConfig
+	Version          string
+	ShutdownTimeout  time.Duration
+	typeExtension    func(*pgtype.Map)
+	closer           chan struct{}
 }
 
 // ListenAndServe opens a new Postgres server on the preconfigured address and
@@ -265,10 +266,15 @@ func (srv *Server) serve(ctx context.Context, conn net.Conn) error {
 	}
 
 	session := &Session{
-		Server:     srv,
-		Statements: srv.Statements(),
-		Portals:    srv.Portals(),
-		Attributes: make(map[string]interface{}),
+		Server:           srv,
+		Statements:       srv.Statements(),
+		Portals:          srv.Portals(),
+		Attributes:       make(map[string]interface{}),
+		ParallelPipeline: srv.ParallelPipeline,
+	}
+
+	if srv.ParallelPipeline.Enabled {
+		session.ResponseQueue = NewResponseQueue()
 	}
 
 	ctx = context.WithValue(ctx, sessionKey, session)

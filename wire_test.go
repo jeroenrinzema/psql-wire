@@ -1183,7 +1183,7 @@ func TestClientDisconnectDuringWrite(t *testing.T) {
 	address := TListenAndServe(t, server)
 
 	// Connect and send query
-	conn, err := net.Dial("tcp", fmt.Sprintf("%s:%d", address.IP, address.Port))
+	conn, err := net.Dial("tcp", address.String())
 	require.NoError(t, err)
 
 	client := mock.NewClient(t, conn)
