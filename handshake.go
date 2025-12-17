@@ -29,6 +29,14 @@ func (srv *Server) Handshake(conn net.Conn) (_ net.Conn, version types.Version, 
 	// API's should be made available to support these type of connections.
 	// https://www.postgresql.org/docs/current/gssapi-auth.html
 	// https://www.postgresql.org/docs/current/protocol-flow.html#id-1.10.6.7.13
+	if version == types.VersionGSSENC {
+		_, err := conn.Write([]byte{'N'})
+		if err != nil {
+			return conn, version, reader, err
+		}
+
+		return srv.Handshake(conn)
+	}
 
 	conn, reader, version, err = srv.potentialConnUpgrade(conn, reader, version)
 	if err != nil {
