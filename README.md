@@ -58,6 +58,18 @@ tenantID, ok := wire.GetAttribute(ctx, "tenant_id")
 
 Feel free to start a new discussion to discuss feature requests or issues.
 
+## Used by
+
+<p align="center">
+  <a href="https://cloudproud.nl" target="_blank" rel="noopener noreferrer">
+    <img src=".github/assets/cloudproud_logo.svg" alt="Cloudproud" height="60">
+  </a>
+  &nbsp;&nbsp;&nbsp;&nbsp;
+  <a href="https://www.shopify.com" target="_blank" rel="noopener noreferrer">
+    <img src=".github/assets/shopify_logo.svg" alt="Shopify" height="60">
+  </a>
+</p>
+
 ## Contributing
 
 Thank you for your interest in contributing to psql-wire!
@@ -67,3 +79,5 @@ Feel free to checkout the [open TODO's](https://github.com/jeroenrinzema/psql-wi
 Everyone is welcome to contribute, whether it's in the form of code, documentation, bug reports, feature requests, or anything else. We encourage you to experiment with the project and make contributions to help evolve it to meet your needs!
 
 See the [contributing guide](https://github.com/jeroenrinzema/psql-wire/blob/main/CONTRIBUTING.md) for more details.
+
+
