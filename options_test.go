@@ -5,7 +5,6 @@ import (
 	"testing"
 
 	"github.com/jackc/pgx/v5/pgtype"
-	"github.com/lib/pq/oid"
 	"github.com/neilotoole/slogt"
 	"github.com/stretchr/testify/assert"
 )
@@ -13,17 +12,17 @@ import (
 func TestParseParameters(t *testing.T) {
 	type test struct {
 		query      string
-		parameters []oid.Oid
+		parameters []uint32
 	}
 
 	tests := map[string]test{
 		"positional": {
 			query:      "SELECT * FROM users WHERE id = $1 AND age > $2",
-			parameters: []oid.Oid{0, 0},
+			parameters: []uint32{0, 0},
 		},
 		"unpositional": {
 			query:      "SELECT * FROM users WHERE id = ? AND age > ?",
-			parameters: []oid.Oid{0, 0},
+			parameters: []uint32{0, 0},
 		},
 	}
 
@@ -90,7 +89,7 @@ func TestSessionHandler(t *testing.T) {
 
 func TestExtendTypes(t *testing.T) {
 	extensionCalled := false
-	
+
 	srv, err := NewServer(nil,
 		Logger(slogt.New(t)),
 		ExtendTypes(func(typeMap *pgtype.Map) {

@@ -6,12 +6,11 @@ import (
 	"sync"
 
 	"github.com/jeroenrinzema/psql-wire/pkg/buffer"
-	"github.com/lib/pq/oid"
 )
 
 type Statement struct {
 	fn         PreparedStatementFn
-	parameters []oid.Oid
+	parameters []uint32
 	columns    Columns
 }
 

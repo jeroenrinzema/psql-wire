@@ -18,8 +18,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgtype"
 	_ "github.com/lib/pq"
-	"github.com/lib/pq/oid"
 )
 
 type testServer struct {
@@ -112,7 +112,7 @@ func (ts *testServer) handler(ctx context.Context, query string) (PreparedStatem
 	}
 
 	cols := Columns{
-		Column{Name: "1", Oid: oid.T_int4, Width: 4},
+		Column{Name: "1", Oid: pgtype.Int4OID, Width: 4},
 	}
 
 	return Prepared(NewStatement(handle, WithColumns(cols))), nil

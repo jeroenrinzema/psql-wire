@@ -11,7 +11,7 @@ import (
 	"testing"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/lib/pq/oid"
+	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/neilotoole/slogt"
 )
 
@@ -20,25 +20,25 @@ func TestCopyReaderText(t *testing.T) {
 		{
 			Table: 0,
 			Name:  "id",
-			Oid:   oid.T_int4,
+			Oid:   pgtype.Int4OID,
 			Width: 4,
 		},
 		{
 			Table: 0,
 			Name:  "name",
-			Oid:   oid.T_text,
+			Oid:   pgtype.TextOID,
 			Width: 256,
 		},
 		{
 			Table: 0,
 			Name:  "member",
-			Oid:   oid.T_bool,
+			Oid:   pgtype.BoolOID,
 			Width: 1,
 		},
 		{
 			Table: 0,
 			Name:  "age",
-			Oid:   oid.T_int4,
+			Oid:   pgtype.Int4OID,
 			Width: 1,
 		},
 	}
@@ -125,31 +125,31 @@ func TestCopyReaderTextNullAndEscape(t *testing.T) {
 		{
 			Table: 0,
 			Name:  "id",
-			Oid:   oid.T_int4,
+			Oid:   pgtype.Int4OID,
 			Width: 4,
 		},
 		{
 			Table: 0,
 			Name:  "name",
-			Oid:   oid.T_text,
+			Oid:   pgtype.TextOID,
 			Width: 256,
 		},
 		{
 			Table: 0,
 			Name:  "member",
-			Oid:   oid.T_bool,
+			Oid:   pgtype.BoolOID,
 			Width: 1,
 		},
 		{
 			Table: 0,
 			Name:  "age",
-			Oid:   oid.T_int4,
+			Oid:   pgtype.Int4OID,
 			Width: 1,
 		},
 		{
 			Table: 0,
 			Name:  "description",
-			Oid:   oid.T_text,
+			Oid:   pgtype.TextOID,
 		},
 	}
 

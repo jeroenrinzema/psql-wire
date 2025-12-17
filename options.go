@@ -10,7 +10,6 @@ import (
 
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jeroenrinzema/psql-wire/pkg/buffer"
-	"github.com/lib/pq/oid"
 )
 
 // ParseFn parses the given query and returns a prepared statement which could
@@ -58,7 +57,7 @@ func WithColumns(columns Columns) PreparedOptionFn {
 
 // WithParameters sets the given parameters as the parameters which are expected
 // by the prepared statement.
-func WithParameters(parameters []oid.Oid) PreparedOptionFn {
+func WithParameters(parameters []uint32) PreparedOptionFn {
 	return func(stmt *PreparedStatement) {
 		stmt.parameters = parameters
 	}
@@ -68,7 +67,7 @@ type PreparedStatements []*PreparedStatement
 
 type PreparedStatement struct {
 	fn         PreparedStatementFn
-	parameters []oid.Oid
+	parameters []uint32
 	columns    Columns
 }
 
@@ -310,7 +309,7 @@ var QueryParameters = regexp.MustCompile(`\$(\d+)|\?`)
 // ParseParameters attempts to parse the parameters in the given string and
 // returns the expected parameters. This is necessary for the query protocol
 // where the parameter types are expected to be defined in the extended query protocol.
-func ParseParameters(query string) []oid.Oid {
+func ParseParameters(query string) []uint32 {
 	// NOTE: we have to lookup all parameters within the given query.
 	// Parameters could represent positional parameters or anonymous
 	// parameters. We return a zero parameter oid for each parameter
@@ -319,7 +318,7 @@ func ParseParameters(query string) []oid.Oid {
 	// parameters since ony matches are returned by the positional
 	// parameter regex.
 	matches := QueryParameters.FindAllStringSubmatch(query, -1)
-	parameters := make([]oid.Oid, 0, len(matches))
+	parameters := make([]uint32, 0, len(matches))
 	for _, match := range matches {
 		// NOTE: we have to check whether the returned match is a
 		// positional parameter or an un-positional parameter.

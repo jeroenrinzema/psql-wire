@@ -5,8 +5,8 @@ import (
 	"log"
 	"os"
 
+	"github.com/jackc/pgx/v5/pgtype"
 	wire "github.com/jeroenrinzema/psql-wire"
-	"github.com/lib/pq/oid"
 )
 
 // PostgreServer represents a PostgreSQL server with authentication
@@ -87,19 +87,19 @@ var table = wire.Columns{
 	{
 		Table: 0,
 		Name:  "name",
-		Oid:   oid.T_text,
+		Oid:   pgtype.TextOID,
 		Width: 256,
 	},
 	{
 		Table: 0,
 		Name:  "member",
-		Oid:   oid.T_bool,
+		Oid:   pgtype.BoolOID,
 		Width: 1,
 	},
 	{
 		Table: 0,
 		Name:  "age",
-		Oid:   oid.T_int4,
+		Oid:   pgtype.Int4OID,
 		Width: 1,
 	},
 }

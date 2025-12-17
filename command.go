@@ -13,7 +13,6 @@ import (
 	psqlerr "github.com/jeroenrinzema/psql-wire/errors"
 	"github.com/jeroenrinzema/psql-wire/pkg/buffer"
 	"github.com/jeroenrinzema/psql-wire/pkg/types"
-	"github.com/lib/pq/oid"
 )
 
 // NewErrUnimplementedMessageType is called whenever an unimplemented message
@@ -389,7 +388,7 @@ func (srv *Session) handleDescribe(ctx context.Context, reader *buffer.Reader, w
 }
 
 // https://www.postgresql.org/docs/15/protocol-message-formats.html
-func (srv *Session) writeParameterDescription(writer *buffer.Writer, parameters []oid.Oid) error {
+func (srv *Session) writeParameterDescription(writer *buffer.Writer, parameters []uint32) error {
 	writer.Start(types.ServerParameterDescription)
 	writer.AddInt16(int16(len(parameters)))
 
