@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"maps"
 	"net"
 
 	"github.com/jeroenrinzema/psql-wire/pkg/buffer"
@@ -151,24 +150,45 @@ func (srv *Server) readClientParameters(ctx context.Context, reader *buffer.Read
 // context containing the written parameters will be returned.
 // https://www.postgresql.org/docs/10/libpq-status.html
 func (srv *Server) writeParameters(ctx context.Context, writer *buffer.Writer, params Parameters) (_ context.Context, err error) {
-	if params == nil {
-		params = make(Parameters, 4)
-	} else {
-		params = maps.Clone(params)
-	}
-
 	srv.logger.Debug("writing server parameters")
 
-	params[ParamServerEncoding] = "UTF8"
-	params[ParamClientEncoding] = "UTF8"
-	if srv.Version != "" {
-		params[ParamServerVersion] = srv.Version
+	if params == nil {
+		params = make(Parameters, 6)
+		params[ParamServerEncoding] = "UTF8"
+		params[ParamClientEncoding] = "UTF8"
+		if srv.Version != "" {
+			params[ParamServerVersion] = srv.Version
+		}
+		params[ParamIsSuperuser] = buffer.EncodeBoolean(IsSuperUser(ctx))
+		params[ParamSessionAuthorization] = AuthenticatedUsername(ctx)
+		params[ParamServerVersion] = fmt.Sprintf("%d", 15*10000) // 15.1.2 => 15*10000 + 1*100 + 2*1 => 15102
+	} else {
+		if _, exists := params[ParamServerEncoding]; !exists {
+			params[ParamServerEncoding] = "UTF8"
+		}
+		if _, exists := params[ParamClientEncoding]; !exists {
+			params[ParamClientEncoding] = "UTF8"
+		}
+		if _, exists := params[ParamServerVersion]; !exists {
+			if srv.Version != "" {
+				params[ParamServerVersion] = srv.Version
+			}
+		}
+		if _, exists := params[ParamIsSuperuser]; !exists {
+			params[ParamIsSuperuser] = buffer.EncodeBoolean(IsSuperUser(ctx))
+		}
+		if _, exists := params[ParamSessionAuthorization]; !exists {
+			params[ParamSessionAuthorization] = AuthenticatedUsername(ctx)
+		}
+		if _, exists := params[ParamServerVersion]; !exists {
+			params[ParamServerVersion] = fmt.Sprintf("%d", 15*10000) // 15.1.2 => 15*10000 + 1*100 + 2*1 => 15102
+		}
 	}
-	params[ParamIsSuperuser] = buffer.EncodeBoolean(IsSuperUser(ctx))
-	params[ParamSessionAuthorization] = AuthenticatedUsername(ctx)
-	params[ParamServerVersion] = fmt.Sprintf("%d", 15*10000) // 15.1.2 => 15*10000 + 1*100 + 2*1 => 15102
 
 	for key, value := range params {
+		if value == ParamValueSkip {
+			continue
+		}
 		srv.logger.Debug("server parameter", slog.String("key", string(key)), slog.String("value", value))
 
 		writer.Start(types.ServerParameterStatus)

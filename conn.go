@@ -68,6 +68,7 @@ const (
 	ParamUsername             ParameterStatus = "user"
 	ParamServerVersion        ParameterStatus = "server_version"
 )
+const ParamValueSkip string = "PSQL_WIRE_SKIP" // PSQL_WIRE_SKIP
 
 // setClientParameters constructs a new context containing the given parameters.
 // Any previously defined metadata will be overriden.
