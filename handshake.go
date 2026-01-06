@@ -159,8 +159,12 @@ func (srv *Server) writeParameters(ctx context.Context, writer *buffer.Writer, p
 
 	srv.logger.Debug("writing server parameters")
 
-	params[ParamServerEncoding] = "UTF8"
-	params[ParamClientEncoding] = "UTF8"
+	if _, exists := params[ParamServerEncoding]; !exists {
+		params[ParamServerEncoding] = "UTF8"
+	}
+	if _, exists := params[ParamClientEncoding]; !exists {
+		params[ParamClientEncoding] = "UTF8"
+	}
 	if srv.Version != "" {
 		params[ParamServerVersion] = srv.Version
 	}
@@ -169,6 +173,9 @@ func (srv *Server) writeParameters(ctx context.Context, writer *buffer.Writer, p
 	params[ParamServerVersion] = fmt.Sprintf("%d", 15*10000) // 15.1.2 => 15*10000 + 1*100 + 2*1 => 15102
 
 	for key, value := range params {
+		if value == "" {
+			continue
+		}
 		srv.logger.Debug("server parameter", slog.String("key", string(key)), slog.String("value", value))
 
 		writer.Start(types.ServerParameterStatus)
