@@ -122,6 +122,29 @@ func NewDescribeReader(t *testing.T, logger *slog.Logger, describeType types.Des
 	return reader
 }
 
+// NewCloseReader creates a buffer.Reader containing a Close message ready to be processed.
+// closeType should be 'S' for statement or 'P' for portal.
+func NewCloseReader(t *testing.T, logger *slog.Logger, closeType byte, name string) *buffer.Reader {
+	t.Helper()
+
+	inputBuf := &bytes.Buffer{}
+	writer := NewWriter(t, inputBuf)
+	writer.Start(types.ClientClose)
+	writer.AddByte(closeType)
+	writer.AddString(name)
+	writer.AddNullTerminate()
+	if err := writer.End(); err != nil {
+		t.Fatalf("failed to write close message: %v", err)
+	}
+
+	reader := buffer.NewReader(logger, inputBuf, buffer.DefaultBufferSize)
+	if _, _, err := reader.ReadTypedMsg(); err != nil {
+		t.Fatalf("failed to read close message: %v", err)
+	}
+
+	return reader
+}
+
 // NewExecuteReader creates a buffer.Reader containing an Execute message ready to be processed.
 func NewExecuteReader(t *testing.T, logger *slog.Logger, portal string, limit int32) *buffer.Reader {
 	t.Helper()

@@ -120,6 +120,7 @@ func TestHandleDescribe_ParallelPipeline_Error(t *testing.T) {
 		Statements:       &DefaultStatementCache{statements: map[string]*Statement{"unknown_stmt": nil}},
 		ParallelPipeline: ParallelPipelineConfig{Enabled: true},
 		ResponseQueue:    NewResponseQueue(),
+		inExtendedQuery:  true,
 	}
 
 	// Enqueue a previous event

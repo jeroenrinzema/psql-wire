@@ -75,6 +75,7 @@ func TestHandleBind_ParallelPipeline_Error(t *testing.T) {
 		Portals:          &DefaultPortalCache{},
 		ParallelPipeline: ParallelPipelineConfig{Enabled: true},
 		ResponseQueue:    NewResponseQueue(),
+		inExtendedQuery:  true,
 	}
 
 	// Enqueue a previous event
