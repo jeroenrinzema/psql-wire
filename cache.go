@@ -60,6 +60,13 @@ func (cache *DefaultStatementCache) Get(ctx context.Context, name string) (*Stat
 	return stmt, nil
 }
 
+func (cache *DefaultStatementCache) Delete(ctx context.Context, name string) error {
+	cache.mu.Lock()
+	defer cache.mu.Unlock()
+	delete(cache.statements, name)
+	return nil
+}
+
 func (cache *DefaultStatementCache) Close() {}
 
 type Portal struct {
@@ -132,6 +139,24 @@ func (cache *DefaultPortalCache) Execute(ctx context.Context, name string, limit
 
 	session, _ := GetSession(ctx)
 	return portal.statement.fn(ctx, NewDataWriter(ctx, session, portal.statement.columns, portal.formats, limit, reader, writer), portal.parameters)
+}
+
+func (cache *DefaultPortalCache) Delete(ctx context.Context, name string) error {
+	cache.mu.Lock()
+	defer cache.mu.Unlock()
+	delete(cache.portals, name)
+	return nil
+}
+
+func (cache *DefaultPortalCache) DeleteByStatement(ctx context.Context, stmt *Statement) error {
+	cache.mu.Lock()
+	defer cache.mu.Unlock()
+	for name, portal := range cache.portals {
+		if portal.statement == stmt {
+			delete(cache.portals, name)
+		}
+	}
+	return nil
 }
 
 func (cache *DefaultPortalCache) Close() {}
