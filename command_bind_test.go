@@ -86,7 +86,7 @@ func TestHandleBind_ParallelPipeline_Error(t *testing.T) {
 	writer := buffer.NewWriter(logger, outBuf)
 
 	err := session.handleBind(ctx, reader, writer)
-	require.NoError(t, err)
+	require.ErrorIs(t, err, ErrSkipToSync)
 
 	assert.Equal(t, 0, session.ResponseQueue.Len())
 	responseReader := mock.NewReader(t, outBuf)

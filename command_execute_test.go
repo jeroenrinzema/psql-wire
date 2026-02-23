@@ -211,7 +211,7 @@ func TestHandleExecute_ParallelPipeline_UnknownPortal(t *testing.T) {
 	reader := mock.NewExecuteReader(t, logger, "missing_portal", 0)
 
 	err := session.handleExecute(ctx, reader, writer)
-	require.NoError(t, err)
+	require.ErrorIs(t, err, ErrSkipToSync)
 
 	assert.Equal(t, 0, session.ResponseQueue.Len())
 
@@ -222,15 +222,10 @@ func TestHandleExecute_ParallelPipeline_UnknownPortal(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, types.ServerParseComplete, msgType)
 
-	// 2. Error for unknown portal
+	// 2. Error for unknown portal (no ReadyForQuery — deferred until Sync)
 	msgType, _, err = responseReader.ReadTypedMsg()
 	require.NoError(t, err)
 	assert.Equal(t, types.ServerErrorResponse, msgType)
-
-	// 3. Ready from ErrorCode
-	msgType, _, err = responseReader.ReadTypedMsg()
-	require.NoError(t, err)
-	assert.Equal(t, types.ServerReady, msgType)
 
 	// No extra messages
 	_, _, err = responseReader.ReadTypedMsg()

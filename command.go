@@ -51,6 +51,14 @@ func newErrClientCopyFailed(desc string) error {
 	return psqlerr.WithSeverity(psqlerr.WithCode(err, codes.Uncategorized), psqlerr.LevelError)
 }
 
+// ErrSkipToSync is a sentinel error returned by extended query handlers to signal
+// that an error has occurred and the command loop should discard messages until
+// the next Sync message arrives. This implements the PostgreSQL protocol requirement:
+// "When an error is detected while processing any extended-query message, the backend
+// issues ErrorResponse, then reads and discards messages until a Sync is reached,
+// then issues ReadyForQuery and returns to normal message processing."
+var ErrSkipToSync = errors.New("extended query error: skip to sync")
+
 type Session struct {
 	*Server
 	Statements StatementCache
@@ -78,7 +86,14 @@ func (srv *Session) consumeCommands(ctx context.Context, conn net.Conn, reader *
 	defer srv.Close()
 
 	for {
-		if err = srv.consumeSingleCommand(ctx, reader, writer, conn); err != nil {
+		err := srv.consumeSingleCommand(ctx, reader, writer, conn)
+		if errors.Is(err, ErrSkipToSync) {
+			if skipErr := srv.skipToSync(ctx, reader, writer); skipErr != nil {
+				return skipErr
+			}
+			continue
+		}
+		if err != nil {
 			return err
 		}
 	}
@@ -306,10 +321,7 @@ func (srv *Session) handleSimpleQuery(ctx context.Context, reader *buffer.Reader
 func (srv *Session) handleParse(ctx context.Context, reader *buffer.Reader, writer *buffer.Writer) error {
 	if srv.parse == nil || srv.Statements == nil {
 		err := NewErrUnimplementedMessageType(types.ClientParse)
-		if srv.ParallelPipeline.Enabled {
-			return srv.drainQueueAndWriteError(ctx, writer, err)
-		}
-		return ErrorCode(writer, err)
+		return srv.writeExtendedQueryError(ctx, writer, err)
 	}
 
 	name, err := reader.GetString()
@@ -347,14 +359,14 @@ func (srv *Session) handleParse(ctx context.Context, reader *buffer.Reader, writ
 
 	statement, err := singleStatement(srv.parse(ctx, query))
 	if err != nil {
-		return ErrorCode(writer, err)
+		return srv.writeExtendedQueryError(ctx, writer, err)
 	}
 
 	srv.logger.Debug("incoming extended query", slog.String("query", query), slog.String("name", name), slog.Int("parameters", len(statement.parameters)))
 
 	err = srv.Statements.Set(ctx, name, statement)
 	if err != nil {
-		return ErrorCode(writer, err)
+		return srv.writeExtendedQueryError(ctx, writer, err)
 	}
 
 	writer.Start(types.ServerParseComplete)
@@ -365,14 +377,14 @@ func (srv *Session) handleParse(ctx context.Context, reader *buffer.Reader, writ
 func (srv *Session) parsePipelined(ctx context.Context, writer *buffer.Writer, name, query string) error {
 	statement, err := singleStatement(srv.parse(ctx, query))
 	if err != nil {
-		return srv.drainQueueAndWriteError(ctx, writer, err)
+		return srv.writeExtendedQueryError(ctx, writer, err)
 	}
 
 	srv.logger.Debug("incoming extended query", slog.String("query", query), slog.String("name", name), slog.Int("parameters", len(statement.parameters)))
 
 	err = srv.Statements.Set(ctx, name, statement)
 	if err != nil {
-		return srv.drainQueueAndWriteError(ctx, writer, err)
+		return srv.writeExtendedQueryError(ctx, writer, err)
 	}
 
 	srv.ResponseQueue.Enqueue(NewParseCompleteEvent())
@@ -400,11 +412,11 @@ func (srv *Session) handleDescribe(ctx context.Context, reader *buffer.Reader, w
 	case types.DescribeStatement:
 		statement, err := srv.Statements.Get(ctx, name)
 		if err != nil {
-			return err
+			return srv.writeExtendedQueryError(ctx, writer, err)
 		}
 
 		if statement == nil {
-			return ErrorCode(writer, errors.New("unknown statement"))
+			return srv.writeExtendedQueryError(ctx, writer, errors.New("unknown statement"))
 		}
 
 		if err := srv.writeParameterDescription(writer, statement.parameters); err != nil {
@@ -415,17 +427,17 @@ func (srv *Session) handleDescribe(ctx context.Context, reader *buffer.Reader, w
 	case types.DescribePortal:
 		portal, err := srv.Portals.Get(ctx, name)
 		if err != nil {
-			return err
+			return srv.writeExtendedQueryError(ctx, writer, err)
 		}
 
 		if portal == nil {
-			return ErrorCode(writer, errors.New("unknown portal"))
+			return srv.writeExtendedQueryError(ctx, writer, errors.New("unknown portal"))
 		}
 
 		return srv.writeColumnDescription(ctx, writer, portal.formats, portal.statement.columns)
 	}
 
-	return ErrorCode(writer, fmt.Errorf("unknown describe command: %s", string(d[0])))
+	return srv.writeExtendedQueryError(ctx, writer, fmt.Errorf("unknown describe command: %s", string(d[0])))
 }
 
 // describePipelined handles Describe in parallel pipeline mode
@@ -434,11 +446,11 @@ func (srv *Session) describePipelined(ctx context.Context, writer *buffer.Writer
 	case types.DescribeStatement:
 		statement, err := srv.Statements.Get(ctx, name)
 		if err != nil {
-			return srv.drainQueueAndWriteError(ctx, writer, err)
+			return srv.writeExtendedQueryError(ctx, writer, err)
 		}
 
 		if statement == nil {
-			return srv.drainQueueAndWriteError(ctx, writer, errors.New("unknown statement"))
+			return srv.writeExtendedQueryError(ctx, writer, errors.New("unknown statement"))
 		}
 
 		srv.ResponseQueue.Enqueue(NewStmtDescribeEvent(statement.parameters, statement.columns))
@@ -447,18 +459,18 @@ func (srv *Session) describePipelined(ctx context.Context, writer *buffer.Writer
 	case types.DescribePortal:
 		portal, err := srv.Portals.Get(ctx, name)
 		if err != nil {
-			return srv.drainQueueAndWriteError(ctx, writer, err)
+			return srv.writeExtendedQueryError(ctx, writer, err)
 		}
 
 		if portal == nil {
-			return srv.drainQueueAndWriteError(ctx, writer, errors.New("unknown portal"))
+			return srv.writeExtendedQueryError(ctx, writer, errors.New("unknown portal"))
 		}
 
 		srv.ResponseQueue.Enqueue(NewPortalDescribeEvent(portal.statement.columns, portal.formats))
 		return nil
 	}
 
-	return srv.drainQueueAndWriteError(ctx, writer, fmt.Errorf("unknown describe command: %s", string(descType)))
+	return srv.writeExtendedQueryError(ctx, writer, fmt.Errorf("unknown describe command: %s", string(descType)))
 }
 
 // https://www.postgresql.org/docs/15/protocol-message-formats.html
@@ -513,16 +525,16 @@ func (srv *Session) handleBind(ctx context.Context, reader *buffer.Reader, write
 
 	stmt, err := srv.Statements.Get(ctx, statement)
 	if err != nil {
-		return err
+		return srv.writeExtendedQueryError(ctx, writer, err)
 	}
 
 	if stmt == nil {
-		return NewErrUnkownStatement(statement)
+		return srv.writeExtendedQueryError(ctx, writer, NewErrUnkownStatement(statement))
 	}
 
 	err = srv.Portals.Bind(ctx, name, stmt, parameters, formats)
 	if err != nil {
-		return err
+		return srv.writeExtendedQueryError(ctx, writer, err)
 	}
 
 	writer.Start(types.ServerBindComplete)
@@ -533,16 +545,16 @@ func (srv *Session) handleBind(ctx context.Context, reader *buffer.Reader, write
 func (srv *Session) bindPipelined(ctx context.Context, writer *buffer.Writer, name, statement string, parameters []Parameter, formats []FormatCode) error {
 	stmt, err := srv.Statements.Get(ctx, statement)
 	if err != nil {
-		return srv.drainQueueAndWriteError(ctx, writer, err)
+		return srv.writeExtendedQueryError(ctx, writer, err)
 	}
 
 	if stmt == nil {
-		return srv.drainQueueAndWriteError(ctx, writer, NewErrUnkownStatement(statement))
+		return srv.writeExtendedQueryError(ctx, writer, NewErrUnkownStatement(statement))
 	}
 
 	err = srv.Portals.Bind(ctx, name, stmt, parameters, formats)
 	if err != nil {
-		return srv.drainQueueAndWriteError(ctx, writer, err)
+		return srv.writeExtendedQueryError(ctx, writer, err)
 	}
 
 	srv.ResponseQueue.Enqueue(NewBindCompleteEvent())
@@ -641,10 +653,7 @@ func (srv *Session) readColumnTypes(reader *buffer.Reader) ([]FormatCode, error)
 func (srv *Session) handleExecute(ctx context.Context, reader *buffer.Reader, writer *buffer.Writer) error {
 	if srv.Statements == nil {
 		err := NewErrUnimplementedMessageType(types.ClientExecute)
-		if srv.ParallelPipeline.Enabled {
-			return srv.drainQueueAndWriteError(ctx, writer, err)
-		}
-		return ErrorCode(writer, err)
+		return srv.writeExtendedQueryError(ctx, writer, err)
 	}
 
 	name, err := reader.GetString()
@@ -667,7 +676,7 @@ func (srv *Session) handleExecute(ctx context.Context, reader *buffer.Reader, wr
 
 	err = srv.Portals.Execute(ctx, name, Limit(limit), reader, writer)
 	if err != nil {
-		return ErrorCode(writer, err)
+		return srv.writeExtendedQueryError(ctx, writer, err)
 	}
 
 	return nil
@@ -677,11 +686,11 @@ func (srv *Session) handleExecute(ctx context.Context, reader *buffer.Reader, wr
 func (srv *Session) executePipelined(ctx context.Context, writer *buffer.Writer, name string, limit uint32) error {
 	portal, err := srv.Portals.Get(ctx, name)
 	if err != nil {
-		return srv.drainQueueAndWriteError(ctx, writer, err)
+		return srv.writeExtendedQueryError(ctx, writer, err)
 	}
 
 	if portal == nil {
-		return srv.drainQueueAndWriteError(ctx, writer, errors.New("unknown portal"))
+		return srv.writeExtendedQueryError(ctx, writer, errors.New("unknown portal"))
 	}
 
 	// Create result channel and queue the event
@@ -788,13 +797,44 @@ func (srv *Session) drainQueueOnError(ctx context.Context, writer *buffer.Writer
 	return nil
 }
 
-// drainQueueAndWriteError drains the queue and returns an error code.
-// This ensures all pending successful responses are written before reporting an error.
-func (srv *Session) drainQueueAndWriteError(ctx context.Context, writer *buffer.Writer, err error) error {
-	if drainErr := srv.drainQueueOnError(ctx, writer); drainErr != nil {
-		return drainErr
+// writeExtendedQueryError handles errors during extended query protocol processing.
+// It drains any pending successful responses, writes the ErrorResponse, and returns
+// ErrSkipToSync to signal that the command loop should discard messages until Sync.
+func (srv *Session) writeExtendedQueryError(ctx context.Context, writer *buffer.Writer, err error) error {
+	if srv.ParallelPipeline.Enabled && srv.ResponseQueue != nil {
+		if drainErr := srv.drainQueueOnError(ctx, writer); drainErr != nil {
+			return drainErr
+		}
 	}
-	return ErrorCode(writer, err)
+	if werr := writeErrorResponse(writer, err); werr != nil {
+		return werr
+	}
+	return ErrSkipToSync
+}
+
+// skipToSync reads and discards messages until a Sync message is received.
+// When Sync arrives, it clears any queue state and writes ReadyForQuery.
+// This implements the PostgreSQL protocol error recovery behavior.
+func (srv *Session) skipToSync(ctx context.Context, reader *buffer.Reader, writer *buffer.Writer) error {
+	for {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		default:
+		}
+
+		t, _, err := reader.ReadTypedMsg()
+		if err != nil {
+			return err
+		}
+		srv.logger.Debug("discarding message until sync", slog.String("type", t.String()))
+		if t == types.ClientSync {
+			if srv.ResponseQueue != nil {
+				srv.ResponseQueue.Clear()
+			}
+			return readyForQuery(writer, types.ServerIdle)
+		}
+	}
 }
 
 func singleStatement(stmts PreparedStatements, err error) (*PreparedStatement, error) {
