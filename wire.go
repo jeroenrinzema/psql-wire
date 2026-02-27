@@ -265,6 +265,14 @@ func (srv *Server) serve(ctx context.Context, conn net.Conn) error {
 		return err
 	}
 
+	if srv.CloseConn != nil {
+		defer func() {
+			if err := srv.CloseConn(ctx); err != nil {
+				srv.logger.Error("unexpected error while attempting to close connection", "err", err)
+			}
+		}()
+	}
+
 	session := &Session{
 		Server:           srv,
 		Statements:       srv.Statements(),

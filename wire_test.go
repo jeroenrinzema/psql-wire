@@ -1240,3 +1240,125 @@ func TListenAndServeWithoutCleanup(t *testing.T, server *Server) *net.TCPAddr {
 	go server.Serve(listener) //nolint:errcheck
 	return listener.Addr().(*net.TCPAddr)
 }
+
+func TestCloseConnCallback(t *testing.T) {
+	t.Parallel()
+
+	t.Run("TCP drop without Terminate message", func(t *testing.T) {
+		var closeConnWG sync.WaitGroup
+		closeConnWG.Add(1)
+
+		handler := func(ctx context.Context, query string) (PreparedStatements, error) {
+			statement := NewStatement(func(ctx context.Context, writer DataWriter, parameters []Parameter) error {
+				return writer.Complete("OK")
+			})
+			return Prepared(statement), nil
+		}
+
+		server, err := NewServer(
+			handler,
+			CloseConn(func(ctx context.Context) error {
+				closeConnWG.Done()
+				return nil
+			}),
+			Logger(slogt.New(t)),
+		)
+		require.NoError(t, err)
+
+		address := TListenAndServe(t, server)
+
+		// Connect and authenticate
+		conn, err := net.Dial("tcp", address.String())
+		require.NoError(t, err)
+
+		client := mock.NewClient(t, conn)
+		client.Handshake(t)
+		client.Authenticate(t)
+		client.ReadyForQuery(t)
+
+		// Close connection without sending Terminate message
+		err = conn.Close()
+		require.NoError(t, err)
+
+		// Wait for CloseConn callback with timeout
+		done := make(chan struct{})
+		go func() {
+			closeConnWG.Wait()
+			close(done)
+		}()
+
+		select {
+		case <-done:
+			// CloseConn was called as expected
+		case <-time.After(2 * time.Second):
+			t.Error("Timeout waiting for CloseConn callback on TCP drop")
+		}
+	})
+
+	t.Run("Clean Terminate from pgx client", func(t *testing.T) {
+		var closeConnWG sync.WaitGroup
+		var terminateConnWG sync.WaitGroup
+		closeConnWG.Add(1)
+		terminateConnWG.Add(1)
+
+		handler := func(ctx context.Context, query string) (PreparedStatements, error) {
+			statement := NewStatement(func(ctx context.Context, writer DataWriter, parameters []Parameter) error {
+				return writer.Complete("OK")
+			})
+			return Prepared(statement), nil
+		}
+
+		server, err := NewServer(
+			handler,
+			CloseConn(func(ctx context.Context) error {
+				closeConnWG.Done()
+				return nil
+			}),
+			TerminateConn(func(ctx context.Context) error {
+				terminateConnWG.Done()
+				return nil
+			}),
+			Logger(slogt.New(t)),
+		)
+		require.NoError(t, err)
+
+		address := TListenAndServe(t, server)
+
+		// Connect with pgx
+		ctx := context.Background()
+		connstr := fmt.Sprintf("postgres://username:password@%s/database?sslmode=disable", address)
+		pgxConn, err := pgx.Connect(ctx, connstr)
+		require.NoError(t, err)
+
+		// Close cleanly (sends Terminate message)
+		err = pgxConn.Close(ctx)
+		require.NoError(t, err)
+
+		// Wait for both callbacks with timeout
+		closeDone := make(chan struct{})
+		terminateDone := make(chan struct{})
+
+		go func() {
+			closeConnWG.Wait()
+			close(closeDone)
+		}()
+		go func() {
+			terminateConnWG.Wait()
+			close(terminateDone)
+		}()
+
+		select {
+		case <-closeDone:
+			// CloseConn was called as expected
+		case <-time.After(2 * time.Second):
+			t.Error("Timeout waiting for CloseConn callback on clean Terminate")
+		}
+
+		select {
+		case <-terminateDone:
+			// TerminateConn was called as expected
+		case <-time.After(2 * time.Second):
+			t.Error("Timeout waiting for TerminateConn callback on clean Terminate")
+		}
+	})
+}
