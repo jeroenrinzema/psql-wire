@@ -174,7 +174,7 @@ func TestSessionErrorCode(t *testing.T) {
 			Portals:    &DefaultPortalCache{},
 		}
 
-		err := session.ErrorCode(writer, psqlerr.WithCode(errors.New("some error"), codes.Syntax))
+		err := session.WriteError(writer, psqlerr.WithCode(errors.New("some error"), codes.Syntax))
 		assert.NoError(t, err)
 
 		reader := buffer.NewReader(logger, sink, buffer.DefaultBufferSize)
@@ -200,7 +200,7 @@ func TestSessionErrorCode(t *testing.T) {
 			inExtendedQuery: true,
 		}
 
-		err := session.ErrorCode(writer, psqlerr.WithCode(errors.New("some error"), codes.Syntax))
+		err := session.WriteError(writer, psqlerr.WithCode(errors.New("some error"), codes.Syntax))
 		assert.NoError(t, err)
 		assert.True(t, session.discardUntilSync)
 
@@ -226,7 +226,7 @@ func TestSessionErrorCode(t *testing.T) {
 			Portals:    &DefaultPortalCache{},
 		}
 
-		err := session.ErrorCode(writer, psqlerr.WithCode(errors.New("invalid username/password"), codes.InvalidPassword))
+		err := session.WriteError(writer, psqlerr.WithCode(errors.New("invalid username/password"), codes.InvalidPassword))
 		assert.NoError(t, err)
 
 		reader := buffer.NewReader(logger, sink, buffer.DefaultBufferSize)

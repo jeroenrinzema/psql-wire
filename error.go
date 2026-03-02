@@ -25,10 +25,10 @@ const (
 	errFieldConstraintName errFieldType = 'n'
 )
 
-// RawErrorCode writes an ErrorResponse message to the client without
+// WriteUnterminatedError writes an ErrorResponse message to the client without
 // a trailing ReadyForQuery. Use this in contexts where no session is available
 // (e.g. authentication) or where you need to control ReadyForQuery yourself.
-func RawErrorCode(writer *buffer.Writer, err error) error {
+func WriteUnterminatedError(writer *buffer.Writer, err error) error {
 	desc := psqlerr.Flatten(err)
 
 	writer.Start(types.ServerErrorResponse)
@@ -73,11 +73,11 @@ func RawErrorCode(writer *buffer.Writer, err error) error {
 	return writer.End()
 }
 
-// ErrorCode on Session is protocol-aware: in extended query mode it writes
+// WriteError on Session is protocol-aware: in extended query mode it writes
 // ErrorResponse and sets `discardUntilSync` (ReadyForQuery comes from Sync).
 // In simple query mode it writes ErrorResponse + ReadyForQuery.
-func (srv *Session) ErrorCode(writer *buffer.Writer, err error) error {
-	if werr := RawErrorCode(writer, err); werr != nil {
+func (srv *Session) WriteError(writer *buffer.Writer, err error) error {
+	if werr := WriteUnterminatedError(writer, err); werr != nil {
 		return werr
 	}
 

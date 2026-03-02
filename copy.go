@@ -72,12 +72,12 @@ reader:
 			if err != nil {
 				return err
 			}
-			return r.session.ErrorCode(r.writer, newErrClientCopyFailed(desc))
+			return r.session.WriteError(r.writer, newErrClientCopyFailed(desc))
 		default:
 			// Receipt of any other non-copy message type constitutes an error that
 			// will abort the copy-in state as described above.
 			// https://www.postgresql.org/docs/current/protocol-flow.html#PROTOCOL-COPY
-			return r.session.ErrorCode(r.writer, NewErrUnimplementedMessageType(typed))
+			return r.session.WriteError(r.writer, NewErrUnimplementedMessageType(typed))
 		}
 	}
 }
