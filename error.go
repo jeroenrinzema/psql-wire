@@ -77,6 +77,10 @@ func WriteUnterminatedError(writer *buffer.Writer, err error) error {
 // ErrorResponse and sets `discardUntilSync` (ReadyForQuery comes from Sync).
 // In simple query mode it writes ErrorResponse + ReadyForQuery.
 func (srv *Session) WriteError(writer *buffer.Writer, err error) error {
+	if srv.ErrorSanitizer != nil {
+		err = srv.ErrorSanitizer(err)
+	}
+
 	if werr := WriteUnterminatedError(writer, err); werr != nil {
 		return werr
 	}

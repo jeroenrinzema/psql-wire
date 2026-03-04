@@ -128,6 +128,7 @@ type Server struct {
 	TerminateConn    CloseFn
 	FlushConn        FlushFn
 	ParallelPipeline ParallelPipelineConfig
+	ErrorSanitizer   func(error) error
 	Version          string
 	ShutdownTimeout  time.Duration
 	typeExtension    func(*pgtype.Map)
