@@ -130,7 +130,8 @@ func (cache *DefaultPortalCache) Execute(ctx context.Context, name string, limit
 		return nil
 	}
 
-	return portal.statement.fn(ctx, NewDataWriter(ctx, portal.statement.columns, portal.formats, limit, reader, writer), portal.parameters)
+	session, _ := GetSession(ctx)
+	return portal.statement.fn(ctx, NewDataWriter(ctx, session, portal.statement.columns, portal.formats, limit, reader, writer), portal.parameters)
 }
 
 func (cache *DefaultPortalCache) Close() {}

@@ -156,6 +156,7 @@ func TestHandleExecute_ParallelPipeline_StatementError(t *testing.T) {
 		Portals:          portals,
 		ParallelPipeline: ParallelPipelineConfig{Enabled: true},
 		ResponseQueue:    NewResponseQueue(),
+		inExtendedQuery:  true,
 	}
 
 	outBuf := &bytes.Buffer{}
@@ -200,6 +201,7 @@ func TestHandleExecute_ParallelPipeline_UnknownPortal(t *testing.T) {
 		Portals:          &DefaultPortalCache{},
 		ParallelPipeline: ParallelPipelineConfig{Enabled: true},
 		ResponseQueue:    NewResponseQueue(),
+		inExtendedQuery:  true,
 	}
 
 	// Pre-enqueue a successful event to ensure it's flushed before the error
@@ -214,6 +216,12 @@ func TestHandleExecute_ParallelPipeline_UnknownPortal(t *testing.T) {
 	require.NoError(t, err)
 
 	assert.Equal(t, 0, session.ResponseQueue.Len())
+	assert.True(t, session.discardUntilSync)
+
+	// Sync sends ReadyForQuery and resets discardUntilSync
+	err = session.handleSync(ctx, writer)
+	require.NoError(t, err)
+	assert.False(t, session.discardUntilSync)
 
 	responseReader := mock.NewReader(t, outBuf)
 
@@ -227,7 +235,7 @@ func TestHandleExecute_ParallelPipeline_UnknownPortal(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, types.ServerErrorResponse, msgType)
 
-	// 3. Ready from ErrorCode
+	// 3. ReadyForQuery from Sync
 	msgType, _, err = responseReader.ReadTypedMsg()
 	require.NoError(t, err)
 	assert.Equal(t, types.ServerReady, msgType)
@@ -266,6 +274,7 @@ func TestHandleExecute_ParallelPipeline_AsyncPanic(t *testing.T) {
 		Portals:          portals,
 		ParallelPipeline: ParallelPipelineConfig{Enabled: true},
 		ResponseQueue:    NewResponseQueue(),
+		inExtendedQuery:  true,
 	}
 
 	outBuf := &bytes.Buffer{}

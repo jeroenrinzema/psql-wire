@@ -25,11 +25,10 @@ const (
 	errFieldConstraintName errFieldType = 'n'
 )
 
-// ErrorCode writes an error message as response to a command with the given
-// severity and error message. A ready for query message is written back to the
-// client once the error has been written indicating the end of a command cycle.
-// https://www.postgresql.org/docs/current/static/protocol-error-fields.html
-func ErrorCode(writer *buffer.Writer, err error) error {
+// WriteUnterminatedError writes an ErrorResponse message to the client without
+// a trailing ReadyForQuery. Use this in contexts where no session is available
+// (e.g. authentication) or where you need to control ReadyForQuery yourself.
+func WriteUnterminatedError(writer *buffer.Writer, err error) error {
 	desc := psqlerr.Flatten(err)
 
 	writer.Start(types.ServerErrorResponse)
@@ -71,10 +70,23 @@ func ErrorCode(writer *buffer.Writer, err error) error {
 	}
 
 	writer.AddNullTerminate()
-	err = writer.End()
-	if err != nil {
-		return err
+	return writer.End()
+}
+
+// WriteError on Session is protocol-aware: in extended query mode it writes
+// ErrorResponse and sets `discardUntilSync` (ReadyForQuery comes from Sync).
+// In simple query mode it writes ErrorResponse + ReadyForQuery.
+func (srv *Session) WriteError(writer *buffer.Writer, err error) error {
+	if werr := WriteUnterminatedError(writer, err); werr != nil {
+		return werr
 	}
+
+	if srv.inExtendedQuery {
+		srv.discardUntilSync = true
+		return nil
+	}
+
+	desc := psqlerr.Flatten(err)
 
 	// NOTE: we are writing a ready for query message to indicate the end of a
 	// command cycle. However, for authentication failures, we skip this

@@ -120,6 +120,7 @@ func TestHandleParse_ParallelPipeline_Error(t *testing.T) {
 		Statements:       &DefaultStatementCache{},
 		ParallelPipeline: ParallelPipelineConfig{Enabled: true},
 		ResponseQueue:    NewResponseQueue(),
+		inExtendedQuery:  true,
 	}
 
 	// Enqueue a previous event

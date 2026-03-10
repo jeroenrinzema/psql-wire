@@ -24,9 +24,10 @@ var CopySignature = []byte("PGCOPY\n\377\r\n\000")
 // NewCopyReader creates a new copy reader that reads copy-in data from the given
 // reader and writes the data to the given writer. The columns are used to determine
 // the format of the data that is read from the reader.
-func NewCopyReader(reader *buffer.Reader, writer *buffer.Writer, columns Columns) *CopyReader {
+func NewCopyReader(session *Session, reader *buffer.Reader, writer *buffer.Writer, columns Columns) *CopyReader {
 	return &CopyReader{
 		Reader:  reader,
+		session: session,
 		writer:  writer,
 		columns: columns, // NOTE: the columns are only used to determine the format of the data that is read from the reader.
 		chunk:   make([]byte, reader.MaxMessageSize),
@@ -35,6 +36,7 @@ func NewCopyReader(reader *buffer.Reader, writer *buffer.Writer, columns Columns
 
 type CopyReader struct {
 	*buffer.Reader
+	session *Session
 	writer  *buffer.Writer
 	columns Columns
 	chunk   []byte
@@ -70,12 +72,12 @@ reader:
 			if err != nil {
 				return err
 			}
-			return ErrorCode(r.writer, newErrClientCopyFailed(desc))
+			return r.session.WriteError(r.writer, newErrClientCopyFailed(desc))
 		default:
 			// Receipt of any other non-copy message type constitutes an error that
 			// will abort the copy-in state as described above.
 			// https://www.postgresql.org/docs/current/protocol-flow.html#PROTOCOL-COPY
-			return ErrorCode(r.writer, NewErrUnimplementedMessageType(typed))
+			return r.session.WriteError(r.writer, NewErrUnimplementedMessageType(typed))
 		}
 	}
 }

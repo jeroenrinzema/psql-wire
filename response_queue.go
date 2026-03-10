@@ -20,6 +20,8 @@ const (
 	// ResponseExecute represents an Execute with its complete result set
 	// (DataRows, CommandComplete)
 	ResponseExecute
+	// ResponseCloseComplete represents a CloseComplete ack
+	ResponseCloseComplete
 )
 
 // ResponseEvent represents an event in the response stream
@@ -68,6 +70,13 @@ func NewPortalDescribeEvent(columns Columns, formats []FormatCode) *ResponseEven
 		Kind:    ResponsePortalDescribe,
 		Columns: columns,
 		Formats: formats,
+	}
+}
+
+// NewCloseCompleteEvent creates a CloseComplete response event
+func NewCloseCompleteEvent() *ResponseEvent {
+	return &ResponseEvent{
+		Kind: ResponseCloseComplete,
 	}
 }
 

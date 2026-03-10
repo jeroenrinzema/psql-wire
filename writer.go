@@ -68,9 +68,10 @@ var ErrRowLimitExceeded = pgerror.WithCode(errors.New("row limit exceeded"), cod
 // buffer. The returned writer should be handled with caution as it is not safe
 // for concurrent use. Concurrent access to the same data without proper
 // synchronization can result in unexpected behavior and data corruption.
-func NewDataWriter(ctx context.Context, columns Columns, formats []FormatCode, limit Limit, reader *buffer.Reader, writer *buffer.Writer) DataWriter {
+func NewDataWriter(ctx context.Context, session *Session, columns Columns, formats []FormatCode, limit Limit, reader *buffer.Reader, writer *buffer.Writer) DataWriter {
 	return &dataWriter{
 		ctx:     ctx,
+		session: session,
 		columns: columns,
 		formats: formats,
 		limit:   limit,
@@ -82,6 +83,7 @@ func NewDataWriter(ctx context.Context, columns Columns, formats []FormatCode, l
 // dataWriter is a implementation of the DataWriter interface.
 type dataWriter struct {
 	ctx     context.Context
+	session *Session
 	columns Columns
 	formats []FormatCode
 	limit   Limit
@@ -128,7 +130,7 @@ func (writer *dataWriter) CopyIn(format FormatCode) (*CopyReader, error) {
 		return nil, err
 	}
 
-	return NewCopyReader(writer.reader, writer.client, writer.columns), nil
+	return NewCopyReader(writer.session, writer.reader, writer.client, writer.columns), nil
 }
 
 func (writer *dataWriter) Empty() error {
