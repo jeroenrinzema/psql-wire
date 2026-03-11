@@ -289,6 +289,12 @@ func TestDiscardUntilSync(t *testing.T) {
 	// Second cycle: Close, Sync (deallocate the failed statement)
 	err = session.handleClose(ctx, mock.NewCloseReader(t, logger, 'S', "stmt1"), writer)
 	require.NoError(t, err)
+
+	// The statement should be removed from the cache after Close
+	stmt, err := session.Statements.Get(ctx, "stmt1")
+	require.NoError(t, err)
+	assert.Nil(t, stmt, "statement should be removed from cache after Close")
+
 	err = session.handleSync(ctx, writer)
 	require.NoError(t, err)
 
