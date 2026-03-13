@@ -1,6 +1,7 @@
 package wire
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"testing"
@@ -13,23 +14,21 @@ import (
 
 // newPendingExecuteEvent creates an Execute event that blocks (not ready).
 func newPendingExecuteEvent() *ResponseEvent {
-	return NewExecuteEvent(make(chan *QueuedDataWriter), nil)
+	return NewExecuteEvent(make(chan *executeResult))
 }
 
 // newReadyExecuteEvent creates an Execute event with a completed result.
-func newReadyExecuteEvent(rows [][]any) *ResponseEvent {
-	ch := make(chan *QueuedDataWriter, 1)
-	ch <- &QueuedDataWriter{rows: rows}
-	return NewExecuteEvent(ch, nil)
+func newReadyExecuteEvent(data []byte) *ResponseEvent {
+	ch := make(chan *executeResult, 1)
+	ch <- &executeResult{buf: bytes.NewBuffer(data)}
+	return NewExecuteEvent(ch)
 }
 
 // newErrorExecuteEvent creates an Execute event with an error result.
 func newErrorExecuteEvent(err error) *ResponseEvent {
-	ch := make(chan *QueuedDataWriter, 1)
-	result := &QueuedDataWriter{}
-	result.SetError(err)
-	ch <- result
-	return NewExecuteEvent(ch, nil)
+	ch := make(chan *executeResult, 1)
+	ch <- &executeResult{err: err}
+	return NewExecuteEvent(ch)
 }
 
 // TestResponseQueueBasicOperations tests enqueue and drain operations
@@ -89,9 +88,9 @@ func TestDrainSyncNormalOperation(t *testing.T) {
 	// Add some control events
 	queue.Enqueue(NewParseCompleteEvent())
 	queue.Enqueue(NewBindCompleteEvent())
-	queue.Enqueue(newReadyExecuteEvent([][]any{{"value1"}, {"value2"}}))
+	queue.Enqueue(newReadyExecuteEvent([]byte("some wire data")))
 	queue.Enqueue(NewParseCompleteEvent())
-	queue.Enqueue(newReadyExecuteEvent([][]any{{"value3"}}))
+	queue.Enqueue(newReadyExecuteEvent([]byte("more wire data")))
 
 	// Drain all events
 	events, err := queue.DrainSync(ctx)
@@ -103,11 +102,9 @@ func TestDrainSyncNormalOperation(t *testing.T) {
 	assert.Equal(t, ResponseBindComplete, events[1].Kind)
 	assert.Equal(t, ResponseExecute, events[2].Kind)
 	assert.NotNil(t, events[2].Result)
-	assert.Len(t, events[2].Result.rows, 2)
 	assert.Equal(t, ResponseParseComplete, events[3].Kind)
 	assert.Equal(t, ResponseExecute, events[4].Kind)
 	assert.NotNil(t, events[4].Result)
-	assert.Len(t, events[4].Result.rows, 1)
 }
 
 // TestDrainSyncWithError tests early exit on error
@@ -120,7 +117,7 @@ func TestDrainSyncWithError(t *testing.T) {
 	// Add some control events
 	queue.Enqueue(NewParseCompleteEvent())
 	queue.Enqueue(NewBindCompleteEvent())
-	queue.Enqueue(newReadyExecuteEvent([][]any{{"success"}}))
+	queue.Enqueue(newReadyExecuteEvent([]byte("success")))
 
 	// Add Execute with error result
 	testError := errors.New("query execution failed")
@@ -142,7 +139,7 @@ func TestDrainSyncWithError(t *testing.T) {
 
 	// First Execute should have its result
 	assert.NotNil(t, events[2].Result)
-	assert.NoError(t, events[2].Result.GetError())
+	assert.NoError(t, events[2].Result.err)
 }
 
 // TestDrainSyncContextCancellation tests context cancellation during drain

@@ -102,7 +102,7 @@ type PortalCache interface {
 	// Get attempts to get the portal for the given name. An error is returned
 	// when no portal has been found.
 	Get(ctx context.Context, name string) (*Portal, error)
-	// Execute executes the prepared statement with the given name and parameters.
+	// Execute executes the portal with the given name and parameters.
 	Execute(ctx context.Context, name string, limit Limit, reader *buffer.Reader, writer *buffer.Writer) error
 	// Delete removes the portal with the given name. Deleting a nonexistent
 	// name is not an error.

@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/jeroenrinzema/psql-wire/pkg/types"
+	"github.com/stretchr/testify/require"
 )
 
 func NewClient(t *testing.T, conn net.Conn) *Client {
@@ -139,4 +140,90 @@ func (client *Client) Close(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+}
+
+// Parse sends a Parse message with the given statement name and query.
+func (client *Client) Parse(t *testing.T, name, query string) {
+	t.Helper()
+	client.Start(types.ClientParse)
+	client.AddString(name)
+	client.AddNullTerminate()
+	client.AddString(query)
+	client.AddNullTerminate()
+	client.AddInt16(0) // no parameter types
+	require.NoError(t, client.End())
+}
+
+// Bind sends a Bind message binding the given statement to the given portal.
+func (client *Client) Bind(t *testing.T, portal, statement string) {
+	t.Helper()
+	client.Start(types.ClientBind)
+	client.AddString(portal)
+	client.AddNullTerminate()
+	client.AddString(statement)
+	client.AddNullTerminate()
+	client.AddInt16(0) // no parameter formats
+	client.AddInt16(0) // no parameter values
+	client.AddInt16(0) // no result format codes
+	require.NoError(t, client.End())
+}
+
+// Execute sends an Execute message for the given portal with the given row limit.
+// A limit of 0 means no limit.
+func (client *Client) Execute(t *testing.T, portal string, limit int32) {
+	t.Helper()
+	client.Start(types.ClientExecute)
+	client.AddString(portal)
+	client.AddNullTerminate()
+	client.AddInt32(limit)
+	require.NoError(t, client.End())
+}
+
+// Sync sends a Sync message.
+func (client *Client) Sync(t *testing.T) {
+	t.Helper()
+	client.Start(types.ClientSync)
+	require.NoError(t, client.End())
+}
+
+// ExpectMsg reads one message and asserts its type matches expected.
+func (client *Client) ExpectMsg(t *testing.T, expected types.ServerMessage) {
+	t.Helper()
+	ct, _, err := client.ReadTypedMsg()
+	require.NoError(t, err)
+	require.Equal(t, expected, ct, "expected %s but got %s", expected, ct)
+}
+
+// ExpectDataRow reads a single DataRow message and returns the column values
+// as raw byte slices (nil for SQL NULL).
+func (client *Client) ExpectDataRow(t *testing.T) [][]byte {
+	t.Helper()
+	client.ExpectMsg(t, types.ServerDataRow)
+
+	numCols, err := client.GetUint16()
+	require.NoError(t, err)
+
+	row := make([][]byte, numCols)
+	for i := 0; i < int(numCols); i++ {
+		length, err := client.GetInt32()
+		require.NoError(t, err)
+		if length == -1 {
+			row[i] = nil
+			continue
+		}
+		val, err := client.GetBytes(int(length))
+		require.NoError(t, err)
+		row[i] = val
+	}
+	return row
+}
+
+// ExpectDataRows reads exactly n DataRow messages and returns all rows.
+func (client *Client) ExpectDataRows(t *testing.T, n int) [][][]byte {
+	t.Helper()
+	rows := make([][][]byte, n)
+	for i := 0; i < n; i++ {
+		rows[i] = client.ExpectDataRow(t)
+	}
+	return rows
 }

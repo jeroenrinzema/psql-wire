@@ -4,17 +4,9 @@ import (
 	"context"
 	"errors"
 
-	"github.com/jeroenrinzema/psql-wire/codes"
-	pgerror "github.com/jeroenrinzema/psql-wire/errors"
 	"github.com/jeroenrinzema/psql-wire/pkg/buffer"
 	"github.com/jeroenrinzema/psql-wire/pkg/types"
 )
-
-// Limit represents the maximum number of rows to be written.
-// Zero denotes “no limit”.
-type Limit uint32
-
-const NoLimit Limit = 0
 
 // DataWriter represents a writer interface for writing columns and data rows
 // using the Postgres wire to the connected client.
@@ -25,10 +17,6 @@ type DataWriter interface {
 	// The slice length needs to be the same length as the defined columns. Nil
 	// values are encoded as NULL values.
 	Row([]any) error
-
-	// Limit returns the maximum number of rows to be written passed within the
-	// wire protocol. A value of 0 indicates no limit.
-	Limit() uint32
 
 	// Written returns the number of rows written to the client.
 	Written() uint32
@@ -62,33 +50,21 @@ var ErrDataWritten = errors.New("data has already been written")
 // ErrClosedWriter is returned when the data writer has been closed.
 var ErrClosedWriter = errors.New("closed writer")
 
-var ErrRowLimitExceeded = pgerror.WithCode(errors.New("row limit exceeded"), codes.ProgramLimitExceeded)
-
-// NewDataWriter constructs a new data writer using the given context and
-// buffer. The returned writer should be handled with caution as it is not safe
-// for concurrent use. Concurrent access to the same data without proper
-// synchronization can result in unexpected behavior and data corruption.
-func NewDataWriter(ctx context.Context, session *Session, columns Columns, formats []FormatCode, limit Limit, reader *buffer.Reader, writer *buffer.Writer) DataWriter {
-	return &dataWriter{
-		ctx:     ctx,
-		session: session,
-		columns: columns,
-		formats: formats,
-		limit:   limit,
-		client:  writer,
-		reader:  reader,
-	}
-}
-
-// dataWriter is a implementation of the DataWriter interface.
+// dataWriter implements DataWriter for use inside an iter.Seq push
+// iterator. Row encodes the row to the wire and then yields to the pull
+// consumer for flow control. Complete writes CommandComplete to the wire.
+// This approach allows portal suspension: when the pull consumer stops
+// pulling (row limit reached), the handler goroutine blocks in yield
+// until the next Execute.
 type dataWriter struct {
 	ctx     context.Context
 	session *Session
 	columns Columns
 	formats []FormatCode
-	limit   Limit
 	client  *buffer.Writer
 	reader  *buffer.Reader
+	yield   func(struct{}) bool
+	tag     *string
 	closed  bool
 	written uint32
 }
@@ -97,27 +73,24 @@ func (writer *dataWriter) Columns() Columns {
 	return writer.columns
 }
 
-func (writer *dataWriter) Define(columns Columns) error {
-	if writer.closed {
-		return ErrClosedWriter
-	}
-
-	writer.columns = columns
-	return writer.columns.Define(writer.ctx, writer.client, writer.formats)
-}
-
 func (writer *dataWriter) Row(values []any) error {
 	if writer.closed {
 		return ErrClosedWriter
 	}
 
-	if writer.limit != 0 && Limit(writer.written) >= writer.limit {
-		return ErrRowLimitExceeded
+	err := writer.columns.Write(writer.ctx, writer.formats, writer.client, values)
+	if err != nil {
+		return err
 	}
 
 	writer.written++
-
-	return writer.columns.Write(writer.ctx, writer.formats, writer.client, values)
+	// The yield call "teleports" us back the next call of the pull consumer in
+	// Portal.execute. The yield function returns true when the pull consumer
+	// calls next again, and returns false when stop is called.
+	if !writer.yield(struct{}{}) {
+		return ErrSuspendedHandlerClosed
+	}
+	return nil
 }
 
 func (writer *dataWriter) CopyIn(format FormatCode) (*CopyReader, error) {
@@ -129,7 +102,6 @@ func (writer *dataWriter) CopyIn(format FormatCode) (*CopyReader, error) {
 	if err != nil {
 		return nil, err
 	}
-
 	return NewCopyReader(writer.session, writer.reader, writer.client, writer.columns), nil
 }
 
@@ -146,10 +118,6 @@ func (writer *dataWriter) Empty() error {
 	return nil
 }
 
-func (writer *dataWriter) Limit() uint32 {
-	return uint32(writer.limit)
-}
-
 func (writer *dataWriter) Written() uint32 {
 	return writer.written
 }
@@ -159,14 +127,8 @@ func (writer *dataWriter) Complete(description string) error {
 		return ErrClosedWriter
 	}
 
-	if writer.written == 0 && writer.columns != nil {
-		err := writer.Empty()
-		if err != nil {
-			return err
-		}
-	}
-
 	defer writer.close()
+	writer.tag = &description
 	return commandComplete(writer.client, description)
 }
 
@@ -183,3 +145,9 @@ func commandComplete(writer *buffer.Writer, description string) error {
 	writer.AddNullTerminate()
 	return writer.End()
 }
+
+// ErrSuspendedHandlerClosed is returned from DataWriter.Row when a suspended
+// portal is closed (or re-bound) before the handler finished producing rows.
+// Handlers can check for this error to distinguish graceful portal teardown
+// from real failures and skip error logging.
+var ErrSuspendedHandlerClosed = errors.New("suspended handler closed")
