@@ -191,8 +191,8 @@ func ParallelPipeline(config ParallelPipelineConfig) OptionFn {
 // ErrorResponse to the wire. It can be used to mask internal error details,
 // generate error IDs, or rewrite error messages.
 // Note: this does not apply to errors written during authentication, as auth
-// strategies write errors directly. Sanitize errors in your AuthStrategy or
-// validation function if needed.
+// strategies happen before seeions are created. Sanitize errors in your
+// AuthStrategy or validation function if needed.
 func ErrorSanitizer(fn func(error) error) OptionFn {
 	return func(srv *Server) error {
 		srv.ErrorSanitizer = fn
