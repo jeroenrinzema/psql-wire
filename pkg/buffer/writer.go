@@ -12,10 +12,11 @@ import (
 // Writer provides a convenient way to write pgwire protocol messages
 type Writer struct {
 	io.Writer
-	logger *slog.Logger
-	frame  bytes.Buffer
-	putbuf [64]byte // buffer used to construct messages which could be written to the writer frame buffer
-	err    error
+	logger         *slog.Logger
+	frame          bytes.Buffer
+	putbuf         [64]byte // buffer used to construct messages which could be written to the writer frame buffer
+	err            error
+	ErrorSanitizer func(error) error
 }
 
 // NewWriter constructs a new Postgres buffered message writer for the given io.Writer
