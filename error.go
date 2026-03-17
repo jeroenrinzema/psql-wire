@@ -29,6 +29,10 @@ const (
 // a trailing ReadyForQuery. Use this in contexts where no session is available
 // (e.g. authentication) or where you need to control ReadyForQuery yourself.
 func WriteUnterminatedError(writer *buffer.Writer, err error) error {
+	if writer.ErrorSanitizer != nil {
+		err = writer.ErrorSanitizer(err)
+	}
+
 	desc := psqlerr.Flatten(err)
 
 	writer.Start(types.ServerErrorResponse)
