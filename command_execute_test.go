@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 
 	"github.com/jackc/pgx/v5/pgtype"
@@ -295,4 +296,261 @@ func TestHandleExecute_ParallelPipeline_AsyncPanic(t *testing.T) {
 	msgType, _, err := responseReader.ReadTypedMsg()
 	require.NoError(t, err)
 	assert.Equal(t, types.ServerErrorResponse, msgType)
+}
+
+func TestHandleExecute_ParallelPipeline_CloseWhilePending(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	typeMap := pgtype.NewMap()
+	ctx = setTypeInfo(ctx, typeMap)
+
+	logger := slogt.New(t)
+
+	started := make(chan struct{})
+	proceed := make(chan struct{})
+
+	stmt := &Statement{
+		fn: func(ctx context.Context, writer DataWriter, params []Parameter) error {
+			close(started)
+			<-proceed
+			if err := writer.Row([]any{"hello"}); err != nil {
+				return err
+			}
+			return writer.Complete("SELECT 1")
+		},
+		parameters: []uint32{},
+		columns: Columns{
+			{Name: "greeting", Oid: pgtype.TextOID},
+		},
+	}
+
+	portals := &DefaultPortalCache{}
+	err := portals.Bind(ctx, "portal1", stmt, nil, nil)
+	require.NoError(t, err)
+
+	session := &Session{
+		Server:           &Server{logger: logger},
+		Statements:       &DefaultStatementCache{},
+		Portals:          portals,
+		ParallelPipeline: ParallelPipelineConfig{Enabled: true},
+		ResponseQueue:    NewResponseQueue(),
+		inExtendedQuery:  true,
+	}
+
+	outBuf := &bytes.Buffer{}
+	writer := buffer.NewWriter(logger, outBuf)
+
+	// Launch async execute
+	err = session.handleExecute(ctx, mock.NewExecuteReader(t, logger, "portal1", 0), writer)
+	require.NoError(t, err)
+
+	// Wait for the handler to start
+	<-started
+
+	// Close the portal while the goroutine is still running — should not block
+	err = session.handleClose(ctx, mock.NewCloseReader(t, logger, 'P', "portal1"), writer)
+	require.NoError(t, err)
+
+	// Let the handler finish
+	close(proceed)
+
+	// Sync should flush the execute result and close complete
+	err = session.handleSync(ctx, writer)
+	require.NoError(t, err)
+
+	responseReader := mock.NewReader(t, outBuf)
+
+	// Execute result (DataRow + CommandComplete)
+	msgType, _, err := responseReader.ReadTypedMsg()
+	require.NoError(t, err)
+	assert.Equal(t, types.ServerDataRow, msgType)
+
+	msgType, _, err = responseReader.ReadTypedMsg()
+	require.NoError(t, err)
+	assert.Equal(t, types.ServerCommandComplete, msgType)
+
+	// CloseComplete
+	msgType, _, err = responseReader.ReadTypedMsg()
+	require.NoError(t, err)
+	assert.Equal(t, types.ServerCloseComplete, msgType)
+
+	// ReadyForQuery
+	msgType, _, err = responseReader.ReadTypedMsg()
+	require.NoError(t, err)
+	assert.Equal(t, types.ServerReady, msgType)
+}
+
+func TestHandleExecute_ParallelPipeline_SamePortalSerializes(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	typeMap := pgtype.NewMap()
+	ctx = setTypeInfo(ctx, typeMap)
+
+	logger := slogt.New(t)
+
+	// Handler produces 3 rows. Two limited Execute(limit=1) calls on the same
+	// portal must serialize: the second waits for the first to finish before
+	// pulling the next row from the suspended iterator.
+	stmt := &Statement{
+		fn: func(ctx context.Context, writer DataWriter, params []Parameter) error {
+			for i := 1; i <= 3; i++ {
+				if err := writer.Row([]any{fmt.Sprintf("row %d", i)}); err != nil {
+					return err
+				}
+			}
+			return writer.Complete("SELECT 3")
+		},
+		parameters: []uint32{},
+		columns: Columns{
+			{Name: "result", Oid: pgtype.TextOID},
+		},
+	}
+
+	portals := &DefaultPortalCache{}
+	err := portals.Bind(ctx, "portal1", stmt, nil, nil)
+	require.NoError(t, err)
+
+	session := &Session{
+		Server:           &Server{logger: logger},
+		Statements:       &DefaultStatementCache{},
+		Portals:          portals,
+		ParallelPipeline: ParallelPipelineConfig{Enabled: true},
+		ResponseQueue:    NewResponseQueue(),
+		inExtendedQuery:  true,
+	}
+
+	outBuf := &bytes.Buffer{}
+	writer := buffer.NewWriter(logger, outBuf)
+
+	// Queue two Execute(limit=1) on the same portal — second must wait for first
+	err = session.handleExecute(ctx, mock.NewExecuteReader(t, logger, "portal1", 1), writer)
+	require.NoError(t, err)
+	err = session.handleExecute(ctx, mock.NewExecuteReader(t, logger, "portal1", 1), writer)
+	require.NoError(t, err)
+
+	assert.Equal(t, 2, session.ResponseQueue.Len())
+
+	err = session.handleSync(ctx, writer)
+	require.NoError(t, err)
+
+	// Both executes should produce results: each gets 1 row + PortalSuspended.
+	responseReader := mock.NewReader(t, outBuf)
+
+	// First execute: DataRow + PortalSuspended
+	msgType, _, err := responseReader.ReadTypedMsg()
+	require.NoError(t, err)
+	assert.Equal(t, types.ServerDataRow, msgType)
+
+	msgType, _, err = responseReader.ReadTypedMsg()
+	require.NoError(t, err)
+	assert.Equal(t, types.ServerPortalSuspended, msgType)
+
+	// Second execute: DataRow + PortalSuspended
+	msgType, _, err = responseReader.ReadTypedMsg()
+	require.NoError(t, err)
+	assert.Equal(t, types.ServerDataRow, msgType)
+
+	msgType, _, err = responseReader.ReadTypedMsg()
+	require.NoError(t, err)
+	assert.Equal(t, types.ServerPortalSuspended, msgType)
+
+	// ReadyForQuery
+	msgType, _, err = responseReader.ReadTypedMsg()
+	require.NoError(t, err)
+	assert.Equal(t, types.ServerReady, msgType)
+}
+
+func TestHandleExecute_ParallelPipeline_DifferentPortalsParallel(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	typeMap := pgtype.NewMap()
+	ctx = setTypeInfo(ctx, typeMap)
+
+	logger := slogt.New(t)
+
+	bothStarted := make(chan struct{})
+	portal1Started := make(chan struct{})
+	portal2Started := make(chan struct{})
+
+	go func() {
+		<-portal1Started
+		<-portal2Started
+		close(bothStarted)
+	}()
+
+	makeStmt := func(started chan struct{}) *Statement {
+		return &Statement{
+			fn: func(ctx context.Context, writer DataWriter, params []Parameter) error {
+				close(started)
+				// Wait until both portals have started — proves they run in parallel
+				<-bothStarted
+				if err := writer.Row([]any{"ok"}); err != nil {
+					return err
+				}
+				return writer.Complete("SELECT 1")
+			},
+			parameters: []uint32{},
+			columns: Columns{
+				{Name: "result", Oid: pgtype.TextOID},
+			},
+		}
+	}
+
+	portals := &DefaultPortalCache{}
+	err := portals.Bind(ctx, "p1", makeStmt(portal1Started), nil, nil)
+	require.NoError(t, err)
+	err = portals.Bind(ctx, "p2", makeStmt(portal2Started), nil, nil)
+	require.NoError(t, err)
+
+	session := &Session{
+		Server:           &Server{logger: logger},
+		Statements:       &DefaultStatementCache{},
+		Portals:          portals,
+		ParallelPipeline: ParallelPipelineConfig{Enabled: true},
+		ResponseQueue:    NewResponseQueue(),
+		inExtendedQuery:  true,
+	}
+
+	outBuf := &bytes.Buffer{}
+	writer := buffer.NewWriter(logger, outBuf)
+
+	err = session.handleExecute(ctx, mock.NewExecuteReader(t, logger, "p1", 0), writer)
+	require.NoError(t, err)
+	err = session.handleExecute(ctx, mock.NewExecuteReader(t, logger, "p2", 0), writer)
+	require.NoError(t, err)
+
+	assert.Equal(t, 2, session.ResponseQueue.Len())
+
+	// Sync drains both — if they didn't run in parallel, they'd deadlock
+	// waiting on bothStarted
+	err = session.handleSync(ctx, writer)
+	require.NoError(t, err)
+
+	responseReader := mock.NewReader(t, outBuf)
+
+	// Portal 1: DataRow + CommandComplete
+	msgType, _, err := responseReader.ReadTypedMsg()
+	require.NoError(t, err)
+	assert.Equal(t, types.ServerDataRow, msgType)
+
+	msgType, _, err = responseReader.ReadTypedMsg()
+	require.NoError(t, err)
+	assert.Equal(t, types.ServerCommandComplete, msgType)
+
+	// Portal 2: DataRow + CommandComplete
+	msgType, _, err = responseReader.ReadTypedMsg()
+	require.NoError(t, err)
+	assert.Equal(t, types.ServerDataRow, msgType)
+
+	msgType, _, err = responseReader.ReadTypedMsg()
+	require.NoError(t, err)
+	assert.Equal(t, types.ServerCommandComplete, msgType)
+
+	// ReadyForQuery
+	msgType, _, err = responseReader.ReadTypedMsg()
+	require.NoError(t, err)
+	assert.Equal(t, types.ServerReady, msgType)
 }

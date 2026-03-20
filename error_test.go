@@ -287,8 +287,14 @@ func TestDiscardUntilSync(t *testing.T) {
 	assert.False(t, session.discardUntilSync)
 
 	// Second cycle: Close, Sync (deallocate the failed statement)
-	err = session.handleClose(ctx, mock.NewCloseReader(t, logger, 'S', "stmt1"), writer)
+	err = session.handleClose(ctx, mock.NewCloseReader(t, logger, types.CloseStatement, "stmt1"), writer)
 	require.NoError(t, err)
+
+	// The statement should be removed from the cache after Close
+	stmt, err := session.Statements.Get(ctx, "stmt1")
+	require.NoError(t, err)
+	assert.Nil(t, stmt, "statement should be removed from cache after Close")
+
 	err = session.handleSync(ctx, writer)
 	require.NoError(t, err)
 
@@ -323,4 +329,47 @@ func TestDiscardUntilSync(t *testing.T) {
 	// No extra messages
 	_, _, err = responseReader.ReadTypedMsg()
 	require.Error(t, err)
+}
+
+// TestRowReturnsEncodeError verifies that when columns.Write fails on the pull
+// side (e.g. a type the pgx TypeMap can't encode), the encoding error is
+// returned from DataWriter.Row so the handler can see and wrap it.
+func TestRowReturnsEncodeError(t *testing.T) {
+	t.Parallel()
+
+	var rowErr error
+
+	handler := func(ctx context.Context, query string) (PreparedStatements, error) {
+		columns := Columns{{Name: "val", Oid: pgtype.Int4OID}}
+
+		stmt := NewStatement(func(ctx context.Context, writer DataWriter, parameters []Parameter) error {
+			rowErr = writer.Row([]any{struct{}{}})
+			if rowErr != nil {
+				return rowErr
+			}
+			return writer.Complete("SELECT 1")
+		}, WithColumns(columns))
+
+		return Prepared(stmt), nil
+	}
+
+	server, err := NewServer(handler, Logger(slogt.New(t)))
+	require.NoError(t, err)
+
+	address := TListenAndServe(t, server)
+
+	ctx := context.Background()
+	connstr := fmt.Sprintf("postgres://%s:%d", address.IP, address.Port)
+	conn, err := pgx.Connect(ctx, connstr)
+	require.NoError(t, err)
+
+	rows, _ := conn.Query(ctx, "SELECT 1;")
+	rows.Close()
+	assert.Error(t, rows.Err())
+
+	require.NotNil(t, rowErr)
+	assert.Contains(t, rowErr.Error(), "unable to encode")
+
+	err = conn.Close(ctx)
+	assert.NoError(t, err)
 }

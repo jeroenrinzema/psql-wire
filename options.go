@@ -85,6 +85,9 @@ type StatementCache interface {
 	// Get attempts to get the prepared statement for the given name. An error
 	// is returned when no statement has been found.
 	Get(ctx context.Context, name string) (*Statement, error)
+	// Delete removes the prepared statement with the given name. Deleting a
+	// nonexistent name is not an error.
+	Delete(ctx context.Context, name string) error
 	// Close is called at the end of a connection. Close releases all resources
 	// held by the statement cache.
 	Close()
@@ -99,8 +102,14 @@ type PortalCache interface {
 	// Get attempts to get the portal for the given name. An error is returned
 	// when no portal has been found.
 	Get(ctx context.Context, name string) (*Portal, error)
-	// Execute executes the prepared statement with the given name and parameters.
+	// Execute executes the portal with the given name and parameters.
 	Execute(ctx context.Context, name string, limit Limit, reader *buffer.Reader, writer *buffer.Writer) error
+	// Delete removes the portal with the given name. Deleting a nonexistent
+	// name is not an error.
+	Delete(ctx context.Context, name string) error
+	// DeleteByStatement removes all portals that were bound to the given
+	// statement.
+	DeleteByStatement(ctx context.Context, stmt *Statement) error
 	// Close is called at the end of a connection. Close releases all resources
 	// held by the portal cache.
 	Close()

@@ -148,3 +148,71 @@ func TestHandleParse_ParallelPipeline_Error(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, types.ServerErrorResponse, msgType)
 }
+
+func TestHandleParse_OverwriteRemovesRelatedPortals(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	typeMap := pgtype.NewMap()
+	ctx = setTypeInfo(ctx, typeMap)
+	logger := slogt.New(t)
+
+	mockParse := func(ctx context.Context, query string) (PreparedStatements, error) {
+		return PreparedStatements{NewStatement(
+			func(ctx context.Context, writer DataWriter, parameters []Parameter) error {
+				return writer.Complete("SELECT 1")
+			},
+		)}, nil
+	}
+
+	portalCache := &DefaultPortalCache{}
+	session := &Session{
+		Server: &Server{
+			logger: logger,
+			parse:  mockParse,
+		},
+		Statements: &DefaultStatementCache{},
+		Portals:    portalCache,
+	}
+
+	outBuf := &bytes.Buffer{}
+	writer := buffer.NewWriter(logger, outBuf)
+
+	// Parse a statement and bind two portals to it
+	err := session.handleParse(ctx, mock.NewParseReader(t, logger, "s1", "SELECT 1", 0), writer)
+	require.NoError(t, err)
+	err = session.handleBind(ctx, mock.NewBindReader(t, logger, "p1", "s1", 0, 0, 0), writer)
+	require.NoError(t, err)
+	err = session.handleBind(ctx, mock.NewBindReader(t, logger, "p2", "s1", 0, 0, 0), writer)
+	require.NoError(t, err)
+
+	// Parse a different statement and bind a portal to it (should survive)
+	err = session.handleParse(ctx, mock.NewParseReader(t, logger, "s2", "SELECT 2", 0), writer)
+	require.NoError(t, err)
+	err = session.handleBind(ctx, mock.NewBindReader(t, logger, "p3", "s2", 0, 0, 0), writer)
+	require.NoError(t, err)
+
+	// Verify all portals exist
+	for _, name := range []string{"p1", "p2", "p3"} {
+		portal, err := portalCache.Get(ctx, name)
+		require.NoError(t, err)
+		require.NotNil(t, portal, "portal %s should exist before overwrite", name)
+	}
+
+	// Re-parse s1 — portals p1 and p2 should be removed
+	err = session.handleParse(ctx, mock.NewParseReader(t, logger, "s1", "SELECT 3", 0), writer)
+	require.NoError(t, err)
+
+	p1, err := portalCache.Get(ctx, "p1")
+	require.NoError(t, err)
+	assert.Nil(t, p1, "portal bound to overwritten statement should be removed")
+
+	p2, err := portalCache.Get(ctx, "p2")
+	require.NoError(t, err)
+	assert.Nil(t, p2, "portal bound to overwritten statement should be removed")
+
+	// p3 is bound to s2, should still exist
+	p3, err := portalCache.Get(ctx, "p3")
+	require.NoError(t, err)
+	assert.NotNil(t, p3, "portal bound to a different statement should survive")
+}

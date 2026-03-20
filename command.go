@@ -1,6 +1,7 @@
 package wire
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -56,6 +57,7 @@ type Session struct {
 	Statements StatementCache
 	Portals    PortalCache
 	Attributes map[string]interface{}
+	reader     *buffer.Reader
 
 	// pipelining
 	ParallelPipeline ParallelPipelineConfig
@@ -63,7 +65,7 @@ type Session struct {
 
 	// inExtendedQuery is true when the current message being handled is an
 	// extended query protocol message (Parse, Bind, Describe, Execute, Close,
-	// Flush, Sync). This lets Session.ErrorCode behave correctly for both
+	// Flush, Sync). This lets Session.WriteError behave correctly for both
 	// protocols.
 	inExtendedQuery bool
 
@@ -93,6 +95,7 @@ func isExtendedQueryMessage(t types.ClientMessage) bool {
 // This method keeps consuming messages until the client issues a close message
 // or the connection is terminated.
 func (srv *Session) consumeCommands(ctx context.Context, conn net.Conn, reader *buffer.Reader, writer *buffer.Writer) error {
+	srv.reader = reader
 	srv.logger.Debug("ready for query... starting to consume commands")
 
 	err := readyForQuery(writer, types.ServerIdle)
@@ -326,7 +329,13 @@ func (srv *Session) handleSimpleQuery(ctx context.Context, reader *buffer.Reader
 			return srv.WriteError(writer, err)
 		}
 
-		err = statements[index].fn(ctx, NewDataWriter(ctx, srv, statements[index].columns, nil, NoLimit, reader, writer), nil)
+		portal := &Portal{
+			statement: &Statement{
+				fn:      statements[index].fn,
+				columns: statements[index].columns,
+			},
+		}
+		err = portal.execute(ctx, NoLimit, reader, writer)
 		if err != nil {
 			return srv.WriteError(writer, err)
 		}
@@ -371,6 +380,18 @@ func (srv *Session) handleParse(ctx context.Context, reader *buffer.Reader, writ
 		// Specifies the object ID of the parameter data type. Placing a zero here
 		// is equivalent to leaving the type unspecified.
 		// `reader.GetUint32()`
+	}
+
+	existing, err := srv.Statements.Get(ctx, name)
+	if err != nil {
+		if srv.ParallelPipeline.Enabled {
+			return srv.drainQueueAndWriteError(ctx, writer, err)
+		}
+		return srv.WriteError(writer, err)
+	}
+
+	if existing != nil {
+		srv.Portals.DeleteByStatement(ctx, existing) //nolint:errcheck
 	}
 
 	if srv.ParallelPipeline.Enabled {
@@ -719,7 +740,18 @@ func (srv *Session) handleClose(ctx context.Context, reader *buffer.Reader, writ
 		return err
 	}
 
-	srv.logger.Debug("incoming close request", slog.String("type", string(d[0])), slog.String("name", name))
+	srv.logger.Debug("incoming close request", slog.String("type", types.CloseMessage(d[0]).String()), slog.String("name", name))
+
+	switch types.CloseMessage(d[0]) {
+	case types.CloseStatement:
+		stmt, _ := srv.Statements.Get(ctx, name)
+		srv.Statements.Delete(ctx, name) //nolint:errcheck
+		if stmt != nil {
+			srv.Portals.DeleteByStatement(ctx, stmt) //nolint:errcheck
+		}
+	case types.ClosePortal:
+		srv.Portals.Delete(ctx, name) //nolint:errcheck
+	}
 
 	if srv.ParallelPipeline.Enabled {
 		srv.ResponseQueue.Enqueue(NewCloseCompleteEvent())
@@ -730,7 +762,11 @@ func (srv *Session) handleClose(ctx context.Context, reader *buffer.Reader, writ
 	return writer.End()
 }
 
-// executePipelined handles Execute in parallel pipeline mode
+// executePipelined handles Execute in parallel pipeline mode. When the
+// Execute carries a row limit (or the portal already has a suspended
+// iterator) it is queued as a synchronous event that runs inline during
+// drain, because it needs the portal's iter.Pull2 state. Otherwise it
+// launches a goroutine for parallel execution.
 func (srv *Session) executePipelined(ctx context.Context, writer *buffer.Writer, name string, limit uint32) error {
 	portal, err := srv.Portals.Get(ctx, name)
 	if err != nil {
@@ -741,42 +777,46 @@ func (srv *Session) executePipelined(ctx context.Context, writer *buffer.Writer,
 		return srv.drainQueueAndWriteError(ctx, writer, errors.New("unknown portal"))
 	}
 
-	// Create result channel and queue the event
-	resultChan := make(chan *QueuedDataWriter, 1)
-	srv.ResponseQueue.Enqueue(NewExecuteEvent(resultChan, portal.formats))
+	resultChan := make(chan *executeResult, 1)
+	srv.ResponseQueue.Enqueue(NewExecuteEvent(resultChan))
 
-	// Launch async execution
-	go srv.executeAsync(ctx, portal, limit, resultChan)
+	prev := portal.pending
+	done := make(chan struct{})
+	portal.pending = done
+	go srv.executeAsync(ctx, done, portal, Limit(limit), prev, resultChan)
 
 	return nil
 }
 
-// executeAsync runs the portal execution in a separate goroutine
-func (srv *Session) executeAsync(ctx context.Context, portal *Portal, limit uint32, resultChan chan<- *QueuedDataWriter) {
+// executeAsync runs portal.execute in a separate goroutine, capturing the
+// wire output into a buffer. If prev is non-nil, it waits for the previous
+// goroutine on the same portal to finish before starting.
+func (srv *Session) executeAsync(ctx context.Context, done chan struct{}, portal *Portal, limit Limit, prev chan struct{}, resultChan chan<- *executeResult) {
+	defer close(done)
 	defer close(resultChan)
 	defer func() {
 		if r := recover(); r != nil {
-			collector := NewQueuedDataWriter(ctx, portal.statement.columns, Limit(limit))
-			collector.SetError(fmt.Errorf("panic during execution: %v", r))
-			resultChan <- collector
+			resultChan <- &executeResult{err: fmt.Errorf("panic during execution: %v", r)}
 		}
 	}()
 
-	srv.logger.Debug("starting async execution",
-		slog.Bool("has_function", portal.statement.fn != nil))
-
-	collector := NewQueuedDataWriter(ctx, portal.statement.columns, Limit(limit))
-
-	err := portal.statement.fn(ctx, collector, portal.parameters)
-	if err != nil {
-		collector.SetError(err)
+	if prev != nil {
+		<-prev
 	}
 
-	srv.logger.Debug("async execution complete",
-		slog.Bool("has_error", collector.GetError() != nil),
-		slog.Int("rows", int(collector.Written())))
+	srv.logger.Debug("starting async execution")
 
-	resultChan <- collector
+	buf := &bytes.Buffer{}
+	w := buffer.NewWriter(srv.logger, buf)
+
+	err := portal.execute(ctx, limit, srv.reader, w)
+
+	result := &executeResult{buf: buf, err: err}
+
+	srv.logger.Debug("async execution complete",
+		slog.Bool("has_error", err != nil))
+
+	resultChan <- result
 }
 
 // handleSync handles the Sync message (extended query protocol)
@@ -901,22 +941,16 @@ func (srv *Session) writeQueuedResponse(ctx context.Context, writer *buffer.Writ
 		return srv.writeColumnDescription(ctx, writer, event.Formats, event.Columns)
 
 	case ResponseExecute:
-		// Execute writes DataRows followed by CommandComplete
 		if event.Result == nil {
-			// No result yet, this shouldn't happen in normal flow
 			return errors.New("execute event has no result")
 		}
 
-		// Check for execution error
-		if err := event.Result.GetError(); err != nil {
-			return srv.WriteError(writer, err)
+		if event.Result.err != nil {
+			return srv.WriteError(writer, event.Result.err)
 		}
 
-		// Use DataWriter for correct encoding
-		// Note: We use NoLimit here because the result is already limited during execution
-		dataWriter := NewDataWriter(ctx, srv, event.Result.Columns(), event.Formats, NoLimit, nil, writer)
-
-		return event.Result.Replay(ctx, dataWriter)
+		_, err := writer.Write(event.Result.buf.Bytes())
+		return err
 
 	default:
 		return fmt.Errorf("unknown response event kind: %v", event.Kind)
