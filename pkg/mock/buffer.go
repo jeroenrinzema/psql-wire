@@ -123,14 +123,13 @@ func NewDescribeReader(t *testing.T, logger *slog.Logger, describeType types.Des
 }
 
 // NewCloseReader creates a buffer.Reader containing a Close message ready to be processed.
-// closeType should be 'S' for statement or 'P' for portal.
-func NewCloseReader(t *testing.T, logger *slog.Logger, closeType byte, name string) *buffer.Reader {
+func NewCloseReader(t *testing.T, logger *slog.Logger, closeType types.CloseMessage, name string) *buffer.Reader {
 	t.Helper()
 
 	inputBuf := &bytes.Buffer{}
 	writer := NewWriter(t, inputBuf)
 	writer.Start(types.ClientClose)
-	writer.AddByte(closeType)
+	writer.AddByte(byte(closeType))
 	writer.AddString(name)
 	writer.AddNullTerminate()
 	if err := writer.End(); err != nil {
