@@ -27,7 +27,7 @@ func NewErrUnimplementedMessageType(t types.ClientMessage) error {
 // the given name.
 func NewErrUnkownStatement(name string) error {
 	err := fmt.Errorf("unknown executeable: %s", name)
-	return psqlerr.WithSeverity(psqlerr.WithCode(err, codes.InvalidPreparedStatementDefinition), psqlerr.LevelFatal)
+	return psqlerr.WithSeverity(psqlerr.WithCode(err, codes.InvalidPreparedStatementDefinition), psqlerr.LevelError)
 }
 
 // NewErrUndefinedStatement is returned whenever no statement has been defined

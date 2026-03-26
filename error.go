@@ -1,7 +1,6 @@
 package wire
 
 import (
-	"github.com/jeroenrinzema/psql-wire/codes"
 	psqlerr "github.com/jeroenrinzema/psql-wire/errors"
 	"github.com/jeroenrinzema/psql-wire/pkg/buffer"
 	"github.com/jeroenrinzema/psql-wire/pkg/types"
@@ -81,17 +80,17 @@ func (srv *Session) WriteError(writer *buffer.Writer, err error) error {
 		return werr
 	}
 
-	if srv.inExtendedQuery {
-		srv.discardUntilSync = true
-		return nil
-	}
-
 	desc := psqlerr.Flatten(err)
 
-	// NOTE: we are writing a ready for query message to indicate the end of a
-	// command cycle. However, for authentication failures, we skip this
-	// because the connection will be terminated.
-	if desc.Code == codes.InvalidPassword {
+	// FATAL and PANIC errors terminate the connection. The client expects the
+	// server to close after sending the ErrorResponse, so we must not wait
+	// for a Sync or send ReadyForQuery.
+	if desc.Severity == psqlerr.LevelFatal || desc.Severity == psqlerr.LevelPanic {
+		return err
+	}
+
+	if srv.inExtendedQuery {
+		srv.discardUntilSync = true
 		return nil
 	}
 
