@@ -119,7 +119,12 @@ type Server struct {
 	//
 	// Additionally it also waits for the Serve loop to stop listening for new
 	// connections.
-	wg               sync.WaitGroup
+	wg sync.WaitGroup
+	// Tracks total number of connection-serving goroutines, so tests can wait
+	// for them to exit before the test's `t` becomes invalid.
+	//
+	// Additionally it also waits for the Go routine
+	connWg           sync.WaitGroup
 	logger           *slog.Logger
 	Auth             AuthStrategy
 	BackendKeyData   BackendKeyDataFunc
@@ -196,7 +201,7 @@ func (srv *Server) Serve(listener net.Listener) error {
 			continue
 		}
 
-		go func() {
+		srv.connWg.Go(func() {
 			ctx := context.Background()
 			err = srv.serve(ctx, conn)
 			if err != nil {
@@ -206,7 +211,7 @@ func (srv *Server) Serve(listener net.Listener) error {
 					srv.logger.Error("an unexpected error got returned while serving a client connection", "err", err)
 				}
 			}
-		}()
+		})
 	}
 }
 
@@ -361,6 +366,13 @@ func (srv *Server) Shutdown(ctx context.Context) error {
 		srv.logger.Warn("graceful shutdown timed out, some connections may be forcefully closed")
 		return shutdownCtx.Err()
 	}
+}
+
+// Wait blocks until all connection-serving goroutines have finished. This is
+// intended to be called at the end of a test, so no go-routines are lingering.
+// This can block indefinitely if not all clients have disconnected.
+func (srv *Server) Wait() {
+	srv.connWg.Wait()
 }
 
 // isNormalConnectionClosure checks if an error represents a normal client connection closure

@@ -139,4 +139,9 @@ func (client *Client) Close(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+
+	err = client.conn.Close()
+	if err != nil {
+		t.Fatal(err)
+	}
 }

@@ -37,6 +37,7 @@ func TListenAndServe(t *testing.T, server *Server) *net.TCPAddr {
 		if err != nil {
 			t.Fatal(err)
 		}
+		server.Wait()
 	})
 
 	go server.Serve(listener) //nolint:errcheck
@@ -1236,6 +1237,10 @@ func TListenAndServeWithoutCleanup(t *testing.T, server *Server) *net.TCPAddr {
 	if err != nil {
 		t.Fatal(err)
 	}
+
+	t.Cleanup(func() {
+		server.Wait()
+	})
 
 	go server.Serve(listener) //nolint:errcheck
 	return listener.Addr().(*net.TCPAddr)
