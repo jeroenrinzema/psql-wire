@@ -804,6 +804,10 @@ func (srv *Session) executeAsync(ctx context.Context, done chan struct{}, portal
 		<-prev
 	}
 
+	// pgtype.Map.PlanEncode caches encoding plans internally, so concurrent
+	// goroutines sharing the same Map will race. Give each goroutine its own.
+	ctx = setTypeInfo(ctx, srv.newTypeMap())
+
 	srv.logger.Debug("starting async execution")
 
 	buf := &bytes.Buffer{}

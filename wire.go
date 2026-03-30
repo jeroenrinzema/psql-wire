@@ -204,18 +204,17 @@ func (srv *Server) Serve(listener net.Listener) error {
 	}
 }
 
-func (srv *Server) serve(ctx context.Context, conn net.Conn) error {
-	// Create a per-connection pgx Map to avoid concurrent map writes
-	// Each connection gets its own type map instance to prevent race conditions
-	// when multiple goroutines access the same map concurrently during query execution
-	connectionTypes := pgtype.NewMap()
-
-	// Apply any type extension configured via ExtendTypes
+// newTypeMap creates a fresh pgtype.Map with any configured type extensions applied.
+func (srv *Server) newTypeMap() *pgtype.Map {
+	m := pgtype.NewMap()
 	if srv.typeExtension != nil {
-		srv.typeExtension(connectionTypes)
+		srv.typeExtension(m)
 	}
+	return m
+}
 
-	ctx = setTypeInfo(ctx, connectionTypes)
+func (srv *Server) serve(ctx context.Context, conn net.Conn) error {
+	ctx = setTypeInfo(ctx, srv.newTypeMap())
 	ctx = setRemoteAddress(ctx, conn.RemoteAddr())
 	defer conn.Close() //nolint:errcheck
 
