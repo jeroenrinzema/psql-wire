@@ -218,6 +218,15 @@ func (client *Client) ExpectDataRow(t *testing.T) [][]byte {
 	return row
 }
 
+// ExpectCommandComplete reads a CommandComplete message and returns the tag string.
+func (client *Client) ExpectCommandComplete(t *testing.T) string {
+	t.Helper()
+	client.ExpectMsg(t, types.ServerCommandComplete)
+	tag, err := client.GetString()
+	require.NoError(t, err)
+	return tag
+}
+
 // ExpectDataRows reads exactly n DataRow messages and returns all rows.
 func (client *Client) ExpectDataRows(t *testing.T, n int) [][][]byte {
 	t.Helper()

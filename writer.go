@@ -128,7 +128,7 @@ func (writer *dataWriter) Complete(description string) error {
 	}
 
 	defer writer.close()
-	writer.tag = &description
+	*writer.tag = description
 	return commandComplete(writer.client, description)
 }
 

@@ -284,11 +284,13 @@ func TestReExecuteCompletedPortal(t *testing.T) {
 	client.Execute(t, "portal1", 2)
 	rows := client.ExpectDataRows(t, 1)
 	assert.Equal(t, "1", string(rows[0][0]))
-	client.ExpectMsg(t, types.ServerCommandComplete)
+	tag := client.ExpectCommandComplete(t)
+	assert.Equal(t, "SELECT 1", tag)
 
-	// Re-execute the same portal — should get CommandComplete with no rows
+	// Re-execute the same portal — should get CommandComplete with the same tag
 	client.Execute(t, "portal1", 0)
-	client.ExpectMsg(t, types.ServerCommandComplete)
+	reTag := client.ExpectCommandComplete(t)
+	assert.Equal(t, "SELECT 1", reTag)
 
 	client.Sync(t)
 	client.ExpectMsg(t, types.ServerReady)
