@@ -60,7 +60,18 @@ func (cache *DefaultStatementCache) Get(ctx context.Context, name string) (*Stat
 	return stmt, nil
 }
 
-func (cache *DefaultStatementCache) Close() {}
+func (cache *DefaultStatementCache) Delete(ctx context.Context, name string) error {
+	cache.mu.Lock()
+	defer cache.mu.Unlock()
+	delete(cache.statements, name)
+	return nil
+}
+
+func (cache *DefaultStatementCache) Close() {
+	cache.mu.Lock()
+	defer cache.mu.Unlock()
+	clear(cache.statements)
+}
 
 type Portal struct {
 	statement  *Statement
@@ -118,14 +129,18 @@ func (cache *DefaultPortalCache) Execute(ctx context.Context, name string, limit
 		}
 	}()
 
-	cache.mu.Lock()
-	defer cache.mu.Unlock()
-
+	// Look up the portal under the lock, then release before executing.
+	// The handler may call back into the cache so we must make sure we don't
+	// hold the lock for the execute duration. e.g. a handler for DEALLOCATE
+	// may call back into the cache to delete a portal.
+	cache.mu.RLock()
 	if cache.portals == nil {
+		cache.mu.RUnlock()
 		return nil
 	}
 
 	portal, has := cache.portals[name]
+	cache.mu.RUnlock()
 	if !has {
 		return nil
 	}
@@ -134,4 +149,26 @@ func (cache *DefaultPortalCache) Execute(ctx context.Context, name string, limit
 	return portal.statement.fn(ctx, NewDataWriter(ctx, session, portal.statement.columns, portal.formats, limit, reader, writer), portal.parameters)
 }
 
-func (cache *DefaultPortalCache) Close() {}
+func (cache *DefaultPortalCache) Delete(ctx context.Context, name string) error {
+	cache.mu.Lock()
+	defer cache.mu.Unlock()
+	delete(cache.portals, name)
+	return nil
+}
+
+func (cache *DefaultPortalCache) DeleteByStatement(ctx context.Context, stmt *Statement) error {
+	cache.mu.Lock()
+	defer cache.mu.Unlock()
+	for name, portal := range cache.portals {
+		if portal.statement == stmt {
+			delete(cache.portals, name)
+		}
+	}
+	return nil
+}
+
+func (cache *DefaultPortalCache) Close() {
+	cache.mu.Lock()
+	defer cache.mu.Unlock()
+	clear(cache.portals)
+}

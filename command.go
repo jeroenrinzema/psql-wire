@@ -27,7 +27,7 @@ func NewErrUnimplementedMessageType(t types.ClientMessage) error {
 // the given name.
 func NewErrUnkownStatement(name string) error {
 	err := fmt.Errorf("unknown executeable: %s", name)
-	return psqlerr.WithSeverity(psqlerr.WithCode(err, codes.InvalidPreparedStatementDefinition), psqlerr.LevelFatal)
+	return psqlerr.WithSeverity(psqlerr.WithCode(err, codes.InvalidPreparedStatementDefinition), psqlerr.LevelError)
 }
 
 // NewErrUndefinedStatement is returned whenever no statement has been defined
@@ -63,7 +63,7 @@ type Session struct {
 
 	// inExtendedQuery is true when the current message being handled is an
 	// extended query protocol message (Parse, Bind, Describe, Execute, Close,
-	// Flush, Sync). This lets Session.ErrorCode behave correctly for both
+	// Flush, Sync). This lets Session.WriteError behave correctly for both
 	// protocols.
 	inExtendedQuery bool
 
@@ -131,13 +131,15 @@ func (srv *Session) consumeSingleCommand(ctx context.Context, reader *buffer.Rea
 		return err
 	}
 
+	// We hold closingMu for reading while checking closing + adding to the
+	// wait group, so that Close cannot finish wg.Wait before we are tracked.
+	srv.closingMu.RLock()
 	if srv.closing.Load() {
+		srv.closingMu.RUnlock()
 		return nil
 	}
-
-	// NOTE: we increase the wait group by one in order to make sure that idle
-	// connections are not blocking a close.
 	srv.wg.Add(1)
+	srv.closingMu.RUnlock()
 	srv.logger.Debug("<- incoming command", slog.Int("length", length), slog.String("type", t.String()))
 	err = srv.handleCommand(ctx, conn, t, reader, writer)
 	srv.wg.Done()
@@ -371,6 +373,18 @@ func (srv *Session) handleParse(ctx context.Context, reader *buffer.Reader, writ
 		// Specifies the object ID of the parameter data type. Placing a zero here
 		// is equivalent to leaving the type unspecified.
 		// `reader.GetUint32()`
+	}
+
+	existing, err := srv.Statements.Get(ctx, name)
+	if err != nil {
+		if srv.ParallelPipeline.Enabled {
+			return srv.drainQueueAndWriteError(ctx, writer, err)
+		}
+		return srv.WriteError(writer, err)
+	}
+
+	if existing != nil {
+		srv.Portals.DeleteByStatement(ctx, existing) //nolint:errcheck
 	}
 
 	if srv.ParallelPipeline.Enabled {
@@ -719,7 +733,18 @@ func (srv *Session) handleClose(ctx context.Context, reader *buffer.Reader, writ
 		return err
 	}
 
-	srv.logger.Debug("incoming close request", slog.String("type", string(d[0])), slog.String("name", name))
+	srv.logger.Debug("incoming close request", slog.String("type", types.CloseMessage(d[0]).String()), slog.String("name", name))
+
+	switch types.CloseMessage(d[0]) {
+	case types.CloseStatement:
+		stmt, _ := srv.Statements.Get(ctx, name)
+		srv.Statements.Delete(ctx, name) //nolint:errcheck
+		if stmt != nil {
+			srv.Portals.DeleteByStatement(ctx, stmt) //nolint:errcheck
+		}
+	case types.ClosePortal:
+		srv.Portals.Delete(ctx, name) //nolint:errcheck
+	}
 
 	if srv.ParallelPipeline.Enabled {
 		srv.ResponseQueue.Enqueue(NewCloseCompleteEvent())

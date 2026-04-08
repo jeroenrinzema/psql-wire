@@ -9,6 +9,9 @@ type ServerMessage byte
 // DescribeMessage represents a client describe message type.
 type DescribeMessage byte
 
+// CloseMessage represents a client close message type.
+type CloseMessage byte
+
 // http://www.postgresql.org/docs/9.4/static/protocol-message-formats.html
 const (
 	ClientBind        ClientMessage = 'B'
@@ -45,6 +48,9 @@ const (
 
 	DescribePortal    DescribeMessage = 'P'
 	DescribeStatement DescribeMessage = 'S'
+
+	ClosePortal    CloseMessage = 'P'
+	CloseStatement CloseMessage = 'S'
 )
 
 func (m ClientMessage) String() string {
@@ -126,6 +132,17 @@ func (m DescribeMessage) String() string {
 	case DescribePortal:
 		return "Portal"
 	case DescribeStatement:
+		return "Statement"
+	default:
+		return "Unknown"
+	}
+}
+
+func (m CloseMessage) String() string {
+	switch m {
+	case ClosePortal:
+		return "Portal"
+	case CloseStatement:
 		return "Statement"
 	default:
 		return "Unknown"

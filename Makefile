@@ -39,7 +39,7 @@ lint: | $(GOLANGCI_LINT) ; $(info $(M) running golint…) @ ## Run the project l
 
 .PHONY: test
 test: ## Run all tests
-	$Q $(GO) test ./... -timeout 20s
+	$Q $(GO) test ./... -timeout 20s -race
 
 .PHONY: generate
 generate: | $(TOOLS) ; $(info $(M) running go generate…) @ ## Run go generate
