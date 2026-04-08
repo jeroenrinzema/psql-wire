@@ -195,6 +195,17 @@ func ParallelPipeline(config ParallelPipelineConfig) OptionFn {
 	}
 }
 
+// ErrorSanitizer sets a function that transforms errors before they are sent
+// to the client. This hook is called before writing any ErrorResponse to the
+// wire, including during authentication. It can be used to mask internal error
+// details, generate error IDs, or rewrite error messages.
+func ErrorSanitizer(fn func(error) error) OptionFn {
+	return func(srv *Server) error {
+		srv.ErrorSanitizer = fn
+		return nil
+	}
+}
+
 // MessageBufferSize sets the message buffer size which is allocated once a new
 // connection gets constructed. If a negative value or zero value is provided is
 // the default message buffer size used.

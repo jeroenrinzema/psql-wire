@@ -226,8 +226,36 @@ func TestSessionErrorCode(t *testing.T) {
 			Portals:    &DefaultPortalCache{},
 		}
 
-		err := session.WriteError(writer, psqlerr.WithCode(errors.New("invalid username/password"), codes.InvalidPassword))
+		inputErr := psqlerr.WithSeverity(psqlerr.WithCode(errors.New("invalid username/password"), codes.InvalidPassword), psqlerr.LevelFatal)
+		err := session.WriteError(writer, inputErr)
+		assert.ErrorIs(t, err, inputErr)
+
+		reader := buffer.NewReader(logger, sink, buffer.DefaultBufferSize)
+
+		msgType, _, err := reader.ReadTypedMsg()
 		assert.NoError(t, err)
+		assert.Equal(t, types.ServerMessage(msgType), types.ServerErrorResponse)
+
+		_, _, err = reader.ReadTypedMsg()
+		assert.Error(t, err)
+	})
+
+	t.Run("fatal error in extended query returns error instead of waiting for sync", func(t *testing.T) {
+		logger := slogt.New(t)
+		sink := bytes.NewBuffer([]byte{})
+		writer := buffer.NewWriter(logger, sink)
+
+		session := &Session{
+			Server:          &Server{logger: logger},
+			Statements:      &DefaultStatementCache{},
+			Portals:         &DefaultPortalCache{},
+			inExtendedQuery: true,
+		}
+
+		inputErr := psqlerr.WithSeverity(psqlerr.WithCode(errors.New("fatal failure"), codes.FeatureNotSupported), psqlerr.LevelFatal)
+		err := session.WriteError(writer, inputErr)
+		assert.ErrorIs(t, err, inputErr)
+		assert.False(t, session.discardUntilSync)
 
 		reader := buffer.NewReader(logger, sink, buffer.DefaultBufferSize)
 

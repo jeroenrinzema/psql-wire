@@ -110,8 +110,21 @@ func NewServer(parse ParseFn, options ...OptionFn) (*Server, error) {
 
 // Server contains options for listening to an address.
 type Server struct {
-	closing          atomic.Bool
-	wg               sync.WaitGroup
+	closing atomic.Bool
+	// Used to make reading closing and calling wg.Add be a single atomic operation.
+	closingMu sync.RWMutex
+	// This WaitGroup tracks the number of connections that are actively
+	// serving a request. Idle connections are not counted. This is used during
+	// Shutdown and Close to wait for outstanding requests to finish.
+	//
+	// Additionally it also waits for the Serve loop to stop listening for new
+	// connections.
+	wg sync.WaitGroup
+	// Tracks total number of connection-serving goroutines, so tests can wait
+	// for them to exit before the test's `t` becomes invalid.
+	//
+	// Additionally it also waits for the Go routine
+	connWg           sync.WaitGroup
 	logger           *slog.Logger
 	Auth             AuthStrategy
 	BackendKeyData   BackendKeyDataFunc
@@ -128,6 +141,7 @@ type Server struct {
 	TerminateConn    CloseFn
 	FlushConn        FlushFn
 	ParallelPipeline ParallelPipelineConfig
+	ErrorSanitizer   func(error) error
 	Version          string
 	ShutdownTimeout  time.Duration
 	typeExtension    func(*pgtype.Map)
@@ -149,21 +163,19 @@ func (srv *Server) ListenAndServe(address string) error {
 // preconfigured configurations. The given listener will be closed once the
 // server is gracefully closed.
 func (srv *Server) Serve(listener net.Listener) error {
-	// Early check to avoid logging and work if shutdown already started
+	srv.closingMu.RLock()
 	if srv.closing.Load() {
+		// Don't start serving if we're already shutting down or shut down.
+		srv.closingMu.RUnlock()
 		return nil
 	}
+	srv.wg.Add(1)
+	srv.closingMu.RUnlock()
+
+	defer srv.wg.Done()
 
 	srv.logger.Info("serving incoming connections", slog.String("addr", listener.Addr().String()))
-
-	// Double-check: if shutdown started between the check and Add, we must undo
-	if srv.closing.Load() {
-		return nil
-	}
-
-	srv.wg.Add(1)
-	go func() {
-		defer srv.wg.Done()
+	srv.wg.Go(func() {
 		<-srv.closer
 
 		srv.logger.Info("closing server")
@@ -172,7 +184,7 @@ func (srv *Server) Serve(listener net.Listener) error {
 		if err != nil {
 			srv.logger.Error("unexpected error while attempting to close the net listener", "err", err)
 		}
-	}()
+	})
 
 	for {
 		conn, err := listener.Accept()
@@ -190,7 +202,7 @@ func (srv *Server) Serve(listener net.Listener) error {
 			continue
 		}
 
-		go func() {
+		srv.connWg.Go(func() {
 			ctx := context.Background()
 			err = srv.serve(ctx, conn)
 			if err != nil {
@@ -200,7 +212,7 @@ func (srv *Server) Serve(listener net.Listener) error {
 					srv.logger.Error("an unexpected error got returned while serving a client connection", "err", err)
 				}
 			}
-		}()
+		})
 	}
 }
 
@@ -235,6 +247,7 @@ func (srv *Server) serve(ctx context.Context, conn net.Conn) error {
 	srv.logger.Debug("handshake successful, validating authentication")
 
 	writer := buffer.NewWriter(srv.logger, conn)
+	writer.ErrorSanitizer = srv.ErrorSanitizer
 	ctx, err = srv.readClientParameters(ctx, reader)
 	if err != nil {
 		return err
@@ -294,11 +307,14 @@ func (srv *Server) serve(ctx context.Context, conn net.Conn) error {
 
 // Close gracefully closes the underlaying Postgres server.
 func (srv *Server) Close() error {
-	if srv.closing.Load() {
+	srv.closingMu.Lock()
+	if !srv.closing.CompareAndSwap(false, true) {
+		srv.closingMu.Unlock()
+		srv.wg.Wait()
 		return nil
 	}
+	srv.closingMu.Unlock()
 
-	srv.closing.Store(true)
 	close(srv.closer)
 	srv.wg.Wait()
 	return nil
@@ -310,11 +326,14 @@ func (srv *Server) Close() error {
 // If the context has no deadline, the server's ShutdownTimeout is used.
 func (srv *Server) Shutdown(ctx context.Context) error {
 	// Check if already shutting down or shut down
-	if srv.closing.Load() {
+	srv.closingMu.Lock()
+	if !srv.closing.CompareAndSwap(false, true) {
 		// If already closing, just wait for existing shutdown to complete
+		srv.closingMu.Unlock()
 		srv.wg.Wait()
 		return nil
 	}
+	srv.closingMu.Unlock()
 
 	// Use the shorter of context deadline or server timeout
 	var shutdownCtx context.Context
@@ -330,13 +349,6 @@ func (srv *Server) Shutdown(ctx context.Context) error {
 		shutdownCtx, cancel = context.WithTimeout(ctx, timeout)
 	}
 	defer cancel()
-
-	// Atomically check and set closing state
-	if !srv.closing.CompareAndSwap(false, true) {
-		// Another goroutine beat us to it, just wait for shutdown to complete
-		srv.wg.Wait()
-		return nil
-	}
 
 	srv.logger.Info("starting graceful shutdown")
 
@@ -358,6 +370,13 @@ func (srv *Server) Shutdown(ctx context.Context) error {
 		srv.logger.Warn("graceful shutdown timed out, some connections may be forcefully closed")
 		return shutdownCtx.Err()
 	}
+}
+
+// Wait blocks until all connection-serving goroutines have finished. This is
+// intended to be called at the end of a test, so no go-routines are lingering.
+// This can block indefinitely if not all clients have disconnected.
+func (srv *Server) Wait() {
+	srv.connWg.Wait()
 }
 
 // isNormalConnectionClosure checks if an error represents a normal client connection closure
