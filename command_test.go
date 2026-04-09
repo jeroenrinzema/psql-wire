@@ -2,8 +2,10 @@ package wire
 
 import (
 	"context"
+	"encoding/binary"
 	"fmt"
 	"net"
+	"sync"
 	"testing"
 
 	"github.com/jackc/pgx/v5"
@@ -60,7 +62,7 @@ func TestBindMessageParameters(t *testing.T) {
 		},
 	}
 
-	handler := func(ctx context.Context, query string) (PreparedStatements, error) {
+	handler := func(ctx context.Context, query Query) (PreparedStatements, error) {
 		handle := func(ctx context.Context, writer DataWriter, parameters []Parameter) error {
 			t.Log("serving query")
 
@@ -75,7 +77,7 @@ func TestBindMessageParameters(t *testing.T) {
 			return writer.Complete("SELECT 1")
 		}
 
-		return Prepared(NewStatement(handle, WithColumns(columns), WithParameters(ParseParameters(query)))), nil
+		return Prepared(NewStatement(handle, WithColumns(columns), WithParameters(ParseParameters(query.Query)))), nil
 	}
 
 	server, err := NewServer(handler, Logger(slogt.New(t)))
@@ -183,7 +185,7 @@ func TestPortalSuspended(t *testing.T) {
 		},
 	}
 
-	handler := func(ctx context.Context, query string) (PreparedStatements, error) {
+	handler := func(ctx context.Context, query Query) (PreparedStatements, error) {
 		handle := func(ctx context.Context, writer DataWriter, parameters []Parameter) error {
 			for i := 0; i < totalRows; i++ {
 				if err := writer.Row([]any{int32(i)}); err != nil {
@@ -251,7 +253,7 @@ func TestReExecuteCompletedPortal(t *testing.T) {
 		},
 	}
 
-	handler := func(ctx context.Context, query string) (PreparedStatements, error) {
+	handler := func(ctx context.Context, query Query) (PreparedStatements, error) {
 		handle := func(ctx context.Context, writer DataWriter, parameters []Parameter) error {
 			if err := writer.Row([]any{int32(1)}); err != nil {
 				return err
@@ -296,4 +298,134 @@ func TestReExecuteCompletedPortal(t *testing.T) {
 	client.ExpectMsg(t, types.ServerReady)
 
 	client.Close(t)
+}
+
+// TestClientParameterTypeMismatch demonstrates that when a client sends binary
+// parameters using a smaller integer type (e.g. int2) than what the server
+// would otherwise declare (e.g. int8), the ParseFn can use the parameterOIDs
+// argument to match the client's types and decode correctly.
+//
+// This happens in practice with clients like psycopg3 that encode small Python
+// ints as int2 (2 bytes binary), while the server-side resolved type may be
+// int8 (bigint). PostgreSQL handles this via implicit casts at the planning
+// level. psql-wire passes the client-specified parameter OIDs from the Parse
+// message to ParseFn so handlers can do the same.
+func TestClientParameterTypeMismatch(t *testing.T) {
+	t.Parallel()
+
+	columns := Columns{
+		{
+			Table: 0,
+			Name:  "val",
+			Oid:   pgtype.Int8OID,
+			Width: 8,
+		},
+	}
+
+	handler := func(ctx context.Context, query Query) (PreparedStatements, error) {
+		// The ParameterOIDs slice tells us what types the client will
+		// send binary data as. We can use this to set WithParameters to
+		// match the client's types, so Scan decodes correctly.
+		parameterOIDs := query.ParameterOIDs
+		if len(parameterOIDs) == 0 {
+			parameterOIDs = ParseParameters(query.Query)
+		}
+
+		handle := func(ctx context.Context, writer DataWriter, parameters []Parameter) error {
+			val, err := parameters[0].Scan(parameterOIDs[0])
+			if err != nil {
+				return err
+			}
+
+			writer.Row([]any{val}) //nolint:errcheck
+			return writer.Complete("SELECT 1")
+		}
+
+		return Prepared(NewStatement(handle,
+			WithColumns(columns),
+			WithParameters(parameterOIDs),
+		)), nil
+	}
+
+	server, err := NewServer(handler, Logger(slogt.New(t)))
+	require.NoError(t, err)
+
+	address := TListenAndServe(t, server)
+
+	ctx := context.Background()
+	connstr := fmt.Sprintf("postgres://%s:%d", address.IP, address.Port)
+
+	conn, err := pgx.Connect(ctx, connstr)
+	require.NoError(t, err)
+	defer conn.Close(ctx) //nolint:errcheck
+
+	t.Run("int2 binary for int8 parameter", func(t *testing.T) {
+		int2Bytes := make([]byte, 2)
+		binary.BigEndian.PutUint16(int2Bytes, 42)
+
+		result := conn.PgConn().ExecParams(ctx,
+			"SELECT $1",
+			[][]byte{int2Bytes},
+			[]uint32{pgtype.Int2OID},
+			[]int16{pgx.BinaryFormatCode},
+			nil,
+		)
+		_, err := result.Close()
+		assert.NoError(t, err, "handler should decode binary int2 via ClientOID()")
+	})
+}
+
+// TestParseFnSimpleQueryFlag verifies that the Query.SimpleQuery flag reflects
+// which protocol a query arrived on: true for the simple query protocol and
+// false for the extended query (Parse/Bind/Execute) protocol.
+func TestParseFnSimpleQueryFlag(t *testing.T) {
+	t.Parallel()
+
+	var mu sync.Mutex
+	captured := map[string]Query{}
+
+	handler := func(ctx context.Context, query Query) (PreparedStatements, error) {
+		mu.Lock()
+		captured[query.Query] = query
+		mu.Unlock()
+
+		handle := func(ctx context.Context, writer DataWriter, parameters []Parameter) error {
+			return writer.Complete("SELECT 0")
+		}
+		return Prepared(NewStatement(handle)), nil
+	}
+
+	server, err := NewServer(handler, Logger(slogt.New(t)))
+	require.NoError(t, err)
+
+	address := TListenAndServe(t, server)
+
+	ctx := context.Background()
+	connstr := fmt.Sprintf("postgres://%s:%d", address.IP, address.Port)
+
+	conn, err := pgx.Connect(ctx, connstr)
+	require.NoError(t, err)
+	defer conn.Close(ctx) //nolint:errcheck
+
+	// The simple query protocol carries the query in a single Query message.
+	_, err = conn.Exec(ctx, "SELECT 'simple'", pgx.QueryExecModeSimpleProtocol)
+	require.NoError(t, err)
+
+	// ExecParams always uses the extended query protocol, sending a Parse
+	// message before Bind and Execute.
+	result := conn.PgConn().ExecParams(ctx, "SELECT 'extended'", nil, nil, nil, nil)
+	_, err = result.Close()
+	require.NoError(t, err)
+
+	mu.Lock()
+	defer mu.Unlock()
+
+	simple, ok := captured["SELECT 'simple'"]
+	require.True(t, ok, "simple query should have reached the handler")
+	assert.True(t, simple.SimpleQuery, "query received over the simple protocol should have SimpleQuery=true")
+	assert.Nil(t, simple.ParameterOIDs, "simple queries cannot specify parameter OIDs")
+
+	extended, ok := captured["SELECT 'extended'"]
+	require.True(t, ok, "extended query should have reached the handler")
+	assert.False(t, extended.SimpleQuery, "query received over the extended protocol should have SimpleQuery=false")
 }

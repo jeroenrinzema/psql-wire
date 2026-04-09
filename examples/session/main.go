@@ -32,8 +32,8 @@ func session(ctx context.Context) (context.Context, error) {
 	return context.WithValue(ctx, id, counter), nil
 }
 
-func handler(ctx context.Context, query string) (wire.PreparedStatements, error) {
-	log.Println("incoming SQL query:", query)
+func handler(ctx context.Context, query wire.Query) (wire.PreparedStatements, error) {
+	log.Println("incoming SQL query:", query.Query)
 
 	handle := func(ctx context.Context, writer wire.DataWriter, parameters []wire.Parameter) error {
 		session := ctx.Value(id).(int)

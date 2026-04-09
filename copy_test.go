@@ -43,8 +43,8 @@ func TestCopyReaderText(t *testing.T) {
 		},
 	}
 
-	handler := func(ctx context.Context, query string) (PreparedStatements, error) {
-		log.Println("incoming SQL query:", query)
+	handler := func(ctx context.Context, query Query) (PreparedStatements, error) {
+		log.Println("incoming SQL query:", query.Query)
 
 		handle := func(ctx context.Context, writer DataWriter, parameters []Parameter) error {
 			log.Println("copying data")
@@ -153,8 +153,8 @@ func TestCopyReaderTextNullAndEscape(t *testing.T) {
 		},
 	}
 
-	handler := func(ctx context.Context, query string) (PreparedStatements, error) {
-		log.Println("incoming SQL query:", query)
+	handler := func(ctx context.Context, query Query) (PreparedStatements, error) {
+		log.Println("incoming SQL query:", query.Query)
 
 		handle := func(ctx context.Context, writer DataWriter, parameters []Parameter) error {
 			log.Println("copying data")

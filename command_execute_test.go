@@ -25,7 +25,7 @@ func TestHandleExecute_ParallelPipeline_Success(t *testing.T) {
 
 	logger := slogt.New(t)
 
-	mockParse := func(ctx context.Context, query string) (PreparedStatements, error) {
+	mockParse := func(ctx context.Context, query Query) (PreparedStatements, error) {
 		stmt := NewStatement(
 			func(ctx context.Context, writer DataWriter, parameters []Parameter) error {
 				if err := writer.Row([]any{"Hello World"}); err != nil {
