@@ -4,8 +4,6 @@ import (
 	"context"
 	"crypto/tls"
 	"log/slog"
-	"regexp"
-	"strconv"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgtype"
@@ -337,39 +335,3 @@ func SessionMiddleware(fn SessionHandler) OptionFn {
 	}
 }
 
-// QueryParameters represents a regex which could be used to identify and lookup
-// parameters defined inside a given query. Parameters could be defined as
-// [positional parameters] and non-positional parameters.
-//
-// [positional parameters]: https://www.postgresql.org/docs/15/sql-expressions.html#SQL-EXPRESSIONS-PARAMETERS-POSITIONAL
-var QueryParameters = regexp.MustCompile(`\$(\d+)|\?`)
-
-// ParseParameters attempts to parse the parameters in the given string and
-// returns the expected parameters. This is necessary for the query protocol
-// where the parameter types are expected to be defined in the extended query protocol.
-func ParseParameters(query string) []uint32 {
-	// NOTE: we have to lookup all parameters within the given query.
-	// Parameters could represent positional parameters or anonymous
-	// parameters. We return a zero parameter oid for each parameter
-	// indicating that the given parameters could contain any type. We
-	// could safely ignore the err check while converting given
-	// parameters since ony matches are returned by the positional
-	// parameter regex.
-	matches := QueryParameters.FindAllStringSubmatch(query, -1)
-	parameters := make([]uint32, 0, len(matches))
-	for _, match := range matches {
-		// NOTE: we have to check whether the returned match is a
-		// positional parameter or an un-positional parameter.
-		// SELECT * FROM users WHERE id = ?
-		if match[1] == "" {
-			parameters = append(parameters, 0)
-		}
-
-		position, _ := strconv.Atoi(match[1]) //nolint:errcheck
-		if position > len(parameters) {
-			parameters = parameters[:position]
-		}
-	}
-
-	return parameters
-}
