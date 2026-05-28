@@ -6,6 +6,8 @@ import (
 	"log/slog"
 	"testing"
 
+	"github.com/jeroenrinzema/psql-wire/codes"
+	psqlerr "github.com/jeroenrinzema/psql-wire/errors"
 	"github.com/jeroenrinzema/psql-wire/pkg/buffer"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -63,4 +65,39 @@ func TestDeleteByStatementFromHandler(t *testing.T) {
 	portal, err := cache.Get(ctx, "portal")
 	require.NoError(t, err)
 	assert.Nil(t, portal)
+}
+
+// TestExecuteUnknownPortalReturnsError verifies that Execute on a portal that
+// was never bound (or has already been closed) returns an error tagged with
+// the InvalidCursorName code, matching real PostgreSQL behavior. Previously
+// this was a silent no-op, which made it impossible for clients to detect
+// that their portal had been invalidated.
+func TestExecuteUnknownPortalReturnsError(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+
+	t.Run("never bound", func(t *testing.T) {
+		t.Parallel()
+		cache := &DefaultPortalCache{}
+		err := cache.Execute(ctx, "missing", NoLimit, nil, newDiscardWriter())
+		require.Error(t, err)
+		assert.Equal(t, codes.InvalidCursorName, psqlerr.GetCode(err))
+		assert.Contains(t, err.Error(), `"missing"`)
+	})
+
+	t.Run("after close", func(t *testing.T) {
+		t.Parallel()
+		cache := &DefaultPortalCache{}
+		stmt := &Statement{
+			fn: func(ctx context.Context, writer DataWriter, _ []Parameter) error {
+				return writer.Complete("OK")
+			},
+		}
+		require.NoError(t, cache.Bind(ctx, "p", stmt, nil, nil))
+		require.NoError(t, cache.Delete(ctx, "p"))
+
+		err := cache.Execute(ctx, "p", NoLimit, nil, newDiscardWriter())
+		require.Error(t, err)
+		assert.Equal(t, codes.InvalidCursorName, psqlerr.GetCode(err))
+	})
 }
