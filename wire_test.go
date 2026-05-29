@@ -72,7 +72,7 @@ func TestClientConnect(t *testing.T) {
 		client := mock.NewClient(t, conn)
 		client.Handshake(t)
 		client.Authenticate(t)
-		client.ReadyForQuery(t)
+		client.ReadyForQuery(t, types.ServerIdle)
 		client.Close(t)
 	})
 
@@ -1190,7 +1190,7 @@ func TestClientDisconnectDuringWrite(t *testing.T) {
 	client := mock.NewClient(t, conn)
 	client.Handshake(t)
 	client.Authenticate(t)
-	client.ReadyForQuery(t)
+	client.ReadyForQuery(t, types.ServerIdle)
 
 	// Send query
 	client.Start(types.ClientSimpleQuery)
@@ -1279,7 +1279,7 @@ func TestCloseConnCallback(t *testing.T) {
 		client := mock.NewClient(t, conn)
 		client.Handshake(t)
 		client.Authenticate(t)
-		client.ReadyForQuery(t)
+		client.ReadyForQuery(t, types.ServerIdle)
 
 		// Close connection without sending Terminate message
 		err = conn.Close()

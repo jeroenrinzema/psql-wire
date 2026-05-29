@@ -50,7 +50,7 @@ func (r *CopyReader) Columns() Columns {
 // Read reads a single chunk from the copy-in stream. The read chunk is returned
 // as a byte slice. If the end of the copy-in stream is reached, an io.EOF error
 // is returned.
-func (r *CopyReader) Read() error {
+func (r *CopyReader) Read(ctx context.Context) error {
 reader:
 	for {
 		typed, _, err := r.ReadTypedMsg()
@@ -72,12 +72,12 @@ reader:
 			if err != nil {
 				return err
 			}
-			return r.session.WriteError(r.writer, newErrClientCopyFailed(desc))
+			return r.session.WriteError(ctx, r.writer, newErrClientCopyFailed(desc))
 		default:
 			// Receipt of any other non-copy message type constitutes an error that
 			// will abort the copy-in state as described above.
 			// https://www.postgresql.org/docs/current/protocol-flow.html#PROTOCOL-COPY
-			return r.session.WriteError(r.writer, NewErrUnimplementedMessageType(typed))
+			return r.session.WriteError(ctx, r.writer, NewErrUnimplementedMessageType(typed))
 		}
 	}
 }
@@ -141,7 +141,7 @@ func (r *BinaryCopyReader) Read(ctx context.Context) (_ []any, err error) {
 
 	// NOTE: read the next chunk from the copy-in stream if the current chunk is empty.
 	if len(r.reader.Msg) == 0 {
-		err = r.reader.Read()
+		err = r.reader.Read(ctx)
 		if err != nil {
 			return nil, err
 		}
@@ -245,7 +245,7 @@ func (r *TextCopyReader) Read(ctx context.Context) (_ []any, err error) {
 		record, err := r.csvReader.Read()
 		if err == io.EOF {
 			// CSV reader hit EOF, need more data from copy stream
-			err = r.reader.Read()
+			err = r.reader.Read(ctx)
 			if err == io.EOF {
 				// End of copy stream, no more data
 				return nil, io.EOF

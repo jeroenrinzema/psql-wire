@@ -2,6 +2,7 @@ package wire
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net"
 	"testing"
@@ -27,7 +28,7 @@ func TestMessageSizeExceeded(t *testing.T) {
 	client := mock.NewClient(t, conn)
 	client.Handshake(t)
 	client.Authenticate(t)
-	client.ReadyForQuery(t)
+	client.ReadyForQuery(t, types.ServerIdle)
 
 	// NOTE: attempt to send a message twice the max buffer size
 	size := uint32(buffer.DefaultBufferSize * 2)
@@ -38,7 +39,7 @@ func TestMessageSizeExceeded(t *testing.T) {
 	err = client.End()
 	require.NoError(t, err)
 
-	client.Error(t)
+	client.Error(t, `message size .* bigger than maximum allowed`)
 	client.Close(t)
 }
 
@@ -159,7 +160,7 @@ func TestServerLimit(t *testing.T) {
 	client := mock.NewClient(t, conn)
 	client.Handshake(t)
 	client.Authenticate(t)
-	client.ReadyForQuery(t)
+	client.ReadyForQuery(t, types.ServerIdle)
 
 	// client.Start(types.ClientExecute)
 	// client.AddString("limited")
@@ -206,7 +207,7 @@ func TestPortalSuspended(t *testing.T) {
 	client := mock.NewClient(t, conn)
 	client.Handshake(t)
 	client.Authenticate(t)
-	client.ReadyForQuery(t)
+	client.ReadyForQuery(t, types.ServerIdle)
 
 	for cycle := 0; cycle < 2; cycle++ {
 		t.Logf("cycle %d", cycle)
@@ -272,7 +273,7 @@ func TestReExecuteCompletedPortal(t *testing.T) {
 	client := mock.NewClient(t, conn)
 	client.Handshake(t)
 	client.Authenticate(t)
-	client.ReadyForQuery(t)
+	client.ReadyForQuery(t, types.ServerIdle)
 
 	client.Parse(t, "stmt1", "SELECT id")
 	client.ExpectMsg(t, types.ServerParseComplete)
@@ -294,6 +295,136 @@ func TestReExecuteCompletedPortal(t *testing.T) {
 
 	client.Sync(t)
 	client.ExpectMsg(t, types.ServerReady)
+
+	client.Close(t)
+}
+
+func TestReadyForQuery_UsesConfiguredTxStatus(t *testing.T) {
+	t.Parallel()
+
+	// Errors on the "ERROR" query string so the test can drive the error
+	// response path; otherwise returns a single-row SELECT 1.
+	handler := func(ctx context.Context, query string) (PreparedStatements, error) {
+		if query == "ERROR" {
+			return nil, errors.New("boom")
+		}
+		columns := Columns{{Name: "id", Oid: pgtype.Int4OID, Width: 4}}
+		handle := func(ctx context.Context, writer DataWriter, parameters []Parameter) error {
+			if err := writer.Row([]any{int32(1)}); err != nil {
+				return err
+			}
+			return writer.Complete("SELECT 1")
+		}
+		return Prepared(NewStatement(handle, WithColumns(columns))), nil
+	}
+
+	server, err := NewServer(handler, Logger(slogt.New(t)),
+		TxStatus(func(context.Context) types.ServerStatus { return types.ServerTransactionBlock }))
+	require.NoError(t, err)
+
+	address := TListenAndServe(t, server)
+	conn, err := net.Dial("tcp", address.String())
+	require.NoError(t, err)
+
+	client := mock.NewClient(t, conn)
+	client.Handshake(t)
+	client.Authenticate(t)
+	// Startup ReadyForQuery already carries the configured status.
+	client.ReadyForQuery(t, types.ServerTransactionBlock)
+
+	// Extended-protocol Sync's ReadyForQuery reflects TxStatus.
+	client.Parse(t, "stmt1", "SELECT 1")
+	client.ExpectMsg(t, types.ServerParseComplete)
+	client.Sync(t)
+	client.ReadyForQuery(t, types.ServerTransactionBlock)
+
+	// Simple-query ReadyForQuery (success path) reflects TxStatus.
+	client.Start(types.ClientSimpleQuery)
+	client.AddString("SELECT 1")
+	client.AddNullTerminate()
+	require.NoError(t, client.End())
+	client.ExpectMsg(t, types.ServerRowDescription)
+	client.ExpectDataRows(t, 1)
+	client.ExpectMsg(t, types.ServerCommandComplete)
+	client.ReadyForQuery(t, types.ServerTransactionBlock)
+
+	// Simple-query ReadyForQuery (error path) reflects TxStatus.
+	client.Start(types.ClientSimpleQuery)
+	client.AddString("ERROR")
+	client.AddNullTerminate()
+	require.NoError(t, client.End())
+	client.Error(t, `^boom$`)
+	client.ReadyForQuery(t, types.ServerTransactionBlock)
+
+	client.Close(t)
+}
+
+// Verify that portals are closed automatically on ServerIdle status, but not
+// on ServerTransactionBlock.
+func TestHandleSync_PortalCleanupFollowsStatus(t *testing.T) {
+	t.Parallel()
+
+	handler := func(ctx context.Context, query string) (PreparedStatements, error) {
+		columns := Columns{{Name: "id", Oid: pgtype.Int4OID, Width: 4}}
+		handle := func(ctx context.Context, writer DataWriter, parameters []Parameter) error {
+			if err := writer.Row([]any{int32(1)}); err != nil {
+				return err
+			}
+			return writer.Complete("SELECT 1")
+		}
+		return Prepared(NewStatement(handle, WithColumns(columns))), nil
+	}
+
+	status := types.ServerStatus(types.ServerIdle)
+	server, err := NewServer(handler, Logger(slogt.New(t)),
+		TxStatus(func(context.Context) types.ServerStatus { return status }))
+	require.NoError(t, err)
+
+	address := TListenAndServe(t, server)
+	conn, err := net.Dial("tcp", address.String())
+	require.NoError(t, err)
+
+	client := mock.NewClient(t, conn)
+	client.Handshake(t)
+	client.Authenticate(t)
+	client.ReadyForQuery(t, types.ServerIdle)
+
+	status = types.ServerTransactionBlock
+	// Bind a portal while TxStatus reports an in-progress transaction. The
+	// Sync that ends this cycle must NOT drop the portal.
+	client.Parse(t, "stmt1", "SELECT 1")
+	client.ExpectMsg(t, types.ServerParseComplete)
+	client.Bind(t, "portal1", "stmt1")
+	client.ExpectMsg(t, types.ServerBindComplete)
+	client.Sync(t)
+	client.ReadyForQuery(t, types.ServerTransactionBlock)
+
+	// The portal survived: Execute returns the row.
+	client.Execute(t, "portal1", 0)
+	client.ExpectDataRows(t, 1)
+	client.ExpectMsg(t, types.ServerCommandComplete)
+	client.Sync(t)
+	client.ReadyForQuery(t, types.ServerTransactionBlock)
+
+	// Flip TxStatus to idle. Bind a fresh portal in this cycle so we can
+	// also verify it gets dropped by the same idle-Sync — the cleanup must
+	// not only target portals left over from prior cycles.
+	status = types.ServerIdle
+	client.Bind(t, "portal2", "stmt1")
+	client.ExpectMsg(t, types.ServerBindComplete)
+	client.Sync(t)
+	client.ReadyForQuery(t, types.ServerIdle)
+
+	// Both portals are gone: Execute on either now produces an error.
+	client.Execute(t, "portal1", 0)
+	client.Error(t, `portal "portal1" does not exist`)
+	client.Sync(t)
+	client.ReadyForQuery(t, types.ServerIdle)
+
+	client.Execute(t, "portal2", 0)
+	client.Error(t, `portal "portal2" does not exist`)
+	client.Sync(t)
+	client.ReadyForQuery(t, types.ServerIdle)
 
 	client.Close(t)
 }

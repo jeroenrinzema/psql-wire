@@ -1,6 +1,8 @@
 package wire
 
 import (
+	"context"
+
 	psqlerr "github.com/jeroenrinzema/psql-wire/errors"
 	"github.com/jeroenrinzema/psql-wire/pkg/buffer"
 	"github.com/jeroenrinzema/psql-wire/pkg/types"
@@ -79,7 +81,7 @@ func WriteUnterminatedError(writer *buffer.Writer, err error) error {
 // WriteError on Session is protocol-aware: in extended query mode it writes
 // ErrorResponse and sets `discardUntilSync` (ReadyForQuery comes from Sync).
 // In simple query mode it writes ErrorResponse + ReadyForQuery.
-func (srv *Session) WriteError(writer *buffer.Writer, err error) error {
+func (srv *Session) WriteError(ctx context.Context, writer *buffer.Writer, err error) error {
 	if werr := WriteUnterminatedError(writer, err); werr != nil {
 		return werr
 	}
@@ -98,5 +100,5 @@ func (srv *Session) WriteError(writer *buffer.Writer, err error) error {
 		return nil
 	}
 
-	return readyForQuery(writer, types.ServerIdle)
+	return srv.readyForQuery(ctx, writer)
 }

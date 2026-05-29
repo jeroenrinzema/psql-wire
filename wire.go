@@ -142,6 +142,7 @@ type Server struct {
 	FlushConn        FlushFn
 	ParallelPipeline ParallelPipelineConfig
 	ErrorSanitizer   func(error) error
+	TxStatus         TxStatusFn
 	Version          string
 	ShutdownTimeout  time.Duration
 	typeExtension    func(*pgtype.Map)
