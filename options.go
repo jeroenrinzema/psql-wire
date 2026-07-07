@@ -137,6 +137,16 @@ type FlushFn func(ctx context.Context) error
 
 type CloseFn func(ctx context.Context) error
 
+// SyncFn is called when the frontend sends a Sync message, which marks the end
+// of a series of extended-query messages. Per the PostgreSQL protocol a Sync
+// closes the implicit transaction opened by that series: the callback should
+// commit when the series completed without error and roll back when it didn't.
+// The failed argument reports which of the two happened; it is true when an
+// error was raised while processing any of the extended-query messages that
+// this Sync terminates. The callback runs before the ReadyForQuery is sent, so
+// any transaction state it updates is reflected by a configured [TxStatusFn].
+type SyncFn func(ctx context.Context, failed bool) error
+
 // CancelRequestFn function called when a cancel request is received.
 // The function receives the process ID and secret key from the cancel request.
 // It should return an error if the cancel request cannot be processed.
@@ -191,6 +201,20 @@ func TerminateConn(fn CloseFn) OptionFn {
 func FlushConn(fn FlushFn) OptionFn {
 	return func(srv *Server) error {
 		srv.FlushConn = fn
+		return nil
+	}
+}
+
+// SyncConn registers a handler for Sync messages.
+//
+// The provided handler is invoked when the frontend sends a Sync command,
+// which closes the current series of extended-query messages. It is the place
+// to commit or roll back the implicit transaction that spans that series; see
+// [SyncFn] for the commit-vs-rollback semantics conveyed by its failed
+// argument. The handler runs just before the server sends ReadyForQuery.
+func SyncConn(fn SyncFn) OptionFn {
+	return func(srv *Server) error {
+		srv.SyncConn = fn
 		return nil
 	}
 }
