@@ -319,7 +319,7 @@ func (srv *Session) handleSimpleQuery(ctx context.Context, reader *buffer.Reader
 		return srv.readyForQuery(ctx, writer)
 	}
 
-	statements, err := srv.parse(ctx, query)
+	statements, err := srv.parse(ctx, Query{Query: query, SimpleQuery: true})
 	if err != nil {
 		return srv.WriteError(ctx, writer, err)
 	}
@@ -380,12 +380,15 @@ func (srv *Session) handleParse(ctx context.Context, reader *buffer.Reader, writ
 
 	srv.logger.Debug("predefined parameters", slog.Int("parameters", int(parameters)))
 
+	parameterOIDs := make([]uint32, parameters)
 	for i := uint16(0); i < parameters; i++ {
-		// TODO: Specifies the object ID of the parameter data type
-		//
 		// Specifies the object ID of the parameter data type. Placing a zero here
 		// is equivalent to leaving the type unspecified.
-		// `reader.GetUint32()`
+		oid, err := reader.GetUint32()
+		if err != nil {
+			return err
+		}
+		parameterOIDs[i] = oid
 	}
 
 	existing, err := srv.Statements.Get(ctx, name)
@@ -401,10 +404,10 @@ func (srv *Session) handleParse(ctx context.Context, reader *buffer.Reader, writ
 	}
 
 	if srv.ParallelPipeline.Enabled {
-		return srv.parsePipelined(ctx, writer, name, query)
+		return srv.parsePipelined(ctx, writer, name, query, parameterOIDs)
 	}
 
-	statement, err := singleStatement(srv.parse(ctx, query))
+	statement, err := singleStatement(srv.parse(ctx, Query{Query: query, ParameterOIDs: parameterOIDs}))
 	if err != nil {
 		return srv.WriteError(ctx, writer, err)
 	}
@@ -421,8 +424,8 @@ func (srv *Session) handleParse(ctx context.Context, reader *buffer.Reader, writ
 }
 
 // parsePipelined handles Parse in parallel pipeline mode
-func (srv *Session) parsePipelined(ctx context.Context, writer *buffer.Writer, name, query string) error {
-	statement, err := singleStatement(srv.parse(ctx, query))
+func (srv *Session) parsePipelined(ctx context.Context, writer *buffer.Writer, name, query string, parameterOIDs []uint32) error {
+	statement, err := singleStatement(srv.parse(ctx, Query{Query: query, ParameterOIDs: parameterOIDs}))
 	if err != nil {
 		return srv.drainQueueAndWriteError(ctx, writer, err)
 	}

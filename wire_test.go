@@ -47,7 +47,7 @@ func TListenAndServe(t *testing.T, server *Server) *net.TCPAddr {
 func TestClientConnect(t *testing.T) {
 	t.Parallel()
 
-	handler := func(ctx context.Context, query string) (PreparedStatements, error) {
+	handler := func(ctx context.Context, query Query) (PreparedStatements, error) {
 		statement := NewStatement(func(ctx context.Context, writer DataWriter, parameters []Parameter) error {
 			t.Log("serving query")
 			return writer.Complete("OK")
@@ -117,7 +117,7 @@ func TestClientConnect(t *testing.T) {
 func TestClientParameters(t *testing.T) {
 	t.Parallel()
 
-	handler := func(ctx context.Context, query string) (PreparedStatements, error) {
+	handler := func(ctx context.Context, query Query) (PreparedStatements, error) {
 		handle := func(ctx context.Context, writer DataWriter, parameters []Parameter) error {
 			writer.Row([]any{"John Doe"}) //nolint:errcheck
 			return writer.Complete("SELECT 1")
@@ -132,7 +132,7 @@ func TestClientParameters(t *testing.T) {
 			},
 		}
 
-		return Prepared(NewStatement(handle, WithColumns(columns), WithParameters(ParseParameters(query)))), nil
+		return Prepared(NewStatement(handle, WithColumns(columns), WithParameters(ParseParameters(query.Query)))), nil
 	}
 
 	server, err := NewServer(handler, Logger(slogt.New(t)))
@@ -190,7 +190,7 @@ func TestClientParameters(t *testing.T) {
 func TestServerWritingResult(t *testing.T) {
 	t.Parallel()
 
-	handler := func(ctx context.Context, query string) (PreparedStatements, error) {
+	handler := func(ctx context.Context, query Query) (PreparedStatements, error) {
 		handle := func(ctx context.Context, writer DataWriter, parameters []Parameter) error {
 			t.Log("serving query")
 			writer.Row([]any{"John", true, 28})   //nolint:errcheck
@@ -342,7 +342,7 @@ func TestServerHandlingMultipleConnections(t *testing.T) {
 
 func TOpenMockServer(t *testing.T) *net.TCPAddr {
 	t.Helper()
-	handler := func(ctx context.Context, query string) (PreparedStatements, error) {
+	handler := func(ctx context.Context, query Query) (PreparedStatements, error) {
 		handle := func(ctx context.Context, writer DataWriter, parameters []Parameter) error {
 			t.Log("serving query")
 			writer.Row([]any{20}) //nolint:errcheck
@@ -358,7 +358,7 @@ func TOpenMockServer(t *testing.T) *net.TCPAddr {
 			},
 		}
 
-		return Prepared(NewStatement(handle, WithColumns(columns), WithParameters(ParseParameters(query)))), nil
+		return Prepared(NewStatement(handle, WithColumns(columns), WithParameters(ParseParameters(query.Query)))), nil
 	}
 
 	server, err := NewServer(handler, Logger(slogt.New(t)))
@@ -376,7 +376,7 @@ func TestServerNULLValues(t *testing.T) {
 		nil,
 	}
 
-	handler := func(ctx context.Context, query string) (PreparedStatements, error) {
+	handler := func(ctx context.Context, query Query) (PreparedStatements, error) {
 		handle := func(ctx context.Context, writer DataWriter, parameters []Parameter) error {
 			t.Log("serving query")
 			writer.Row([]any{"John"}) //nolint:errcheck
@@ -505,7 +505,7 @@ func TestSessionAttributes(t *testing.T) {
 	t.Parallel()
 
 	var sessionAttributes map[string]interface{}
-	handler := func(ctx context.Context, query string) (PreparedStatements, error) {
+	handler := func(ctx context.Context, query Query) (PreparedStatements, error) {
 		SetAttribute(ctx, "test_key", "test_value")
 		SetAttribute(ctx, "numeric_key", 42)
 
@@ -567,8 +567,8 @@ func TestSessionAttributes(t *testing.T) {
 func TestServerCopyIn(t *testing.T) {
 	t.Parallel()
 
-	handler := func(ctx context.Context, query string) (PreparedStatements, error) {
-		t.Log("preparing query", query)
+	handler := func(ctx context.Context, query Query) (PreparedStatements, error) {
+		t.Log("preparing query", query.Query)
 
 		handle := func(ctx context.Context, writer DataWriter, parameters []Parameter) error {
 			t.Log("copying data")
@@ -701,7 +701,7 @@ func TestServerCopyIn(t *testing.T) {
 func TestServerShutdownWithContextDeadline(t *testing.T) {
 	t.Parallel()
 
-	handler := func(ctx context.Context, query string) (PreparedStatements, error) {
+	handler := func(ctx context.Context, query Query) (PreparedStatements, error) {
 		statement := NewStatement(func(ctx context.Context, writer DataWriter, parameters []Parameter) error {
 			return writer.Complete("OK")
 		})
@@ -732,7 +732,7 @@ func TestServerShutdownWithContextDeadline(t *testing.T) {
 func TestServerShutdownWithServerTimeout(t *testing.T) {
 	t.Parallel()
 
-	handler := func(ctx context.Context, query string) (PreparedStatements, error) {
+	handler := func(ctx context.Context, query Query) (PreparedStatements, error) {
 		statement := NewStatement(func(ctx context.Context, writer DataWriter, parameters []Parameter) error {
 			return writer.Complete("OK")
 		})
@@ -760,7 +760,7 @@ func TestServerShutdownWithServerTimeout(t *testing.T) {
 func TestServerShutdownUsesShortestTimeout(t *testing.T) {
 	t.Parallel()
 
-	handler := func(ctx context.Context, query string) (PreparedStatements, error) {
+	handler := func(ctx context.Context, query Query) (PreparedStatements, error) {
 		statement := NewStatement(func(ctx context.Context, writer DataWriter, parameters []Parameter) error {
 			return writer.Complete("OK")
 		})
@@ -797,7 +797,7 @@ func TestServerShutdownShorterTimeoutWins(t *testing.T) {
 	queryStarted.Add(1)
 	queryCanFinish.Add(1)
 
-	handler := func(ctx context.Context, query string) (PreparedStatements, error) {
+	handler := func(ctx context.Context, query Query) (PreparedStatements, error) {
 		statement := NewStatement(func(ctx context.Context, writer DataWriter, parameters []Parameter) error {
 			queryStarted.Done()
 			queryCanFinish.Wait() // Block until test releases it
@@ -855,7 +855,7 @@ func TestServerShutdownServerTimeoutWins(t *testing.T) {
 	queryStarted.Add(1)
 	queryCanFinish.Add(1)
 
-	handler := func(ctx context.Context, query string) (PreparedStatements, error) {
+	handler := func(ctx context.Context, query Query) (PreparedStatements, error) {
 		statement := NewStatement(func(ctx context.Context, writer DataWriter, parameters []Parameter) error {
 			queryStarted.Done()
 			queryCanFinish.Wait() // Block until test releases it
@@ -913,7 +913,7 @@ func TestServerShutdownTimeout(t *testing.T) {
 	queryStarted.Add(1)
 	queryCanFinish.Add(1)
 
-	handler := func(ctx context.Context, query string) (PreparedStatements, error) {
+	handler := func(ctx context.Context, query Query) (PreparedStatements, error) {
 		statement := NewStatement(func(ctx context.Context, writer DataWriter, parameters []Parameter) error {
 			queryStarted.Done()
 			queryCanFinish.Wait() // Block until test releases it
@@ -964,7 +964,7 @@ func TestServerShutdownTimeout(t *testing.T) {
 func TestServerShutdownConcurrent(t *testing.T) {
 	t.Parallel()
 
-	handler := func(ctx context.Context, query string) (PreparedStatements, error) {
+	handler := func(ctx context.Context, query Query) (PreparedStatements, error) {
 		statement := NewStatement(func(ctx context.Context, writer DataWriter, parameters []Parameter) error {
 			return writer.Complete("OK")
 		})
@@ -1001,7 +1001,7 @@ func TestServerShutdownConcurrent(t *testing.T) {
 func TestWithShutdownTimeoutOption(t *testing.T) {
 	t.Parallel()
 
-	handler := func(ctx context.Context, query string) (PreparedStatements, error) {
+	handler := func(ctx context.Context, query Query) (PreparedStatements, error) {
 		statement := NewStatement(func(ctx context.Context, writer DataWriter, parameters []Parameter) error {
 			return writer.Complete("OK")
 		})
@@ -1023,7 +1023,7 @@ func TestWithShutdownTimeoutOption(t *testing.T) {
 func TestServerShutdownInfiniteTimeout(t *testing.T) {
 	t.Parallel()
 
-	handler := func(ctx context.Context, query string) (PreparedStatements, error) {
+	handler := func(ctx context.Context, query Query) (PreparedStatements, error) {
 		statement := NewStatement(func(ctx context.Context, writer DataWriter, parameters []Parameter) error {
 			return writer.Complete("OK")
 		})
@@ -1055,7 +1055,7 @@ func TestServerShutdownInfiniteTimeoutWithActiveConnection(t *testing.T) {
 	queryStarted.Add(1)
 	queryCanFinish.Add(1)
 
-	handler := func(ctx context.Context, query string) (PreparedStatements, error) {
+	handler := func(ctx context.Context, query Query) (PreparedStatements, error) {
 		statement := NewStatement(func(ctx context.Context, writer DataWriter, parameters []Parameter) error {
 			queryStarted.Done()
 			queryCanFinish.Wait() // Block until test releases it
@@ -1156,7 +1156,7 @@ func TestClientDisconnectDuringWrite(t *testing.T) {
 	var brokenPipeWG sync.WaitGroup
 	brokenPipeWG.Add(1)
 
-	handler := func(ctx context.Context, query string) (PreparedStatements, error) {
+	handler := func(ctx context.Context, query Query) (PreparedStatements, error) {
 		// Handler that writes multiple rows to trigger broken pipe when client disconnects
 		statement := NewStatement(func(ctx context.Context, writer DataWriter, parameters []Parameter) error {
 			// Write enough data to fill buffers and ensure we hit the broken pipe
@@ -1253,7 +1253,7 @@ func TestCloseConnCallback(t *testing.T) {
 		var closeConnWG sync.WaitGroup
 		closeConnWG.Add(1)
 
-		handler := func(ctx context.Context, query string) (PreparedStatements, error) {
+		handler := func(ctx context.Context, query Query) (PreparedStatements, error) {
 			statement := NewStatement(func(ctx context.Context, writer DataWriter, parameters []Parameter) error {
 				return writer.Complete("OK")
 			})
@@ -1306,7 +1306,7 @@ func TestCloseConnCallback(t *testing.T) {
 		closeConnWG.Add(1)
 		terminateConnWG.Add(1)
 
-		handler := func(ctx context.Context, query string) (PreparedStatements, error) {
+		handler := func(ctx context.Context, query Query) (PreparedStatements, error) {
 			statement := NewStatement(func(ctx context.Context, writer DataWriter, parameters []Parameter) error {
 				return writer.Complete("OK")
 			})

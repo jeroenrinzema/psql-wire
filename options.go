@@ -21,9 +21,30 @@ import (
 // state from it.
 type TxStatusFn func(ctx context.Context) types.ServerStatus
 
+// Query represents an incoming query which should be parsed into one or more
+// prepared statements. Besides the raw query string it carries metadata about
+// how the query was received by the server.
+type Query struct {
+	// Query holds the raw SQL query string as received from the client.
+	Query string
+
+	// ParameterOIDs holds the parameter type OIDs that the client specified in
+	// the Parse message. A zero OID means the client left that parameter's type
+	// unspecified. The amount of provided parameter OIDs may be less than the
+	// number of parameters that appear in the query string, indicating that the
+	// server can decide the types for the unspecified parameters. This slice is
+	// always empty for simple queries since the simple query protocol does not
+	// allow the client to specify parameter types.
+	ParameterOIDs []uint32
+
+	// SimpleQuery is true when the query was received through the simple query
+	// protocol instead of the extended query (Parse/Bind/Execute) protocol.
+	SimpleQuery bool
+}
+
 // ParseFn parses the given query and returns a prepared statement which could
 // be used to execute at a later point in time.
-type ParseFn func(ctx context.Context, query string) (PreparedStatements, error)
+type ParseFn func(ctx context.Context, query Query) (PreparedStatements, error)
 
 // PreparedStatementFn represents a query of which a statement has been
 // prepared. The statement could be executed at any point in time with the given

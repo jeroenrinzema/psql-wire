@@ -15,8 +15,8 @@ func main() {
 	wire.ListenAndServe("127.0.0.1:5432", handler) //nolint:errcheck
 }
 
-func handler(ctx context.Context, query string) (wire.PreparedStatements, error) {
-	log.Println("incoming SQL query:", query)
+func handler(ctx context.Context, query wire.Query) (wire.PreparedStatements, error) {
+	log.Println("incoming SQL query:", query.Query)
 
 	err := errors.New("unimplemented feature")
 	err = psqlerr.WithCode(err, codes.FeatureNotSupported)

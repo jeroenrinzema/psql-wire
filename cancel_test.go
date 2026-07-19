@@ -81,7 +81,7 @@ func (ts *testServer) cancelRequest(ctx context.Context, processID, secretKey in
 	return nil
 }
 
-func (ts *testServer) handler(ctx context.Context, query string) (PreparedStatements, error) {
+func (ts *testServer) handler(ctx context.Context, query Query) (PreparedStatements, error) {
 	handle := func(ctx context.Context, writer DataWriter, parameters []Parameter) error {
 		queryCtx, cancel := context.WithCancel(ctx)
 		defer cancel()
