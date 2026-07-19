@@ -3,6 +3,7 @@ package mock
 import (
 	"encoding/binary"
 	"net"
+	"regexp"
 	"testing"
 
 	"github.com/jeroenrinzema/psql-wire/pkg/types"
@@ -125,9 +126,10 @@ func (client *Client) Authenticate(t *testing.T) {
 }
 
 // ReadyForQuery awaits till the underlaying network connection returns a ready
-// for query message. This message indicates that the server is ready to accept
-// a new typed message to execute a action.
-func (client *Client) ReadyForQuery(t *testing.T) {
+// for query message carrying the given transaction status byte. This message
+// indicates that the server is ready to accept a new typed message to execute
+// an action. ParameterStatus messages preceding the ReadyForQuery are skipped.
+func (client *Client) ReadyForQuery(t *testing.T, expected types.ServerStatus) {
 	var err error
 	var typed types.ServerMessage
 
@@ -154,24 +156,39 @@ func (client *Client) ReadyForQuery(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if types.ServerStatus(bb[0]) != types.ServerIdle {
-		t.Fatalf("unexpected ready for query status: %d, expected server idle", bb)
+	if types.ServerStatus(bb[0]) != expected {
+		t.Fatalf("unexpected ready for query status: %d, expected %d", bb[0], expected)
 	}
 }
 
-func (client *Client) Error(t *testing.T) {
+// Error reads an ErrorResponse message and asserts that its primary message
+// (the 'M' field) matches the given regex pattern.
+func (client *Client) Error(t *testing.T, msgRegex string) {
+	t.Helper()
 	t.Log("awaiting error message")
 	defer t.Log("error message received")
 
 	ct, _, err := client.ReadTypedMsg()
-	if err != nil {
-		t.Fatal(err)
+	require.NoError(t, err)
+	require.Equal(t, types.ServerErrorResponse, types.ServerMessage(ct))
+
+	// ErrorResponse body is a sequence of (1-byte field type, null-terminated
+	// string) records, terminated by a zero byte.
+	var message string
+	for {
+		fieldType, err := client.GetBytes(1)
+		require.NoError(t, err)
+		if fieldType[0] == 0 {
+			break
+		}
+		value, err := client.GetString()
+		require.NoError(t, err)
+		if fieldType[0] == 'M' {
+			message = value
+		}
 	}
 
-	st := types.ServerMessage(ct)
-	if st != types.ServerErrorResponse {
-		t.Fatalf("unexpected response message type %d, expected %d", st, types.ServerErrorResponse)
-	}
+	require.Regexp(t, regexp.MustCompile(msgRegex), message)
 }
 
 func (client *Client) Close(t *testing.T) {

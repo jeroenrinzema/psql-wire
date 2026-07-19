@@ -109,13 +109,37 @@ func (srv *Server) readCancelRequest(reader *buffer.Reader) (processID int32, se
 	return processID, secretKey, nil
 }
 
-// readyForQuery indicates that the server is ready to receive queries.
-// The given server status is included inside the message to indicate the server
-// status. This message should be written when a command cycle has been completed.
-func readyForQuery(writer *buffer.Writer, status types.ServerStatus) error {
+// readyForQuery writes a ReadyForQuery message with the transaction status
+// reported by the configured [Server.TxStatus] handler (or ServerIdle if none
+// is configured). This message should be written when a command cycle has
+// been completed.
+//
+// Reporting idle on the wire means "no transaction in progress", and in
+// PostgreSQL portals live only inside a transaction — so whenever we report
+// idle we also drop the session's portals.
+func (srv *Session) readyForQuery(ctx context.Context, writer *buffer.Writer) error {
+	status := srv.txStatus(ctx)
+	if status == types.ServerIdle && srv.Portals != nil {
+		srv.Portals.Close()
+	}
+
 	writer.Start(types.ServerReady)
 	writer.AddByte(byte(status))
-	return writer.End()
+	if err := writer.End(); err != nil {
+		return err
+	}
+	return nil
+}
+
+// txStatus returns the byte that should be written into the next ReadyForQuery
+// message. It defers to the configured TxStatus handler when set; otherwise it
+// returns ServerIdle, preserving the pre-existing behavior for servers that
+// don't track transaction state.
+func (srv *Server) txStatus(ctx context.Context) types.ServerStatus {
+	if srv.TxStatus != nil {
+		return srv.TxStatus(ctx)
+	}
+	return types.ServerIdle
 }
 
 // protocolOptionPrefix identifies protocol-level options inside the startup

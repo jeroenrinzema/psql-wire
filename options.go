@@ -10,7 +10,16 @@ import (
 
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jeroenrinzema/psql-wire/pkg/buffer"
+	"github.com/jeroenrinzema/psql-wire/pkg/types"
 )
+
+// TxStatusFn returns the PostgreSQL transaction status byte ('I', 'T', or 'E')
+// of the current session. It is invoked by the server just before sending a
+// ReadyForQuery message so the client (and any connection pooler in between)
+// sees the actual session state. The ctx carries any per-session values set up
+// via [SessionMiddleware], so implementations can look up their own session
+// state from it.
+type TxStatusFn func(ctx context.Context) types.ServerStatus
 
 // Query represents an incoming query which should be parsed into one or more
 // prepared statements. Besides the raw query string it carries metadata about
@@ -212,6 +221,18 @@ func FlushConn(fn FlushFn) OptionFn {
 func ParallelPipeline(config ParallelPipelineConfig) OptionFn {
 	return func(srv *Server) error {
 		srv.ParallelPipeline = config
+		return nil
+	}
+}
+
+// TxStatus registers a callback that returns the PostgreSQL transaction status
+// byte of the current session. When configured, the server calls it before
+// every ReadyForQuery and uses the returned status ('I', 'T', or 'E') instead
+// of the default [types.ServerIdle]. Without this option ReadyForQuery always
+// reports idle, which confuses transaction-aware connection poolers.
+func TxStatus(fn TxStatusFn) OptionFn {
+	return func(srv *Server) error {
+		srv.TxStatus = fn
 		return nil
 	}
 }
