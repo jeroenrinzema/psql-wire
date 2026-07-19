@@ -28,9 +28,9 @@ func main() {
 	wire.ListenAndServe("127.0.0.1:5432", handler)
 }
 
-func handler(ctx context.Context, query string) (wire.PreparedStatements, error) {
+func handler(ctx context.Context, query wire.Query) (wire.PreparedStatements, error) {
 	return wire.Prepared(wire.NewStatement(func(ctx context.Context, writer wire.DataWriter, parameters []wire.Parameter) error {
-		fmt.Println(query)
+		fmt.Println(query.Query)
 		return writer.Complete("OK")
 	})), nil
 }

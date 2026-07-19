@@ -8,7 +8,10 @@ import (
 	"log/slog"
 	"maps"
 	"net"
+	"strings"
 
+	"github.com/jeroenrinzema/psql-wire/codes"
+	psqlerr "github.com/jeroenrinzema/psql-wire/errors"
 	"github.com/jeroenrinzema/psql-wire/pkg/buffer"
 	"github.com/jeroenrinzema/psql-wire/pkg/types"
 )
@@ -139,10 +142,19 @@ func (srv *Server) txStatus(ctx context.Context) types.ServerStatus {
 	return types.ServerIdle
 }
 
+// protocolOptionPrefix identifies protocol-level options inside the startup
+// packet parameter list. Any parameter whose key starts with this prefix is
+// reserved for protocol extensions rather than being a regular server
+// (GUC) parameter.
+const protocolOptionPrefix = "_pq_."
+
 // readParameters reads the key/value connection parameters send by the client and
 // The read parameters will be set inside the given context. A new context containing
-// the consumed parameters will be returned.
-func (srv *Server) readClientParameters(ctx context.Context, reader *buffer.Reader) (_ context.Context, err error) {
+// the consumed parameters will be returned. Any parameter prefixed with
+// `_pq_.` is a protocol extension option; since this library does not
+// implement any such extension the keys are collected and returned so they can
+// be reported back to the client through a NegotiateProtocolVersion message.
+func (srv *Server) readClientParameters(ctx context.Context, reader *buffer.Reader) (_ context.Context, unrecognizedOptions []string, err error) {
 	meta := make(Parameters)
 
 	srv.logger.Debug("reading client parameters")
@@ -150,7 +162,7 @@ func (srv *Server) readClientParameters(ctx context.Context, reader *buffer.Read
 	for {
 		key, err := reader.GetString()
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 
 		// an empty key indicates the end of the connection parameters
@@ -160,14 +172,85 @@ func (srv *Server) readClientParameters(ctx context.Context, reader *buffer.Read
 
 		value, err := reader.GetString()
 		if err != nil {
-			return nil, err
+			return nil, nil, err
+		}
+
+		if strings.HasPrefix(key, protocolOptionPrefix) {
+			srv.logger.Debug("unrecognized protocol option", slog.String("key", key))
+			unrecognizedOptions = append(unrecognizedOptions, key)
+			continue
 		}
 
 		srv.logger.Debug("client parameter", slog.String("key", key), slog.String("value", value))
 		meta[ParameterStatus(key)] = value
 	}
 
-	return setClientParameters(ctx, meta), nil
+	return setClientParameters(ctx, meta), unrecognizedOptions, nil
+}
+
+// checkProtocolVersion validates that the client requested a protocol major
+// version this library implements. Unlike the minor version, a differing major
+// version cannot be negotiated down to a supported one, so — matching the
+// PostgreSQL backend — the connection is rejected with a fatal error instead.
+// The error is written to the client before it is returned so the caller can
+// close the connection.
+func (srv *Server) checkProtocolVersion(writer *buffer.Writer, version types.Version) error {
+	if version.Major() == types.VersionLatest.Major() {
+		return nil
+	}
+
+	err := psqlerr.WithSeverity(
+		psqlerr.WithCode(
+			fmt.Errorf("unsupported frontend protocol %d.%d: server supports %d.0 to %d.%d",
+				version.Major(), version.Minor(),
+				types.VersionLatest.Major(),
+				types.VersionLatest.Major(), types.VersionLatest.Minor()),
+			codes.FeatureNotSupported),
+		psqlerr.LevelFatal)
+
+	if werr := WriteUnterminatedError(writer, err); werr != nil {
+		return werr
+	}
+
+	return err
+}
+
+// writeProtocolVersionNegotiation potentially informs the client that the
+// server speaks an older protocol version than the one requested, and lists
+// any protocol options that were not recognized. Following the PostgreSQL
+// backend, a NegotiateProtocolVersion message is only written when the client
+// requested a newer minor version than we implement or when it sent protocol
+// options we do not understand. When neither is the case this is a no-op and
+// the connection continues using the requested version.
+//
+// The negotiated version reported to the client is the older of the requested
+// version and the latest version this library implements, matching the
+// PostgreSQL behaviour of downgrading rather than rejecting the connection.
+func (srv *Server) writeProtocolVersionNegotiation(writer *buffer.Writer, requested types.Version, unrecognizedOptions []string) error {
+	if requested.Minor() <= types.VersionLatest.Minor() && len(unrecognizedOptions) == 0 {
+		return nil
+	}
+
+	negotiated := requested
+	if negotiated > types.VersionLatest {
+		negotiated = types.VersionLatest
+	}
+
+	srv.logger.Debug("negotiating protocol version",
+		slog.Uint64("requested", uint64(requested)),
+		slog.Uint64("negotiated", uint64(negotiated)),
+		slog.Int("unrecognized_options", len(unrecognizedOptions)),
+	)
+
+	writer.Start(types.ServerNegotiateVersion)
+	writer.AddInt32(int32(negotiated))
+	writer.AddInt32(int32(len(unrecognizedOptions)))
+	for _, option := range unrecognizedOptions {
+		writer.AddString(option)
+		writer.AddNullTerminate()
+	}
+
+	return writer.End()
 }
 
 // writeParameters writes the server parameters such as client encoding to the client.

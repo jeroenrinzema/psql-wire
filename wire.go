@@ -250,7 +250,24 @@ func (srv *Server) serve(ctx context.Context, conn net.Conn) error {
 
 	writer := buffer.NewWriter(srv.logger, conn)
 	writer.ErrorSanitizer = srv.ErrorSanitizer
-	ctx, err = srv.readClientParameters(ctx, reader)
+
+	// A differing major protocol version cannot be negotiated down, so reject
+	// it before consuming the rest of the startup packet. Only the minor
+	// version is negotiable (handled below).
+	err = srv.checkProtocolVersion(writer, version)
+	if err != nil {
+		return err
+	}
+
+	ctx, unrecognizedOptions, err := srv.readClientParameters(ctx, reader)
+	if err != nil {
+		return err
+	}
+
+	// A NegotiateProtocolVersion message must be sent (when applicable) after
+	// the startup packet has been consumed but before the authentication
+	// request, matching the message ordering used by the PostgreSQL backend.
+	err = srv.writeProtocolVersionNegotiation(writer, version, unrecognizedOptions)
 	if err != nil {
 		return err
 	}

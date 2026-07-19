@@ -21,7 +21,7 @@ func TestHandleParse_ParallelPipeline_Success(t *testing.T) {
 
 	ctx := context.Background()
 
-	mockParse := func(ctx context.Context, query string) (PreparedStatements, error) {
+	mockParse := func(ctx context.Context, query Query) (PreparedStatements, error) {
 		stmt := NewStatement(
 			func(ctx context.Context, writer DataWriter, parameters []Parameter) error { return nil },
 			WithParameters([]uint32{pgtype.TextOID, pgtype.Int4OID}),
@@ -66,7 +66,7 @@ func TestHandleParse_ParallelPipeline_MultipleCommands(t *testing.T) {
 
 	ctx := context.Background()
 	logger := slogt.New(t)
-	mockParse := func(ctx context.Context, query string) (PreparedStatements, error) {
+	mockParse := func(ctx context.Context, query Query) (PreparedStatements, error) {
 		stmt := NewStatement(func(ctx context.Context, writer DataWriter, parameters []Parameter) error { return nil })
 		return PreparedStatements{stmt}, nil
 	}
@@ -108,8 +108,8 @@ func TestHandleParse_ParallelPipeline_Error(t *testing.T) {
 	ctx := context.Background()
 	logger := slogt.New(t)
 
-	mockParse := func(ctx context.Context, query string) (PreparedStatements, error) {
-		if query == "INVALID SQL" {
+	mockParse := func(ctx context.Context, query Query) (PreparedStatements, error) {
+		if query.Query == "INVALID SQL" {
 			return nil, errors.New("syntax error at or near 'INVALID'")
 		}
 		return PreparedStatements{NewStatement(func(ctx context.Context, w DataWriter, p []Parameter) error { return nil })}, nil
@@ -157,7 +157,7 @@ func TestHandleParse_OverwriteRemovesRelatedPortals(t *testing.T) {
 	ctx = setTypeInfo(ctx, typeMap)
 	logger := slogt.New(t)
 
-	mockParse := func(ctx context.Context, query string) (PreparedStatements, error) {
+	mockParse := func(ctx context.Context, query Query) (PreparedStatements, error) {
 		return PreparedStatements{NewStatement(
 			func(ctx context.Context, writer DataWriter, parameters []Parameter) error {
 				return writer.Complete("SELECT 1")
