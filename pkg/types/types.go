@@ -38,6 +38,7 @@ const (
 	ServerEmptyQuery           ServerMessage = 'I'
 	ServerErrorResponse        ServerMessage = 'E'
 	ServerNoticeResponse       ServerMessage = 'N'
+	ServerNegotiateVersion     ServerMessage = 'v'
 	ServerNoData               ServerMessage = 'n'
 	ServerParameterDescription ServerMessage = 't'
 	ServerParameterStatus      ServerMessage = 'S'
@@ -108,6 +109,8 @@ func (m ServerMessage) String() string {
 		return "ErrorResponse"
 	case ServerNoticeResponse:
 		return "NoticeResponse"
+	case ServerNegotiateVersion:
+		return "NegotiateProtocolVersion"
 	case ServerNoData:
 		return "NoData"
 	case ServerParameterDescription:

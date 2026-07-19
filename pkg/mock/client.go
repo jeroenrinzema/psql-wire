@@ -28,30 +28,73 @@ type Client struct {
 // connection preferences and the writing of (metadata) parameters identifying
 // the given client.
 func (client *Client) Handshake(t *testing.T) {
+	client.HandshakeProtocol(t, types.Version30, "client", "mock")
+}
+
+// HandshakeProtocol performs a handshake announcing the given protocol version
+// together with the provided startup parameters. The parameters are passed as
+// alternating key/value pairs. Protocol extension options (keys prefixed with
+// `_pq_.`) may be included among the parameters to exercise protocol version
+// negotiation.
+func (client *Client) HandshakeProtocol(t *testing.T, version types.Version, params ...string) {
 	t.Log("performing simple handshake")
 	defer t.Log("simple handshake completed")
 
-	version := make([]byte, 4)
-	binary.BigEndian.PutUint32(version, uint32(types.Version30))
+	if len(params)%2 != 0 {
+		t.Fatalf("expected an even number of key/value parameters, got %d", len(params))
+	}
+
+	versionBytes := make([]byte, 4)
+	binary.BigEndian.PutUint32(versionBytes, uint32(version))
 
 	// NOTE: the parameters consist out of keys and values. Each key and
 	// value is terminated using a nul byte and the end of all parameters is
 	// identified using a empty key value.
 	nul := byte(0)
-	key := append([]byte("client"), nul)
-	value := append([]byte("mock"), nul)
-	end := append([]byte(""), nul)
-	parameters := append(append(key, value...), end...)
+	var parameters []byte
+	for i := 0; i < len(params); i += 2 {
+		parameters = append(parameters, append([]byte(params[i]), nul)...)
+		parameters = append(parameters, append([]byte(params[i+1]), nul)...)
+	}
+	parameters = append(parameters, nul) // empty key terminates the parameter list
 
 	// NOTE: we have to define the total message length inside the
 	// header by prefixing a unsigned 32 big-endian int.
 	header := make([]byte, 4)
-	binary.BigEndian.PutUint32(header, uint32(len(version)+len(parameters)+len(header)))
+	binary.BigEndian.PutUint32(header, uint32(len(versionBytes)+len(parameters)+len(header)))
 
-	_, err := client.conn.Write(append(header, append(version, parameters...)...))
+	_, err := client.conn.Write(append(header, append(versionBytes, parameters...)...))
 	if err != nil {
 		t.Fatal(err)
 	}
+}
+
+// NegotiateProtocolVersion reads a NegotiateProtocolVersion message from the
+// server and returns the protocol version the server negotiated together with
+// the list of protocol options the server did not recognize.
+func (client *Client) NegotiateProtocolVersion(t *testing.T) (types.Version, []string) {
+	t.Helper()
+	t.Log("awaiting protocol version negotiation")
+	defer t.Log("protocol version negotiation received")
+
+	typed, _, err := client.ReadTypedMsg()
+	require.NoError(t, err)
+	require.Equal(t, types.ServerNegotiateVersion, typed, "unexpected message type %s, expected %s", typed, types.ServerNegotiateVersion)
+
+	version, err := client.GetUint32()
+	require.NoError(t, err)
+
+	num, err := client.GetUint32()
+	require.NoError(t, err)
+
+	options := make([]string, 0, num)
+	for i := uint32(0); i < num; i++ {
+		option, err := client.GetString()
+		require.NoError(t, err)
+		options = append(options, option)
+	}
+
+	return types.Version(version), options
 }
 
 // Authenticate performs a simple authentication using the PostgreSQL wire
