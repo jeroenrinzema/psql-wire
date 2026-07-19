@@ -19,7 +19,7 @@ var versionGrease = types.NewVersion(3, 9999)
 func TestProtocolVersionNegotiation(t *testing.T) {
 	t.Parallel()
 
-	handler := func(ctx context.Context, query string) (PreparedStatements, error) {
+	handler := func(ctx context.Context, query Query) (PreparedStatements, error) {
 		return Prepared(NewStatement(func(ctx context.Context, writer DataWriter, parameters []Parameter) error {
 			return writer.Complete("OK")
 		})), nil
@@ -83,7 +83,7 @@ func TestProtocolVersionNegotiation(t *testing.T) {
 			// present) is consumed above, so the next message is always the
 			// authentication response.
 			client.Authenticate(t)
-			client.ReadyForQuery(t)
+			client.ReadyForQuery(t, types.ServerIdle)
 			client.Close(t)
 		})
 	}
@@ -92,7 +92,7 @@ func TestProtocolVersionNegotiation(t *testing.T) {
 func TestUnsupportedProtocolMajorVersion(t *testing.T) {
 	t.Parallel()
 
-	handler := func(ctx context.Context, query string) (PreparedStatements, error) {
+	handler := func(ctx context.Context, query Query) (PreparedStatements, error) {
 		return Prepared(NewStatement(func(ctx context.Context, writer DataWriter, parameters []Parameter) error {
 			return writer.Complete("OK")
 		})), nil
@@ -117,7 +117,7 @@ func TestUnsupportedProtocolMajorVersion(t *testing.T) {
 
 			client := mock.NewClient(t, conn)
 			client.HandshakeProtocol(t, version, "user", "mock")
-			client.Error(t)
+			client.Error(t, `unsupported frontend protocol`)
 		})
 	}
 }

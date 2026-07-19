@@ -306,8 +306,8 @@ func TestReadyForQuery_UsesConfiguredTxStatus(t *testing.T) {
 
 	// Errors on the "ERROR" query string so the test can drive the error
 	// response path; otherwise returns a single-row SELECT 1.
-	handler := func(ctx context.Context, query string) (PreparedStatements, error) {
-		if query == "ERROR" {
+	handler := func(ctx context.Context, query Query) (PreparedStatements, error) {
+		if query.Query == "ERROR" {
 			return nil, errors.New("boom")
 		}
 		columns := Columns{{Name: "id", Oid: pgtype.Int4OID, Width: 4}}
@@ -366,7 +366,7 @@ func TestReadyForQuery_UsesConfiguredTxStatus(t *testing.T) {
 func TestHandleSync_PortalCleanupFollowsStatus(t *testing.T) {
 	t.Parallel()
 
-	handler := func(ctx context.Context, query string) (PreparedStatements, error) {
+	handler := func(ctx context.Context, query Query) (PreparedStatements, error) {
 		columns := Columns{{Name: "id", Oid: pgtype.Int4OID, Width: 4}}
 		handle := func(ctx context.Context, writer DataWriter, parameters []Parameter) error {
 			if err := writer.Row([]any{int32(1)}); err != nil {
