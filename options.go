@@ -21,7 +21,6 @@ import (
 // state from it.
 type TxStatusFn func(ctx context.Context) types.ServerStatus
 
-
 // Query represents an incoming query which should be parsed into one or more
 // prepared statements. Besides the raw query string it carries metadata about
 // how the query was received by the server.
