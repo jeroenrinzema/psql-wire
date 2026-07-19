@@ -2,8 +2,8 @@ package wire
 
 import (
 	"context"
-	"errors"
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"net"
 	"sync"
@@ -299,6 +299,73 @@ func TestReExecuteCompletedPortal(t *testing.T) {
 	client.ExpectMsg(t, types.ServerReady)
 
 	client.Close(t)
+}
+
+// Verify that a configured SyncConn callback is invoked for every Sync, that it
+// learns whether the preceding extended-query series failed, and that an error
+// it returns is still followed by exactly one ReadyForQuery (the protocol
+// forbids discarding when the error happens while processing Sync itself).
+func TestHandleSync_InvokesSyncConn(t *testing.T) {
+	t.Parallel()
+
+	handler := func(ctx context.Context, query Query) (PreparedStatements, error) {
+		if query.Query == "ERROR" {
+			return nil, errors.New("boom")
+		}
+		handle := func(ctx context.Context, writer DataWriter, parameters []Parameter) error {
+			return writer.Complete("OK")
+		}
+		return Prepared(NewStatement(handle)), nil
+	}
+
+	var failedCalls []bool
+	// syncErr is returned by the SyncConn callback for the next Sync, letting
+	// the test drive the "error while committing on Sync" path.
+	var syncErr error
+
+	server, err := NewServer(handler, Logger(slogt.New(t)),
+		SyncConn(func(ctx context.Context, failed bool) error {
+			failedCalls = append(failedCalls, failed)
+			return syncErr
+		}))
+	require.NoError(t, err)
+
+	address := TListenAndServe(t, server)
+	conn, err := net.Dial("tcp", address.String())
+	require.NoError(t, err)
+
+	client := mock.NewClient(t, conn)
+	client.Handshake(t)
+	client.Authenticate(t)
+	client.ReadyForQuery(t, types.ServerIdle)
+
+	// Success path: Parse succeeds, so the terminating Sync reports failed=false.
+	client.Parse(t, "stmt1", "SELECT 1")
+	client.ExpectMsg(t, types.ServerParseComplete)
+	client.Sync(t)
+	client.ReadyForQuery(t, types.ServerIdle)
+
+	// Error path: the Parse error sets discardUntilSync, so the Sync that ends
+	// the series reports failed=true while still producing one ReadyForQuery.
+	client.Parse(t, "stmt2", "ERROR")
+	client.Error(t, `^boom$`)
+	client.Sync(t)
+	client.ReadyForQuery(t, types.ServerIdle)
+
+	// Callback-error path: the callback itself fails (e.g. the commit errored).
+	// The Sync must be answered with an ErrorResponse followed by exactly one
+	// ReadyForQuery, not by discarding until the next Sync.
+	syncErr = errors.New("commit failed")
+	client.Parse(t, "stmt3", "SELECT 1")
+	client.ExpectMsg(t, types.ServerParseComplete)
+	client.Sync(t)
+	client.Error(t, `^commit failed$`)
+	client.ReadyForQuery(t, types.ServerIdle)
+	syncErr = nil
+
+	client.Close(t)
+
+	assert.Equal(t, []bool{false, true, false}, failedCalls)
 }
 
 func TestReadyForQuery_UsesConfiguredTxStatus(t *testing.T) {

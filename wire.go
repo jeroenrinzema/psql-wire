@@ -140,6 +140,7 @@ type Server struct {
 	CloseConn        CloseFn
 	TerminateConn    CloseFn
 	FlushConn        FlushFn
+	SyncConn         SyncFn
 	ParallelPipeline ParallelPipelineConfig
 	ErrorSanitizer   func(error) error
 	TxStatus         TxStatusFn

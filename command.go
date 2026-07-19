@@ -842,8 +842,24 @@ func (srv *Session) handleSync(ctx context.Context, writer *buffer.Writer) error
 		}
 	}
 
+	// Capture the error state of this extended-query series before clearing it;
+	// the Sync callback needs it to decide between committing and rolling back.
+	failed := srv.discardUntilSync
+
 	// Sync always resets discardUntilSync, even if queue processing set it.
 	srv.discardUntilSync = false
+
+	if srv.SyncConn != nil {
+		if err := srv.SyncConn(ctx, failed); err != nil {
+			// A Sync must always be answered by exactly one ReadyForQuery with
+			// no discarding ("no skipping occurs if an error is detected while
+			// processing Sync"). Clearing inExtendedQuery makes WriteError take
+			// the simple-query path: ErrorResponse followed by ReadyForQuery,
+			// instead of setting discardUntilSync and swallowing ReadyForQuery.
+			srv.inExtendedQuery = false
+			return srv.WriteError(ctx, writer, err)
+		}
+	}
 
 	return srv.readyForQuery(ctx, writer)
 }
