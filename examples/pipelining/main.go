@@ -40,8 +40,8 @@ var table = wire.Columns{
 	},
 }
 
-func handler(ctx context.Context, query string) (wire.PreparedStatements, error) {
-	log.Println("incoming SQL query:", query)
+func handler(ctx context.Context, query wire.Query) (wire.PreparedStatements, error) {
+	log.Println("incoming SQL query:", query.Query)
 
 	handle := func(ctx context.Context, writer wire.DataWriter, parameters []wire.Parameter) error {
 		// Simulate work (database lookup, network call, etc.)

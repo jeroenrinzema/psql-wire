@@ -21,7 +21,7 @@ import (
 )
 
 func TestErrorCode(t *testing.T) {
-	handler := func(ctx context.Context, query string) (PreparedStatements, error) {
+	handler := func(ctx context.Context, query Query) (PreparedStatements, error) {
 		stmt := NewStatement(func(ctx context.Context, writer DataWriter, parameters []Parameter) error {
 			return psqlerr.WithSeverity(psqlerr.WithCode(errors.New("unimplemented feature"), codes.FeatureNotSupported), psqlerr.LevelFatal)
 		})
@@ -70,8 +70,8 @@ func TestErrorCode(t *testing.T) {
 func TestExtendedQueryParseErrorRecovery(t *testing.T) {
 	t.Parallel()
 
-	handler := func(ctx context.Context, query string) (PreparedStatements, error) {
-		if query == "SELECT error" {
+	handler := func(ctx context.Context, query Query) (PreparedStatements, error) {
+		if query.Query == "SELECT error" {
 			return nil, psqlerr.WithCode(errors.New("test error"), codes.Syntax)
 		}
 
@@ -119,10 +119,10 @@ func TestExtendedQueryParseErrorRecovery(t *testing.T) {
 func TestExtendedQueryExecuteErrorRecovery(t *testing.T) {
 	t.Parallel()
 
-	handler := func(ctx context.Context, query string) (PreparedStatements, error) {
+	handler := func(ctx context.Context, query Query) (PreparedStatements, error) {
 		columns := Columns{{Name: "result", Oid: 25}} // text
 
-		if query == "SELECT error" {
+		if query.Query == "SELECT error" {
 			stmt := NewStatement(func(ctx context.Context, writer DataWriter, parameters []Parameter) error {
 				return psqlerr.WithCode(errors.New("execution failed"), codes.DataException)
 			}, WithColumns(columns))
@@ -276,7 +276,7 @@ func TestDiscardUntilSync(t *testing.T) {
 	ctx = setTypeInfo(ctx, typeMap)
 	logger := slogt.New(t)
 
-	mockParse := func(ctx context.Context, query string) (PreparedStatements, error) {
+	mockParse := func(ctx context.Context, query Query) (PreparedStatements, error) {
 		stmt := NewStatement(
 			func(ctx context.Context, writer DataWriter, parameters []Parameter) error {
 				return errors.New("query failed")
@@ -367,7 +367,7 @@ func TestRowReturnsEncodeError(t *testing.T) {
 
 	var rowErr error
 
-	handler := func(ctx context.Context, query string) (PreparedStatements, error) {
+	handler := func(ctx context.Context, query Query) (PreparedStatements, error) {
 		columns := Columns{{Name: "val", Oid: pgtype.Int4OID}}
 
 		stmt := NewStatement(func(ctx context.Context, writer DataWriter, parameters []Parameter) error {
