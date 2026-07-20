@@ -330,9 +330,16 @@ func (srv *Session) handleSimpleQuery(ctx context.Context, reader *buffer.Reader
 
 	// NOTE: it is possible to send multiple statements in one simple query.
 	for index := range statements {
-		err = statements[index].columns.Define(ctx, writer, nil)
-		if err != nil {
-			return srv.WriteError(ctx, writer, err)
+		// PostgreSQL answers a COPY ... FROM STDIN query with a CopyInResponse
+		// and never sends a RowDescription for it. Strict drivers (lib/pq's
+		// prepareCopyIn) treat a leading RowDescription as fatal ("unknown
+		// response for copy query: 'T'") and abandon the connection, so the
+		// row description is suppressed for statements marked WithCopyIn.
+		if !statements[index].copyIn {
+			err = statements[index].columns.Define(ctx, writer, nil)
+			if err != nil {
+				return srv.WriteError(ctx, writer, err)
+			}
 		}
 
 		portal := &Portal{
