@@ -93,12 +93,27 @@ func WithParameters(parameters []uint32) PreparedOptionFn {
 	}
 }
 
+// WithCopyIn marks the prepared statement as a COPY ... FROM STDIN statement.
+// PostgreSQL answers such a query with a CopyInResponse and never sends a
+// RowDescription for it, so the simple query protocol suppresses the
+// RowDescription it would otherwise write for the statement's columns. The
+// columns themselves are still required - they define the CopyInResponse's
+// column count and format codes. Strict drivers (lib/pq's prepareCopyIn)
+// abandon the connection on a RowDescription where a CopyInResponse is
+// expected ("unknown response for copy query: 'T'").
+func WithCopyIn() PreparedOptionFn {
+	return func(stmt *PreparedStatement) {
+		stmt.copyIn = true
+	}
+}
+
 type PreparedStatements []*PreparedStatement
 
 type PreparedStatement struct {
 	fn         PreparedStatementFn
 	parameters []uint32
 	columns    Columns
+	copyIn     bool
 }
 
 // SessionHandler represents a wrapper function defining the state of a single
