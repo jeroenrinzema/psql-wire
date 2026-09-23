@@ -69,8 +69,11 @@ var ErrDataWritten = errors.New("data has already been written")
 // ErrClosedWriter is returned when the data writer has been closed.
 var ErrClosedWriter = errors.New("closed writer")
 
-// Bound per-writer scratch so a single large value is not retained.
-const maxEncodeScratchCapacity = 64 << 10
+const (
+	// Bound per-writer scratch so a single large value is not retained.
+	maxEncodeScratchCapacity  = 64 << 10
+	minRowsToCacheEncodePlans = 10
+)
 
 // dataWriter implements DataWriter for use inside an iter.Seq push
 // iterator. Row encodes the row to the wire and then yields to the pull
@@ -104,7 +107,7 @@ func (writer *dataWriter) Row(values []any) error {
 		return ErrClosedWriter
 	}
 
-	err := writer.columns.write(writer.ctx, writer.formats, writer.client, values, TypeMap(writer.ctx), &writer.encodeScratch)
+	err := writer.columns.write(writer.ctx, writer.formats, writer.client, values, TypeMap(writer.ctx), &writer.encodeScratch, nil)
 	if err != nil {
 		return err
 	}
@@ -147,8 +150,12 @@ func (writer *dataWriter) Rows(rows [][]any) (err error) {
 	}()
 
 	tm := TypeMap(writer.ctx)
+	var encodePlans []encodePlanCache
+	if len(rows) >= minRowsToCacheEncodePlans {
+		encodePlans = make([]encodePlanCache, len(writer.columns))
+	}
 	for _, row := range rows {
-		if err := writer.columns.write(writer.ctx, writer.formats, writer.client, row, tm, &writer.encodeScratch); err != nil {
+		if err := writer.columns.write(writer.ctx, writer.formats, writer.client, row, tm, &writer.encodeScratch, encodePlans); err != nil {
 			return err
 		}
 		writer.written++

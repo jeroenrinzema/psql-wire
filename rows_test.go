@@ -115,6 +115,32 @@ func TestRowsMatchRowAndColumnsWrite(t *testing.T) {
 	}
 }
 
+func TestRowsMatchColumnsWriteWhenValueTypesChange(t *testing.T) {
+	columns := Columns{{Oid: pgtype.Int8OID}}
+	value := int64(4)
+	rows := [][]any{
+		{int64(1)},
+		{int64(2)},
+		{int32(3)},
+		{"4"},
+		{&value},
+		{(*int64)(nil)},
+		{nil},
+		{int64(5)},
+		{int64(6)},
+		{int64(7)},
+	}
+
+	var sequential, batch bytes.Buffer
+	reference := newRowsWriter(columns, nil, &sequential)
+	writer := newRowsWriter(columns, nil, &batch)
+	for _, row := range rows {
+		require.NoError(t, columns.Write(reference.ctx, nil, reference.client, row))
+	}
+	require.NoError(t, writer.Rows(rows))
+	require.Equal(t, sequential.Bytes(), batch.Bytes())
+}
+
 type rowErrorText struct{ err error }
 
 func (value rowErrorText) TextValue() (pgtype.Text, error) { return pgtype.Text{}, value.err }

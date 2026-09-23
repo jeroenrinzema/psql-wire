@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"reflect"
 
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jeroenrinzema/psql-wire/pkg/buffer"
@@ -72,10 +73,10 @@ func (columns Columns) CopyIn(ctx context.Context, writer *buffer.Writer, format
 // Binary. If you provide a single format code, it will be applied to all
 // columns.
 func (columns Columns) Write(ctx context.Context, formats []FormatCode, writer *buffer.Writer, srcs []any) (err error) {
-	return columns.write(ctx, formats, writer, srcs, TypeMap(ctx), nil)
+	return columns.write(ctx, formats, writer, srcs, TypeMap(ctx), nil, nil)
 }
 
-func (columns Columns) write(ctx context.Context, formats []FormatCode, writer *buffer.Writer, srcs []any, tm *pgtype.Map, scratch *[]byte) (err error) {
+func (columns Columns) write(ctx context.Context, formats []FormatCode, writer *buffer.Writer, srcs []any, tm *pgtype.Map, scratch *[]byte, plans []encodePlanCache) (err error) {
 	if len(srcs) != len(columns) {
 		return fmt.Errorf("unexpected columns, %d columns are defined inside the given table but %d were given", len(columns), len(srcs))
 	}
@@ -96,7 +97,11 @@ func (columns Columns) write(ctx context.Context, formats []FormatCode, writer *
 			format = formats[index]
 		}
 
-		err = column.write(writer, format, srcs[index], tm, scratch)
+		var plan *encodePlanCache
+		if len(plans) > index {
+			plan = &plans[index]
+		}
+		err = column.write(writer, format, srcs[index], tm, scratch, plan)
 		if err != nil {
 			return err
 		}
@@ -158,10 +163,10 @@ func (column Column) Write(ctx context.Context, writer *buffer.Writer, format Fo
 	if ctx.Err() != nil {
 		return ctx.Err()
 	}
-	return column.write(writer, format, src, TypeMap(ctx), nil)
+	return column.write(writer, format, src, TypeMap(ctx), nil, nil)
 }
 
-func (column Column) write(writer *buffer.Writer, format FormatCode, src any, tm *pgtype.Map, scratch *[]byte) (err error) {
+func (column Column) write(writer *buffer.Writer, format FormatCode, src any, tm *pgtype.Map, scratch *[]byte, cachedPlan *encodePlanCache) (err error) {
 	if tm == nil {
 		return errors.New("postgres connection info has not been defined inside the given context")
 	}
@@ -170,7 +175,11 @@ func (column Column) write(writer *buffer.Writer, format FormatCode, src any, tm
 	if scratch != nil && *scratch != nil {
 		bb = (*scratch)[:0]
 	}
-	bb, err = tm.Encode(uint32(column.Oid), int16(format), src, bb)
+	if cachedPlan == nil {
+		bb, err = tm.Encode(uint32(column.Oid), int16(format), src, bb)
+	} else {
+		bb, err = cachedPlan.encode(tm, uint32(column.Oid), int16(format), src, bb)
+	}
 	if err != nil {
 		return err
 	}
@@ -197,4 +206,62 @@ func (column Column) write(writer *buffer.Writer, format FormatCode, src any, tm
 	}
 
 	return nil
+}
+
+type encodePlanCache struct {
+	oid       uint32
+	format    int16
+	valueType reflect.Type
+	plan      pgtype.EncodePlan
+	nilable   bool
+}
+
+func (cache *encodePlanCache) encode(tm *pgtype.Map, oid uint32, format int16, value any, buf []byte) ([]byte, error) {
+	valueType := reflect.TypeOf(value)
+	if cache.plan != nil && cache.oid == oid && cache.format == format && cache.valueType == valueType && (!cache.nilable || !reflect.ValueOf(value).IsNil()) {
+		originalLength := len(buf)
+		encoded, err := cache.plan.Encode(value, buf)
+		if err == nil {
+			return encoded, nil
+		}
+		buf = buf[:originalLength]
+	}
+
+	if isNilValue(value, valueType) {
+		return tm.Encode(oid, format, value, buf)
+	}
+
+	plan := tm.PlanEncode(oid, format, value)
+	if plan == nil {
+		return tm.Encode(oid, format, value, buf)
+	}
+
+	originalLength := len(buf)
+	encoded, err := plan.Encode(value, buf)
+	if err != nil {
+		return tm.Encode(oid, format, value, buf[:originalLength])
+	}
+
+	cache.oid = oid
+	cache.format = format
+	cache.valueType = valueType
+	cache.plan = plan
+	cache.nilable = isNilableType(valueType)
+	return encoded, nil
+}
+
+func isNilValue(value any, valueType reflect.Type) bool {
+	if valueType == nil {
+		return true
+	}
+	return isNilableType(valueType) && reflect.ValueOf(value).IsNil()
+}
+
+func isNilableType(valueType reflect.Type) bool {
+	switch valueType.Kind() {
+	case reflect.Chan, reflect.Func, reflect.Map, reflect.Ptr, reflect.Slice:
+		return true
+	default:
+		return false
+	}
 }
