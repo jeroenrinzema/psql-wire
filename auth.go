@@ -17,13 +17,31 @@ const (
 	// authOK indicates that the connection has been authenticated and the client
 	// is allowed to proceed.
 	authOK authType = 0
-	// authClearTextPassword is a authentication type used to tell the client to identify
+	// authClearTextPassword is an authentication type used to tell the client to identify
 	// itself by sending the password in clear text to the Postgres server.
 	authClearTextPassword authType = 3
+	// authMD5Password requests PostgreSQL's MD5 challenge-response authentication.
+	authMD5Password authType = 5
+	// authSASL starts a SASL authentication exchange.
+	authSASL authType = 10
+	// authSASLContinue carries a SASL challenge.
+	authSASLContinue authType = 11
+	// authSASLFinal carries the successful SASL outcome.
+	authSASLFinal authType = 12
 )
 
 // AuthStrategy represents an authentication strategy used to authenticate a user.
 type AuthStrategy func(ctx context.Context, writer *buffer.Writer, reader *buffer.Reader) (_ context.Context, err error)
+
+// AuthenticationFn resolves the stored authentication credential for a database
+// user. The credential must use the format expected by the selected
+// authentication strategy. The returned context is used for the remainder of
+// the connection.
+//
+// found must be false when no usable credential exists. Implementations should
+// not expose whether the user is unknown, disabled, expired, or otherwise unable
+// to authenticate.
+type AuthenticationFn func(ctx context.Context, database, username string) (next context.Context, credential string, found bool, err error)
 
 // BackendKeyDataFunc represents a function that generates backend key data for query cancellation.
 // It should return a process ID and secret key that can be used by clients to cancel queries.
@@ -57,32 +75,17 @@ func ClearTextPassword(validate func(ctx context.Context, database, username, pa
 		}
 
 		params := ClientParameters(ctx)
-		t, _, err := reader.ReadTypedMsg()
+		password, err := readPasswordMessage(reader)
 		if err != nil {
 			return ctx, err
 		}
-
-		if t != types.ClientPassword {
-			return ctx, errors.New("unexpected password message")
-		}
-
-		password, err := reader.GetString()
-		if err != nil {
-			return ctx, err
-		}
-
 		ctx, valid, err := validate(ctx, params[ParamDatabase], params[ParamUsername], password)
 		if err != nil {
 			return ctx, err
 		}
 
 		if !valid {
-			authErr := pgerror.WithSeverity(pgerror.WithCode(errors.New("invalid username/password"), codes.InvalidPassword), pgerror.LevelFatal)
-			err = WriteUnterminatedError(writer, authErr)
-			if err != nil {
-				return ctx, err
-			}
-			return ctx, authErr
+			return ctx, authenticationFailed(writer)
 		}
 
 		return ctx, writeAuthType(writer, authOK)
@@ -92,9 +95,62 @@ func ClearTextPassword(validate func(ctx context.Context, database, username, pa
 // writeAuthType writes the auth type to the client informing the client about the
 // authentication status and the expected data to be received.
 func writeAuthType(writer *buffer.Writer, status authType) error {
+	return writeAuthRequest(writer, status, nil)
+}
+
+// writeAuthRequest writes an authentication request and its optional
+// mechanism-specific payload.
+func writeAuthRequest(writer *buffer.Writer, status authType, payload []byte) error {
 	writer.Start(types.ServerAuth)
 	writer.AddInt32(int32(status))
+	writer.AddBytes(payload)
 	return writer.End()
+}
+
+// readPasswordMessage reads a PasswordMessage. PostgreSQL also uses this
+// message type for MD5, SASL, GSSAPI, and SSPI responses.
+func readPasswordMessage(reader *buffer.Reader) (string, error) {
+	t, _, err := reader.ReadTypedMsg()
+	if err != nil {
+		return "", err
+	}
+	if t != types.ClientPassword {
+		return "", errors.New("unexpected password message")
+	}
+
+	password, err := reader.GetString()
+	if err != nil {
+		return "", err
+	}
+	if len(reader.Msg) != 0 {
+		return "", errors.New("unexpected data after password")
+	}
+	return password, nil
+}
+
+// authenticationFailed writes the generic authentication failure returned for
+// unknown users and invalid credentials alike.
+func authenticationFailed(writer *buffer.Writer) error {
+	authErr := pgerror.WithSeverity(
+		pgerror.WithCode(errors.New("invalid username/password"), codes.InvalidPassword),
+		pgerror.LevelFatal,
+	)
+	if err := WriteUnterminatedError(writer, authErr); err != nil {
+		return err
+	}
+	return authErr
+}
+
+// authenticationProtocolFailed writes a fatal PostgreSQL protocol violation.
+func authenticationProtocolFailed(writer *buffer.Writer, cause error) error {
+	protocolErr := pgerror.WithSeverity(
+		pgerror.WithCode(cause, codes.ProtocolViolation),
+		pgerror.LevelFatal,
+	)
+	if err := WriteUnterminatedError(writer, protocolErr); err != nil {
+		return err
+	}
+	return protocolErr
 }
 
 // writeBackendKeyData writes the backend key data to the client. This message contains

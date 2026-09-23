@@ -246,6 +246,8 @@ func (srv *Server) serve(ctx context.Context, conn net.Conn) error {
 		return conn.Close()
 	}
 
+	ctx = withSCRAMChannelBinding(ctx, conn)
+
 	srv.logger.Debug("handshake successful, validating authentication")
 
 	writer := buffer.NewWriter(srv.logger, conn)

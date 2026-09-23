@@ -307,7 +307,8 @@ func (srv *Server) potentialConnUpgrade(conn net.Conn, reader *buffer.Reader, ve
 
 	srv.logger.Debug("attempting to upgrade the client to a TLS connection")
 
-	if srv.TLSConfig == nil || len(srv.TLSConfig.Certificates) == 0 {
+	if srv.TLSConfig == nil ||
+		(len(srv.TLSConfig.Certificates) == 0 && srv.TLSConfig.GetCertificate == nil && srv.TLSConfig.GetConfigForClient == nil) {
 		if srv.ClientAuth == tls.RequireAndVerifyClientCert {
 			srv.logger.Warn("server mandates TLS, but does not possess the requisite certificates")
 			return conn, reader, version, fmt.Errorf("server mandates TLS, but does not possess the requisite certificates")
@@ -324,7 +325,7 @@ func (srv *Server) potentialConnUpgrade(conn net.Conn, reader *buffer.Reader, ve
 
 	// NOTE: initialize the TLS connection and construct a new buffered
 	// reader for the constructed TLS connection.
-	conn = tls.Server(conn, srv.TLSConfig)
+	conn = newTLSServerConn(conn, srv.TLSConfig)
 	reader = buffer.NewReader(srv.logger, conn, srv.BufferedMsgSize)
 
 	version, err = srv.readVersion(reader)

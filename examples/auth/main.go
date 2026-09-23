@@ -9,14 +9,16 @@ import (
 	wire "github.com/jeroenrinzema/psql-wire"
 )
 
-// PostgreServer represents a PostgreSQL server with authentication
+// PostgreServer represents a PostgreSQL server with authentication.
 type PostgreServer struct {
-	server *wire.Server
-	logger *log.Logger
+	server      *wire.Server
+	logger      *log.Logger
+	credentials map[string]string
 }
 
-// Client credentials map for authentication
-var clientCredentials = map[string]string{
+// clientPasswords are converted to SCRAM verifiers when the example starts.
+// Applications should persist verifiers instead of plaintext passwords.
+var clientPasswords = map[string]string{
 	"postgres": "password",
 	"admin":    "secret",
 }
@@ -38,15 +40,25 @@ func main() {
 	}
 }
 
-// NewPostgreServer creates a new PostgreSQL server with authentication
+// NewPostgreServer creates a new PostgreSQL server with authentication.
 func NewPostgreServer(logger *log.Logger) (*PostgreServer, error) {
+	credentials := make(map[string]string, len(clientPasswords))
+	for username, password := range clientPasswords {
+		verifier, err := wire.NewSCRAMSHA256Verifier(password)
+		if err != nil {
+			return nil, err
+		}
+		credentials[username] = verifier
+	}
+
 	server := &PostgreServer{
-		logger: logger,
+		logger:      logger,
+		credentials: credentials,
 	}
 
 	wireServer, err := wire.NewServer(
 		server.wireHandler,
-		wire.SessionAuthStrategy(wire.ClearTextPassword(server.auth)),
+		wire.SessionAuthStrategy(wire.SCRAMSHA256(server.authenticate)),
 		wire.SessionMiddleware(server.session),
 		wire.TerminateConn(server.terminateConn),
 		wire.Version("17.0"),
@@ -58,17 +70,10 @@ func NewPostgreServer(logger *log.Logger) (*PostgreServer, error) {
 	return server, nil
 }
 
-// auth handles authentication of incoming connections
-func (s *PostgreServer) auth(ctx context.Context, database, username, password string) (context.Context, bool, error) {
-	if expected, ok := clientCredentials[username]; !ok {
-		s.logger.Printf("invalid username: %s", username)
-		return ctx, false, nil
-	} else if password != expected {
-		s.logger.Printf("invalid password for user: %s", username)
-		return ctx, false, nil
-	}
-	s.logger.Printf("successful authentication for user: %s", username)
-	return ctx, true, nil
+// authenticate returns the user's stored SCRAM verifier.
+func (s *PostgreServer) authenticate(ctx context.Context, database, username string) (context.Context, string, bool, error) {
+	credential, found := s.credentials[username]
+	return ctx, credential, found, nil
 }
 
 // session middleware for handling session context
