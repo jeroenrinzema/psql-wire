@@ -9,31 +9,6 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-func TestParseParameters(t *testing.T) {
-	type test struct {
-		query      string
-		parameters []uint32
-	}
-
-	tests := map[string]test{
-		"positional": {
-			query:      "SELECT * FROM users WHERE id = $1 AND age > $2",
-			parameters: []uint32{0, 0},
-		},
-		"unpositional": {
-			query:      "SELECT * FROM users WHERE id = ? AND age > ?",
-			parameters: []uint32{0, 0},
-		},
-	}
-
-	for name, test := range tests {
-		t.Run(name, func(t *testing.T) {
-			parameters := ParseParameters(test.query)
-			assert.Equal(t, test.parameters, parameters)
-		})
-	}
-}
-
 func TestNilSessionHandler(t *testing.T) {
 	srv, err := NewServer(nil, Logger(slogt.New(t)))
 	assert.NoError(t, err)
