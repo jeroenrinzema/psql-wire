@@ -95,7 +95,7 @@ func tlsServerEndPoint(certificate *tls.Certificate) ([]byte, error) {
 	var digest hash.Hash
 	switch leaf.SignatureAlgorithm {
 	case x509.MD5WithRSA, x509.SHA1WithRSA, x509.DSAWithSHA1, x509.ECDSAWithSHA1,
-		x509.SHA256WithRSA, x509.SHA256WithRSAPSS, x509.ECDSAWithSHA256:
+		x509.SHA256WithRSA, x509.SHA256WithRSAPSS, x509.DSAWithSHA256, x509.ECDSAWithSHA256:
 		digest = sha256.New()
 	case x509.SHA384WithRSA, x509.SHA384WithRSAPSS, x509.ECDSAWithSHA384:
 		digest = sha512.New384()

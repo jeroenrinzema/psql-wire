@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"crypto/tls"
+	"crypto/x509"
 	"database/sql"
 	"errors"
 	"fmt"
@@ -89,12 +90,26 @@ func TestValidateSCRAMMechanismBinding(t *testing.T) {
 func TestTLSServerEndPoint(t *testing.T) {
 	t.Parallel()
 
-	certificate, err := tls.LoadX509KeyPair("examples/tls/psql.crt", "examples/tls/psql.key")
-	require.NoError(t, err)
-	binding, err := tlsServerEndPoint(&certificate)
-	require.NoError(t, err)
-	expected := sha256.Sum256(certificate.Certificate[0])
-	require.Equal(t, expected[:], binding)
+	t.Run("certificate", func(t *testing.T) {
+		certificate, err := tls.LoadX509KeyPair("examples/tls/psql.crt", "examples/tls/psql.key")
+		require.NoError(t, err)
+		binding, err := tlsServerEndPoint(&certificate)
+		require.NoError(t, err)
+		expected := sha256.Sum256(certificate.Certificate[0])
+		require.Equal(t, expected[:], binding)
+	})
+
+	t.Run("DSA with SHA-256", func(t *testing.T) {
+		der := []byte("certificate")
+		certificate := &tls.Certificate{
+			Certificate: [][]byte{der},
+			Leaf:        &x509.Certificate{SignatureAlgorithm: x509.DSAWithSHA256},
+		}
+		binding, err := tlsServerEndPoint(certificate)
+		require.NoError(t, err)
+		expected := sha256.Sum256(der)
+		require.Equal(t, expected[:], binding)
+	})
 }
 
 func TestPasswordAuthenticationClients(t *testing.T) {
@@ -166,8 +181,8 @@ func TestSCRAMSHA256PlusWithPGX(t *testing.T) {
 	require.NoError(t, err)
 	verifier, err := NewSCRAMSHA256Verifier("secret")
 	require.NoError(t, err)
-	authFn := func(ctx context.Context, database, username string) (context.Context, string, bool, error) {
-		return ctx, verifier, username == "test", nil
+	authFn := func(_ context.Context, _, username string) (context.Context, string, bool, error) {
+		return context.Background(), verifier, username == "test", nil
 	}
 
 	versions := map[string]uint16{

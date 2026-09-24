@@ -35,7 +35,8 @@ func MD5Password(authenticate AuthenticationFn) AuthStrategy {
 		ctx = next
 
 		inner, err := parseMD5PasswordVerifier(verifier)
-		if !found || err != nil {
+		doomed := !found || err != nil
+		if doomed {
 			inner, err = randomMD5Digest()
 			if err != nil {
 				return ctx, err
@@ -55,7 +56,7 @@ func MD5Password(authenticate AuthenticationFn) AuthStrategy {
 			return ctx, err
 		}
 		expected := postgresMD5(inner, salt[:])
-		valid := found && len(response) == len(expected) && subtle.ConstantTimeCompare([]byte(response), []byte(expected)) == 1
+		valid := !doomed && len(response) == len(expected) && subtle.ConstantTimeCompare([]byte(response), []byte(expected)) == 1
 		if !valid {
 			return ctx, authenticationFailed(writer)
 		}

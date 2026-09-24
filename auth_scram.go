@@ -53,6 +53,9 @@ func SCRAMSHA256(authenticate AuthenticationFn) AuthStrategy {
 		params := ClientParameters(ctx)
 		database := params[ParamDatabase]
 		username := params[ParamUsername]
+		// Channel binding is transport state. Capture it before the credential
+		// provider may replace the application context.
+		bindingData, hasChannelBinding := scramChannelBinding(ctx)
 		next, verifier, found, err := authenticate(ctx, database, username)
 		if err != nil {
 			return ctx, err
@@ -71,7 +74,6 @@ func SCRAMSHA256(authenticate AuthenticationFn) AuthStrategy {
 			credentials = fakeSCRAMCredentials(fakeSeed[:], database, username)
 		}
 
-		bindingData, hasChannelBinding := scramChannelBinding(ctx)
 		mechanisms := []string{scramSHA256Mechanism}
 		if hasChannelBinding {
 			mechanisms = []string{scramSHA256PlusMechanism, scramSHA256Mechanism}
