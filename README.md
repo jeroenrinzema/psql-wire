@@ -50,6 +50,39 @@ wire.SetAttribute(ctx, "tenant_id", "tenant-123")
 tenantID, ok := wire.GetAttribute(ctx, "tenant_id")
 ```
 
+## Password authentication
+
+`AuthenticationFn` resolves a stored credential from the startup database and
+username. Generate the verifier when a password is created or changed; do not
+store plaintext passwords or regenerate verifiers for every connection.
+
+```go
+verifier, err := wire.NewSCRAMSHA256Verifier("secret")
+if err != nil {
+	return err
+}
+credentials := map[string]string{"postgres": verifier}
+
+authenticate := func(ctx context.Context, database, username string) (context.Context, string, bool, error) {
+	credential, found := credentials[username]
+	return ctx, credential, found, nil
+}
+
+server, err := wire.NewServer(
+	handler,
+	wire.SessionAuthStrategy(wire.SCRAMSHA256(authenticate)),
+)
+```
+
+`SCRAMSHA256` accepts PostgreSQL `SCRAM-SHA-256` verifiers and supports
+`SCRAM-SHA-256-PLUS` channel binding when TLS exposes the selected server
+certificate. Unknown users and invalid verifiers complete a synthetic exchange
+and return the same `28P01` authentication error as an incorrect password.
+
+For legacy clients, `MD5Password` accepts verifiers created by
+`NewMD5PasswordVerifier(username, password)`. PostgreSQL has deprecated MD5
+password authentication; prefer SCRAM for new deployments.
+
 ## Writing materialized rows
 
 Use `wire.WriteRows(writer, rows)` to write a `[][]any` result in order. It uses
