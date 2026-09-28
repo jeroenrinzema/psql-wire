@@ -176,12 +176,12 @@ func (srv *Server) readClientParameters(ctx context.Context, reader *buffer.Read
 		}
 
 		if strings.HasPrefix(key, protocolOptionPrefix) {
-			srv.logger.Debug("unrecognized protocol option", slog.String("key", key))
+			srv.logger.LogAttrs(context.Background(), slog.LevelDebug, "unrecognized protocol option", slog.String("key", key))
 			unrecognizedOptions = append(unrecognizedOptions, key)
 			continue
 		}
 
-		srv.logger.Debug("client parameter", slog.String("key", key), slog.String("value", value))
+		srv.logger.LogAttrs(context.Background(), slog.LevelDebug, "client parameter", slog.String("key", key), slog.String("value", value))
 		meta[ParameterStatus(key)] = value
 	}
 
@@ -236,7 +236,7 @@ func (srv *Server) writeProtocolVersionNegotiation(writer *buffer.Writer, reques
 		negotiated = types.VersionLatest
 	}
 
-	srv.logger.Debug("negotiating protocol version",
+	srv.logger.LogAttrs(context.Background(), slog.LevelDebug, "negotiating protocol version",
 		slog.Uint64("requested", uint64(requested)),
 		slog.Uint64("negotiated", uint64(negotiated)),
 		slog.Int("unrecognized_options", len(unrecognizedOptions)),
@@ -276,7 +276,7 @@ func (srv *Server) writeParameters(ctx context.Context, writer *buffer.Writer, p
 	params[ParamServerVersion] = fmt.Sprintf("%d", 15*10000) // 15.1.2 => 15*10000 + 1*100 + 2*1 => 15102
 
 	for key, value := range params {
-		srv.logger.Debug("server parameter", slog.String("key", string(key)), slog.String("value", value))
+		srv.logger.LogAttrs(context.Background(), slog.LevelDebug, "server parameter", slog.String("key", string(key)), slog.String("value", value))
 
 		writer.Start(types.ServerParameterStatus)
 		writer.AddString(string(key))

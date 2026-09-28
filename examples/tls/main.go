@@ -34,7 +34,7 @@ func run() error {
 }
 
 func handler(ctx context.Context, query wire.Query) (wire.PreparedStatements, error) {
-	slog.Info("incoming SQL query", slog.String("query", query.Query))
+	slog.LogAttrs(context.Background(), slog.LevelInfo, "incoming SQL query", slog.String("query", query.Query))
 
 	handle := func(ctx context.Context, writer wire.DataWriter, parameters []wire.Parameter) error {
 		return writer.Complete("OK")

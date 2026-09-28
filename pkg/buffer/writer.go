@@ -2,6 +2,7 @@ package buffer
 
 import (
 	"bytes"
+	"context"
 	"encoding/binary"
 	"io"
 	"log/slog"
@@ -191,7 +192,7 @@ func (writer *Writer) End() error {
 		_, err = writer.Write(bytes)
 	}
 
-	writer.logger.Debug("-> writing message", slog.String("type", types.ServerMessage(bytes[0]).String()))
+	writer.logger.LogAttrs(context.Background(), slog.LevelDebug, "-> writing message", slog.String("type", types.ServerMessage(bytes[0]).String()))
 	return err
 }
 

@@ -147,7 +147,7 @@ func (srv *Session) consumeSingleCommand(ctx context.Context, reader *buffer.Rea
 	}
 	srv.wg.Add(1)
 	srv.closingMu.RUnlock()
-	srv.logger.Debug("<- incoming command", slog.Int("length", length), slog.String("type", t.String()))
+	srv.logger.LogAttrs(context.Background(), slog.LevelDebug, "<- incoming command", slog.Int("length", length), slog.String("type", t.String()))
 	err = srv.handleCommand(ctx, conn, t, reader, writer)
 	srv.wg.Done()
 	if errors.Is(err, io.EOF) {
@@ -188,7 +188,7 @@ func (srv *Session) handleCommand(ctx context.Context, conn net.Conn, t types.Cl
 	// Per the PostgreSQL protocol, after an error during extended query
 	// processing the server discards all messages until it receives a Sync.
 	if srv.discardUntilSync && t != types.ClientSync && t != types.ClientTerminate {
-		srv.logger.Debug("discarding message until sync", slog.String("type", t.String()))
+		srv.logger.LogAttrs(context.Background(), slog.LevelDebug, "discarding message until sync", slog.String("type", t.String()))
 		return nil
 	}
 
@@ -303,7 +303,7 @@ func (srv *Session) handleSimpleQuery(ctx context.Context, reader *buffer.Reader
 		return err
 	}
 
-	srv.logger.Debug("incoming simple query", slog.String("query", query))
+	srv.logger.LogAttrs(context.Background(), slog.LevelDebug, "incoming simple query", slog.String("query", query))
 
 	// NOTE: If a completely empty (no contents other than whitespace) query
 	// string is received, the response is EmptyQueryResponse followed by
@@ -378,7 +378,7 @@ func (srv *Session) handleParse(ctx context.Context, reader *buffer.Reader, writ
 		return err
 	}
 
-	srv.logger.Debug("predefined parameters", slog.Int("parameters", int(parameters)))
+	srv.logger.LogAttrs(context.Background(), slog.LevelDebug, "predefined parameters", slog.Int("parameters", int(parameters)))
 
 	parameterOIDs := make([]uint32, parameters)
 	for i := uint16(0); i < parameters; i++ {
@@ -412,7 +412,7 @@ func (srv *Session) handleParse(ctx context.Context, reader *buffer.Reader, writ
 		return srv.WriteError(ctx, writer, err)
 	}
 
-	srv.logger.Debug("incoming extended query", slog.String("query", query), slog.String("name", name), slog.Int("parameters", len(statement.parameters)))
+	srv.logger.LogAttrs(context.Background(), slog.LevelDebug, "incoming extended query", slog.String("query", query), slog.String("name", name), slog.Int("parameters", len(statement.parameters)))
 
 	err = srv.Statements.Set(ctx, name, statement)
 	if err != nil {
@@ -430,7 +430,7 @@ func (srv *Session) parsePipelined(ctx context.Context, writer *buffer.Writer, n
 		return srv.drainQueueAndWriteError(ctx, writer, err)
 	}
 
-	srv.logger.Debug("incoming extended query", slog.String("query", query), slog.String("name", name), slog.Int("parameters", len(statement.parameters)))
+	srv.logger.LogAttrs(context.Background(), slog.LevelDebug, "incoming extended query", slog.String("query", query), slog.String("name", name), slog.Int("parameters", len(statement.parameters)))
 
 	err = srv.Statements.Set(ctx, name, statement)
 	if err != nil {
@@ -452,7 +452,7 @@ func (srv *Session) handleDescribe(ctx context.Context, reader *buffer.Reader, w
 		return err
 	}
 
-	srv.logger.Debug("incoming describe request", slog.String("type", types.DescribeMessage(d[0]).String()), slog.String("name", name))
+	srv.logger.LogAttrs(context.Background(), slog.LevelDebug, "incoming describe request", slog.String("type", types.DescribeMessage(d[0]).String()), slog.String("name", name))
 
 	if srv.ParallelPipeline.Enabled {
 		return srv.describePipelined(ctx, writer, types.DescribeMessage(d[0]), name)
@@ -625,7 +625,7 @@ func (srv *Session) readParameters(ctx context.Context, reader *buffer.Reader) (
 		return nil, err
 	}
 
-	srv.logger.Debug("reading parameters format codes", slog.Uint64("length", uint64(length)))
+	srv.logger.LogAttrs(context.Background(), slog.LevelDebug, "reading parameters format codes", slog.Uint64("length", uint64(length)))
 
 	defaultFormat := TextFormat
 	formats := make([]FormatCode, length)
@@ -652,7 +652,7 @@ func (srv *Session) readParameters(ctx context.Context, reader *buffer.Reader) (
 		return nil, err
 	}
 
-	srv.logger.Debug("reading parameters values", slog.Uint64("length", uint64(length)))
+	srv.logger.LogAttrs(context.Background(), slog.LevelDebug, "reading parameters values", slog.Uint64("length", uint64(length)))
 
 	parameters := make([]Parameter, length)
 	for i := 0; i < int(length); i++ {
@@ -666,7 +666,7 @@ func (srv *Session) readParameters(ctx context.Context, reader *buffer.Reader) (
 			return nil, err
 		}
 
-		srv.logger.Debug("incoming parameter", slog.String("value", string(value)))
+		srv.logger.LogAttrs(context.Background(), slog.LevelDebug, "incoming parameter", slog.String("value", string(value)))
 
 		format := defaultFormat
 		if len(formats) > int(i) {
@@ -685,7 +685,7 @@ func (srv *Session) readColumnTypes(reader *buffer.Reader) ([]FormatCode, error)
 		return nil, err
 	}
 
-	srv.logger.Debug("reading column format codes", slog.Uint64("length", uint64(length)))
+	srv.logger.LogAttrs(context.Background(), slog.LevelDebug, "reading column format codes", slog.Uint64("length", uint64(length)))
 
 	columns := make([]FormatCode, length)
 	for i := uint16(0); i < length; i++ {
@@ -721,7 +721,7 @@ func (srv *Session) handleExecute(ctx context.Context, reader *buffer.Reader, wr
 		return err
 	}
 
-	srv.logger.Debug("executing", slog.String("name", name), slog.Uint64("limit", uint64(limit)))
+	srv.logger.LogAttrs(context.Background(), slog.LevelDebug, "executing", slog.String("name", name), slog.Uint64("limit", uint64(limit)))
 
 	if srv.ParallelPipeline.Enabled {
 		return srv.executePipelined(ctx, writer, name, limit)
@@ -749,7 +749,7 @@ func (srv *Session) handleClose(ctx context.Context, reader *buffer.Reader, writ
 		return err
 	}
 
-	srv.logger.Debug("incoming close request", slog.String("type", types.CloseMessage(d[0]).String()), slog.String("name", name))
+	srv.logger.LogAttrs(context.Background(), slog.LevelDebug, "incoming close request", slog.String("type", types.CloseMessage(d[0]).String()), slog.String("name", name))
 
 	switch types.CloseMessage(d[0]) {
 	case types.CloseStatement:
@@ -826,7 +826,7 @@ func (srv *Session) executeAsync(ctx context.Context, done chan struct{}, portal
 
 	result := &executeResult{buf: buf, err: err}
 
-	srv.logger.Debug("async execution complete",
+	srv.logger.LogAttrs(context.Background(), slog.LevelDebug, "async execution complete",
 		slog.Bool("has_error", err != nil))
 
 	resultChan <- result
@@ -835,7 +835,7 @@ func (srv *Session) executeAsync(ctx context.Context, done chan struct{}, portal
 // handleSync handles the Sync message (extended query protocol)
 func (srv *Session) handleSync(ctx context.Context, writer *buffer.Writer) error {
 	if srv.ParallelPipeline.Enabled {
-		srv.logger.Debug("draining response queue", slog.Int("length", srv.ResponseQueue.Len()))
+		srv.logger.LogAttrs(context.Background(), slog.LevelDebug, "draining response queue", slog.Int("length", srv.ResponseQueue.Len()))
 
 		if err := srv.processResponseQueue(ctx, writer); err != nil {
 			return err

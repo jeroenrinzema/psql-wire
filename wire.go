@@ -176,7 +176,7 @@ func (srv *Server) Serve(listener net.Listener) error {
 
 	defer srv.wg.Done()
 
-	srv.logger.Info("serving incoming connections", slog.String("addr", listener.Addr().String()))
+	srv.logger.LogAttrs(context.Background(), slog.LevelInfo, "serving incoming connections", slog.String("addr", listener.Addr().String()))
 	srv.wg.Go(func() {
 		<-srv.closer
 
