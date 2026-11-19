@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/tls"
 	"log/slog"
+	"net"
 	"regexp"
 	"strconv"
 	"time"
@@ -285,6 +286,12 @@ func MessageBufferSize(size int) OptionFn {
 // ClientAuth sets the client authentication type which is used to authenticate
 // the client connection. The default value is [tls.NoClientCert] which means
 // that no client authentication is performed.
+//
+// Only [tls.RequireAndVerifyClientCert] changes the server behaviour: it
+// mandates TLS for every connection except cancel requests. Client certificates
+// are requested and verified according to the given [TLSConfig] (ClientAuth,
+// ClientCAs, VerifyPeerCertificate and VerifyConnection); use
+// [TLSConnectionState] to inspect the result.
 func ClientAuth(auth tls.ClientAuthType) OptionFn {
 	return func(srv *Server) error {
 		srv.ClientAuth = auth
@@ -297,6 +304,29 @@ func ClientAuth(auth tls.ClientAuthType) OptionFn {
 func TLSConfig(config *tls.Config) OptionFn {
 	return func(srv *Server) error {
 		srv.TLSConfig = config
+		return nil
+	}
+}
+
+// WrapConnFn wraps the connection once its transport has been negotiated. See
+// [WrapConn].
+type WrapConnFn func(ctx context.Context, conn net.Conn) (net.Conn, error)
+
+// WrapConn sets a function that is called once for every client connection
+// after the transport has been negotiated, that is after the TLS handshake if
+// the client requested TLS, and before the client is authenticated. The given
+// connection is the [*tls.Conn] for TLS connections. The context carries the
+// [RemoteAddress] and [TLSConnectionState].
+//
+// The returned connection is used for all subsequent writes to the client and
+// is closed once the connection is done, which allows callers to track
+// connections and write messages to clients above the TLS layer, for example
+// a notice before shutting down. Reads keep using the buffered reader created
+// on the negotiated connection. Returning an error closes the connection; the
+// returned connection is then ignored, so fn must release anything it set up.
+func WrapConn(fn WrapConnFn) OptionFn {
+	return func(srv *Server) error {
+		srv.WrapConn = fn
 		return nil
 	}
 }

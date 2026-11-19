@@ -133,6 +133,7 @@ type Server struct {
 	Parameters       Parameters
 	TLSConfig        *tls.Config
 	ClientAuth       tls.ClientAuthType
+	WrapConn         WrapConnFn
 	parse            ParseFn
 	Session          SessionHandler
 	Statements       func() StatementCache
@@ -244,6 +245,22 @@ func (srv *Server) serve(ctx context.Context, conn net.Conn) error {
 
 	if version == types.VersionCancel {
 		return conn.Close()
+	}
+
+	if tlsConn, ok := conn.(*tls.Conn); ok {
+		state := tlsConn.ConnectionState()
+		ctx = setTLSConnectionState(ctx, &state)
+	}
+
+	if srv.WrapConn != nil {
+		conn, err = srv.WrapConn(ctx, conn)
+		if err != nil {
+			return err
+		}
+		if conn == nil {
+			return errors.New("WrapConn returned a nil connection")
+		}
+		defer conn.Close() //nolint:errcheck
 	}
 
 	srv.logger.Debug("handshake successful, validating authentication")

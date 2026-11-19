@@ -2,6 +2,7 @@ package wire
 
 import (
 	"context"
+	"crypto/tls"
 	"net"
 
 	"github.com/jackc/pgx/v5/pgtype"
@@ -14,6 +15,7 @@ const (
 	ctxClientMetadata
 	ctxServerMetadata
 	ctxRemoteAddr
+	ctxTLSConnectionState
 )
 
 // setTypeInfo constructs a new Postgres type connection info for the given value
@@ -45,6 +47,28 @@ func RemoteAddress(ctx context.Context) net.Addr {
 	}
 
 	return val.(net.Addr)
+}
+
+func setTLSConnectionState(ctx context.Context, state *tls.ConnectionState) context.Context {
+	return context.WithValue(ctx, ctxTLSConnectionState, state)
+}
+
+// TLSConnectionState returns the state of the TLS connection, including any
+// client certificates presented by the client, if the connection has been
+// upgraded to TLS. It returns nil for plaintext connections. The state is
+// available to the authentication strategy, the session middleware and the
+// query handlers.
+//
+// PeerCertificates holds whatever the client presented; only VerifiedChains is
+// verified, and only when the [TLSConfig] ClientAuth verifies certificates or
+// the caller verifies them in VerifyConnection.
+func TLSConnectionState(ctx context.Context) *tls.ConnectionState {
+	val := ctx.Value(ctxTLSConnectionState)
+	if val == nil {
+		return nil
+	}
+
+	return val.(*tls.ConnectionState)
 }
 
 // Parameters represents a parameters collection of parameter status keys and
