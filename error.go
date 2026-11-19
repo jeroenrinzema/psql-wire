@@ -2,6 +2,7 @@ package wire
 
 import (
 	"context"
+	"strconv"
 
 	psqlerr "github.com/jeroenrinzema/psql-wire/errors"
 	"github.com/jeroenrinzema/psql-wire/pkg/buffer"
@@ -66,7 +67,7 @@ func WriteUnterminatedError(writer *buffer.Writer, err error) error {
 		writer.AddNullTerminate()
 
 		writer.AddByte(byte(errFieldSrcLine))
-		writer.AddInt32(desc.Source.Line)
+		writer.AddString(strconv.Itoa(int(desc.Source.Line)))
 		writer.AddNullTerminate()
 
 		writer.AddByte(byte(errFieldSrcFunction))
