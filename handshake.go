@@ -297,7 +297,10 @@ func (srv *Server) writeParameters(ctx context.Context, writer *buffer.Writer, p
 // server does not support a secure connection.
 func (srv *Server) potentialConnUpgrade(conn net.Conn, reader *buffer.Reader, version types.Version) (_ net.Conn, _ *buffer.Reader, _ types.Version, err error) {
 	if version != types.VersionSSLRequest {
-		if srv.ClientAuth == tls.RequireAndVerifyClientCert {
+		// Cancel requests carry no credentials or data beyond the backend
+		// key, and many clients send them in plaintext even when the session
+		// itself uses TLS, so they are exempt from the TLS mandate.
+		if srv.ClientAuth == tls.RequireAndVerifyClientCert && version != types.VersionCancel {
 			srv.logger.Warn("client is requesting nil TLS, but the server mandates TLS")
 			return conn, reader, version, fmt.Errorf("client is requesting nil TLS, but the server mandates TLS")
 		}
@@ -307,7 +310,7 @@ func (srv *Server) potentialConnUpgrade(conn net.Conn, reader *buffer.Reader, ve
 
 	srv.logger.Debug("attempting to upgrade the client to a TLS connection")
 
-	if srv.TLSConfig == nil || len(srv.TLSConfig.Certificates) == 0 {
+	if !srv.hasTLSCertificates() {
 		if srv.ClientAuth == tls.RequireAndVerifyClientCert {
 			srv.logger.Warn("server mandates TLS, but does not possess the requisite certificates")
 			return conn, reader, version, fmt.Errorf("server mandates TLS, but does not possess the requisite certificates")
@@ -317,14 +320,29 @@ func (srv *Server) potentialConnUpgrade(conn net.Conn, reader *buffer.Reader, ve
 		return srv.sslUnsupported(conn, reader, version)
 	}
 
+	// Any bytes the client sent after the SSLRequest were sent before it saw
+	// our answer, so they were not encrypted. Accepting them would let a
+	// man-in-the-middle inject plaintext into the session (CVE-2021-23214).
+	if buffered, ok := reader.Buffer.(interface{ Buffered() int }); ok && buffered.Buffered() > 0 {
+		return conn, reader, version, errors.New("received unencrypted data after SSL request")
+	}
+
 	_, err = conn.Write(sslSupported)
 	if err != nil {
 		return conn, reader, version, err
 	}
 
 	// NOTE: initialize the TLS connection and construct a new buffered
-	// reader for the constructed TLS connection.
-	conn = tls.Server(conn, srv.TLSConfig)
+	// reader for the constructed TLS connection. The handshake is completed
+	// here so that the connection state, including any verified client
+	// certificate, is available before the startup message is processed.
+	tlsConn := tls.Server(conn, srv.TLSConfig)
+	conn = tlsConn
+	err = tlsConn.Handshake()
+	if err != nil {
+		return conn, reader, version, err
+	}
+
 	reader = buffer.NewReader(srv.logger, conn, srv.BufferedMsgSize)
 
 	version, err = srv.readVersion(reader)
@@ -334,6 +352,20 @@ func (srv *Server) potentialConnUpgrade(conn net.Conn, reader *buffer.Reader, ve
 
 	srv.logger.Debug("connection has been upgraded successfully")
 	return conn, reader, version, err
+}
+
+// hasTLSCertificates reports whether the server is able to present a TLS
+// certificate. Certificates may be provided statically or loaded per
+// connection through GetCertificate or GetConfigForClient, for example to
+// support certificate rotation without restarting the server.
+func (srv *Server) hasTLSCertificates() bool {
+	if srv.TLSConfig == nil {
+		return false
+	}
+
+	return len(srv.TLSConfig.Certificates) > 0 ||
+		srv.TLSConfig.GetCertificate != nil ||
+		srv.TLSConfig.GetConfigForClient != nil
 }
 
 // sslUnsupported announces to the PostgreSQL client that we are unable to
