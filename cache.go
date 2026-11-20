@@ -20,9 +20,10 @@ type Limit uint32
 const NoLimit Limit = 0
 
 type Statement struct {
-	fn         PreparedStatementFn
-	parameters []uint32
-	columns    Columns
+	fn              PreparedStatementFn
+	parameters      []uint32
+	columns         Columns
+	deferredColumns bool
 }
 
 func DefaultStatementCacheFn() StatementCache {
@@ -45,9 +46,10 @@ func (cache *DefaultStatementCache) Set(ctx context.Context, name string, stmt *
 	}
 
 	cache.statements[name] = &Statement{
-		fn:         stmt.fn,
-		parameters: stmt.parameters,
-		columns:    stmt.columns,
+		fn:              stmt.fn,
+		parameters:      stmt.parameters,
+		columns:         stmt.columns,
+		deferredColumns: stmt.deferredColumns,
 	}
 
 	return nil
@@ -88,6 +90,9 @@ type Portal struct {
 	statement  *Statement
 	parameters []Parameter
 	formats    []FormatCode
+	// The simple query protocol has no Describe, so deferred columns are
+	// written as a RowDescription as soon as the handler defines them.
+	simpleQuery bool
 
 	// The iterator state (created by iter.Pull)
 	next func() (struct{}, bool)
@@ -156,6 +161,7 @@ func (p *Portal) execute(ctx context.Context, limit Limit, reader *buffer.Reader
 			dw := &dataWriter{
 				ctx:     ctx,
 				session: session,
+				portal:  p,
 				columns: p.statement.columns,
 				formats: p.formats,
 				reader:  reader,
@@ -169,6 +175,9 @@ func (p *Portal) execute(ctx context.Context, limit Limit, reader *buffer.Reader
 			err := p.statement.fn(ctx, dw, p.parameters)
 			if err != nil && !errors.Is(err, ErrSuspendedHandlerClosed) {
 				p.err = err
+			}
+			if err == nil && p.statement.deferredColumns {
+				p.err = errColumnsNotDefined
 			}
 		}
 
