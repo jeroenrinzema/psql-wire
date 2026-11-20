@@ -124,30 +124,31 @@ type Server struct {
 	// for them to exit before the test's `t` becomes invalid.
 	//
 	// Additionally it also waits for the Go routine
-	connWg           sync.WaitGroup
-	logger           *slog.Logger
-	Auth             AuthStrategy
-	BackendKeyData   BackendKeyDataFunc
-	CancelRequest    CancelRequestFn
-	BufferedMsgSize  int
-	Parameters       Parameters
-	TLSConfig        *tls.Config
-	ClientAuth       tls.ClientAuthType
-	parse            ParseFn
-	Session          SessionHandler
-	Statements       func() StatementCache
-	Portals          func() PortalCache
-	CloseConn        CloseFn
-	TerminateConn    CloseFn
-	FlushConn        FlushFn
-	SyncConn         SyncFn
-	ParallelPipeline ParallelPipelineConfig
-	ErrorSanitizer   func(error) error
-	TxStatus         TxStatusFn
-	Version          string
-	ShutdownTimeout  time.Duration
-	typeExtension    func(*pgtype.Map)
-	closer           chan struct{}
+	connWg               sync.WaitGroup
+	logger               *slog.Logger
+	Auth                 AuthStrategy
+	BackendKeyData       BackendKeyDataFunc
+	CancelRequest        CancelRequestFn
+	BufferedMsgSize      int
+	Parameters           Parameters
+	TLSConfig            *tls.Config
+	ClientAuth           tls.ClientAuthType
+	parse                ParseFn
+	Session              SessionHandler
+	Statements           func() StatementCache
+	Portals              func() PortalCache
+	CloseConn            CloseFn
+	TerminateConn        CloseFn
+	FlushConn            FlushFn
+	SyncConn             SyncFn
+	ParallelPipeline     ParallelPipelineConfig
+	ErrorSanitizer       func(error) error
+	TxStatus             TxStatusFn
+	Version              string
+	ShutdownTimeout      time.Duration
+	DeferredColumnsError error
+	typeExtension        func(*pgtype.Map)
+	closer               chan struct{}
 }
 
 // ListenAndServe opens a new Postgres server on the preconfigured address and

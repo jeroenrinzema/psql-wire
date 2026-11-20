@@ -2,8 +2,11 @@ package mock
 
 import (
 	"encoding/binary"
+	"errors"
+	"io"
 	"net"
 	"regexp"
+	"syscall"
 	"testing"
 
 	"github.com/jeroenrinzema/psql-wire/pkg/types"
@@ -22,6 +25,21 @@ type Client struct {
 	conn net.Conn
 	*Writer
 	*Reader
+	// serverClosed is set once the server closed the connection, so Close
+	// doesn't try to send a Terminate anymore.
+	serverClosed bool
+}
+
+// ExpectClosed asserts that the server closed the connection without sending
+// anything else. A connection reset counts as closed too, because the server
+// resets the connection when it closes it with unread messages from the
+// client.
+func (client *Client) ExpectClosed(t *testing.T) {
+	t.Helper()
+	_, _, err := client.ReadTypedMsg()
+	require.Error(t, err)
+	require.True(t, errors.Is(err, io.EOF) || errors.Is(err, syscall.ECONNRESET), "expected the connection to be closed, got: %v", err)
+	client.serverClosed = true
 }
 
 // Handshake performs a simple handshake over the underlaying connection. A
@@ -165,16 +183,40 @@ func (client *Client) ReadyForQuery(t *testing.T, expected types.ServerStatus) {
 // (the 'M' field) matches the given regex pattern.
 func (client *Client) Error(t *testing.T, msgRegex string) {
 	t.Helper()
+	_, message := client.readError(t)
+	require.Regexp(t, regexp.MustCompile(msgRegex), message)
+}
+
+// ErrorCode reads an ErrorResponse message and asserts that its SQLSTATE (the
+// 'C' field) equals code, and that its primary message matches the given
+// regex pattern.
+func (client *Client) ErrorCode(t *testing.T, code string, msgRegex string) {
+	t.Helper()
+	actual, message := client.readError(t)
+	require.Equal(t, code, actual)
+	require.Regexp(t, regexp.MustCompile(msgRegex), message)
+}
+
+func (client *Client) readError(t *testing.T) (code string, message string) {
+	t.Helper()
+	fields := client.ErrorFields(t)
+	return fields['C'], fields['M']
+}
+
+// ErrorFields reads an ErrorResponse message and returns all its fields by
+// their field type, e.g. 'R' for the routine that reported the error.
+func (client *Client) ErrorFields(t *testing.T) map[byte]string {
+	t.Helper()
 	t.Log("awaiting error message")
 	defer t.Log("error message received")
 
 	ct, _, err := client.ReadTypedMsg()
 	require.NoError(t, err)
-	require.Equal(t, types.ServerErrorResponse, types.ServerMessage(ct))
+	require.Equal(t, types.ServerErrorResponse, types.ServerMessage(ct), "expected %s but got %s", types.ServerErrorResponse, ct)
 
 	// ErrorResponse body is a sequence of (1-byte field type, null-terminated
 	// string) records, terminated by a zero byte.
-	var message string
+	fields := map[byte]string{}
 	for {
 		fieldType, err := client.GetBytes(1)
 		require.NoError(t, err)
@@ -183,28 +225,37 @@ func (client *Client) Error(t *testing.T, msgRegex string) {
 		}
 		value, err := client.GetString()
 		require.NoError(t, err)
-		if fieldType[0] == 'M' {
-			message = value
-		}
+		fields[fieldType[0]] = value
 	}
 
-	require.Regexp(t, regexp.MustCompile(msgRegex), message)
+	return fields
 }
 
 func (client *Client) Close(t *testing.T) {
 	t.Log("closing the client!")
 	defer t.Log("client closed")
 
-	client.Start(types.ClientTerminate)
-	err := client.End()
-	if err != nil {
-		t.Fatal(err)
+	if !client.serverClosed {
+		client.Start(types.ClientTerminate)
+		err := client.End()
+		if err != nil {
+			t.Fatal(err)
+		}
 	}
 
-	err = client.conn.Close()
+	err := client.conn.Close()
 	if err != nil {
 		t.Fatal(err)
 	}
+}
+
+// SimpleQuery sends a Query message of the simple query protocol.
+func (client *Client) SimpleQuery(t *testing.T, query string) {
+	t.Helper()
+	client.Start(types.ClientSimpleQuery)
+	client.AddString(query)
+	client.AddNullTerminate()
+	require.NoError(t, client.End())
 }
 
 // Parse sends a Parse message with the given statement name and query.
@@ -219,17 +270,50 @@ func (client *Client) Parse(t *testing.T, name, query string) {
 	require.NoError(t, client.End())
 }
 
-// Bind sends a Bind message binding the given statement to the given portal.
-func (client *Client) Bind(t *testing.T, portal, statement string) {
+// Bind sends a Bind message binding the given statement to the given portal,
+// with the given parameter values in text format.
+func (client *Client) Bind(t *testing.T, portal, statement string, parameters ...string) {
 	t.Helper()
 	client.Start(types.ClientBind)
 	client.AddString(portal)
 	client.AddNullTerminate()
 	client.AddString(statement)
 	client.AddNullTerminate()
-	client.AddInt16(0) // no parameter formats
-	client.AddInt16(0) // no parameter values
+	client.AddInt16(0) // all parameters use the text format
+	client.AddInt16(int16(len(parameters)))
+	for _, parameter := range parameters {
+		client.AddInt32(int32(len(parameter)))
+		client.AddString(parameter)
+	}
 	client.AddInt16(0) // no result format codes
+	require.NoError(t, client.End())
+}
+
+// DescribeStatement sends a Describe message for the given prepared statement.
+func (client *Client) DescribeStatement(t *testing.T, name string) {
+	t.Helper()
+	client.describe(t, types.DescribeStatement, name)
+}
+
+// DescribePortal sends a Describe message for the given portal.
+func (client *Client) DescribePortal(t *testing.T, name string) {
+	t.Helper()
+	client.describe(t, types.DescribePortal, name)
+}
+
+func (client *Client) describe(t *testing.T, kind types.DescribeMessage, name string) {
+	t.Helper()
+	client.Start(types.ClientDescribe)
+	client.AddByte(byte(kind))
+	client.AddString(name)
+	client.AddNullTerminate()
+	require.NoError(t, client.End())
+}
+
+// Flush sends a Flush message.
+func (client *Client) Flush(t *testing.T) {
+	t.Helper()
+	client.Start(types.ClientFlush)
 	require.NoError(t, client.End())
 }
 
@@ -281,6 +365,39 @@ func (client *Client) ExpectDataRow(t *testing.T) [][]byte {
 		row[i] = val
 	}
 	return row
+}
+
+// Column is a column of a RowDescription message.
+type Column struct {
+	Name string
+	Oid  uint32
+}
+
+// ExpectRowDescription reads a RowDescription message and returns its columns.
+func (client *Client) ExpectRowDescription(t *testing.T) []Column {
+	t.Helper()
+	client.ExpectMsg(t, types.ServerRowDescription)
+
+	numCols, err := client.GetUint16()
+	require.NoError(t, err)
+
+	columns := make([]Column, numCols)
+	for i := range columns {
+		name, err := client.GetString()
+		require.NoError(t, err)
+		// The table OID (4 bytes) and attribute number (2 bytes) come
+		// between the name and the type OID.
+		_, err = client.GetBytes(6)
+		require.NoError(t, err)
+		oid, err := client.GetUint32()
+		require.NoError(t, err)
+		// The type size (2 bytes), type modifier (4 bytes) and format code
+		// (2 bytes) are not checked by any test yet.
+		_, err = client.GetBytes(8)
+		require.NoError(t, err)
+		columns[i] = Column{Name: name, Oid: oid}
+	}
+	return columns
 }
 
 // ExpectCommandComplete reads a CommandComplete message and returns the tag string.

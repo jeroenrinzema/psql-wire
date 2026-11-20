@@ -9,6 +9,8 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/jeroenrinzema/psql-wire/codes"
+	psqlerr "github.com/jeroenrinzema/psql-wire/errors"
 	"github.com/jeroenrinzema/psql-wire/pkg/buffer"
 	"github.com/jeroenrinzema/psql-wire/pkg/types"
 )
@@ -93,12 +95,32 @@ func WithParameters(parameters []uint32) PreparedOptionFn {
 	}
 }
 
+// WithDeferredColumns marks the result columns of the prepared statement as
+// unknown until it executes, e.g. because they depend on the bound parameters,
+// or on an earlier statement in the same simple query.
+// The statement handler has to report them with [DataWriter.Define] before
+// writing any rows, also when it doesn't return any rows.
+//
+// A Describe of such a statement is answered once a portal of it executes.
+// That works because a client can only wait for the response after a Flush or
+// Sync. If the client sends anything other than a Bind, another Describe, or
+// an Execute of such a portal first, the Describe fails with an
+// indeterminate_datatype (42P18) error instead.
+func WithDeferredColumns() PreparedOptionFn {
+	return func(stmt *PreparedStatement) {
+		stmt.deferredColumns = true
+	}
+}
+
 type PreparedStatements []*PreparedStatement
 
 type PreparedStatement struct {
 	fn         PreparedStatementFn
 	parameters []uint32
 	columns    Columns
+	// deferredColumns is set when the columns are only known once the
+	// statement executes, see WithDeferredColumns.
+	deferredColumns bool
 }
 
 // SessionHandler represents a wrapper function defining the state of a single
@@ -268,6 +290,24 @@ func TxStatus(fn TxStatusFn) OptionFn {
 func ErrorSanitizer(fn func(error) error) OptionFn {
 	return func(srv *Server) error {
 		srv.ErrorSanitizer = fn
+		return nil
+	}
+}
+
+// DeferredColumnsError sets the error that is sent to the client when a
+// Describe of a statement prepared with [WithDeferredColumns] can't wait for
+// the statement to execute. This allows explaining to users why the columns
+// of their statement can't be described and how they can work around that,
+// which depends on what causes the columns to be deferred. An error without a
+// SQLSTATE gets indeterminate_datatype (42P18), just like the default error.
+func DeferredColumnsError(err error) OptionFn {
+	return func(srv *Server) error {
+		// Wrapping an error that already has a code would override it, because
+		// GetCode returns the outermost code.
+		if psqlerr.GetCode(err) == codes.Uncategorized {
+			err = psqlerr.WithCode(err, codes.IndeterminateDatatype)
+		}
+		srv.DeferredColumnsError = err
 		return nil
 	}
 }

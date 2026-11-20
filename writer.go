@@ -3,6 +3,7 @@ package wire
 import (
 	"context"
 	"errors"
+	"slices"
 
 	"github.com/jeroenrinzema/psql-wire/pkg/buffer"
 	"github.com/jeroenrinzema/psql-wire/pkg/types"
@@ -27,6 +28,21 @@ type DataWriter interface {
 
 	// Columns returns the columns that are currently defined within the writer.
 	Columns() Columns
+
+	// Define sets the result columns of a statement prepared with
+	// [WithDeferredColumns], and answers a Describe that is waiting for these
+	// columns. The handler of such a statement has to call it before writing
+	// any rows or starting a COPY, also when the statement doesn't return any
+	// rows. Not doing so is a bug in the handler, which closes the connection
+	// with a FATAL error once the handler finishes.
+	//
+	// Once defined, the columns of a prepared statement can't change anymore,
+	// just like in PostgreSQL, because some clients cache the response to a
+	// Describe of the statement and use it to decode the rows of later
+	// executions. So for a statement whose columns are already known, Define
+	// returns an error if the names or types of the columns are different.
+	// A client has to prepare the statement again to get different columns.
+	Define(columns Columns) error
 
 	// Complete announces to the client that the command has been completed and
 	// no further data should be expected.
@@ -81,6 +97,7 @@ const maxEncodeScratchCapacity = 64 << 10
 type dataWriter struct {
 	ctx     context.Context
 	session *Session
+	portal  *Portal
 	columns Columns
 	formats []FormatCode
 	client  *buffer.Writer
@@ -99,9 +116,62 @@ func (writer *dataWriter) Columns() Columns {
 	return writer.columns
 }
 
-func (writer *dataWriter) Row(values []any) error {
+func (writer *dataWriter) Define(columns Columns) error {
 	if writer.closed {
 		return ErrClosedWriter
+	}
+
+	// The columns of the statement are already known, either up front or
+	// from an earlier execution, and the client might have received them
+	// in a Describe. So the rows have to match those.
+	statement := writer.portal.statement
+	if !statement.deferredColumns {
+		if !slices.EqualFunc(statement.columns, columns, sameRowType) {
+			return errResultTypeChanged
+		}
+		return nil
+	}
+
+	// The statement keeps the columns for later executions, so it needs its
+	// own copy in case the handler reuses the slice.
+	columns = slices.Clone(columns)
+	statement.columns = columns
+	statement.deferredColumns = false
+	writer.columns = columns
+	if writer.portal.simpleQuery {
+		return columns.Define(writer.ctx, writer.client, writer.formats)
+	}
+	return writer.session.resolveDescribes(writer.ctx, writer.client, writer.portal, columns)
+}
+
+// sameRowType reports whether two columns are the same in the result type of a
+// statement. Like equalRowTypes in PostgreSQL, it only compares the name and
+// the type, and not the table metadata. That metadata can change without
+// breaking a client that cached the columns, because it isn't needed to
+// decode the rows.
+func sameRowType(a, b Column) bool {
+	return a.Name == b.Name && a.Oid == b.Oid && a.TypeModifier == b.TypeModifier
+}
+
+// checkWritable returns an error if the writer is closed, or if the columns of
+// a statement with deferred columns aren't defined yet. Writing anything
+// before they are would end up before the RowDescription, or would wait for
+// the client while the Describe is still held back. Completing the statement
+// before is refused too, because a statement without rows has to define
+// that, by calling Define with no columns, to answer a Describe with NoData.
+func (writer *dataWriter) checkWritable() error {
+	if writer.closed {
+		return ErrClosedWriter
+	}
+	if writer.portal != nil && writer.portal.statement.deferredColumns {
+		return errWriteBeforeDefine
+	}
+	return nil
+}
+
+func (writer *dataWriter) Row(values []any) error {
+	if err := writer.checkWritable(); err != nil {
+		return err
 	}
 
 	err := writer.columns.write(writer.ctx, writer.formats, writer.client, values, TypeMap(writer.ctx), &writer.encodeScratch)
@@ -122,8 +192,8 @@ func (writer *dataWriter) Row(values []any) error {
 // Rows writes materialized rows, batching frames only when portal flow control
 // permits it. Limited portals keep Row's per-row suspension checkpoints.
 func (writer *dataWriter) Rows(rows [][]any) (err error) {
-	if writer.closed {
-		return ErrClosedWriter
+	if err := writer.checkWritable(); err != nil {
+		return err
 	}
 	if !writer.batchable {
 		for _, row := range rows {
@@ -160,8 +230,8 @@ func (writer *dataWriter) Rows(rows [][]any) (err error) {
 }
 
 func (writer *dataWriter) CopyIn(format FormatCode) (*CopyReader, error) {
-	if writer.closed {
-		return nil, ErrClosedWriter
+	if err := writer.checkWritable(); err != nil {
+		return nil, err
 	}
 
 	err := writer.columns.CopyIn(writer.ctx, writer.client, format)
@@ -172,8 +242,8 @@ func (writer *dataWriter) CopyIn(format FormatCode) (*CopyReader, error) {
 }
 
 func (writer *dataWriter) Empty() error {
-	if writer.closed {
-		return ErrClosedWriter
+	if err := writer.checkWritable(); err != nil {
+		return err
 	}
 
 	if writer.written != 0 {
@@ -189,8 +259,8 @@ func (writer *dataWriter) Written() uint32 {
 }
 
 func (writer *dataWriter) Complete(description string) error {
-	if writer.closed {
-		return ErrClosedWriter
+	if err := writer.checkWritable(); err != nil {
+		return err
 	}
 
 	defer writer.close()

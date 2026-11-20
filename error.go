@@ -2,6 +2,7 @@ package wire
 
 import (
 	"context"
+	"strconv"
 
 	psqlerr "github.com/jeroenrinzema/psql-wire/errors"
 	"github.com/jeroenrinzema/psql-wire/pkg/buffer"
@@ -66,7 +67,7 @@ func WriteUnterminatedError(writer *buffer.Writer, err error) error {
 		writer.AddNullTerminate()
 
 		writer.AddByte(byte(errFieldSrcLine))
-		writer.AddInt32(desc.Source.Line)
+		writer.AddString(strconv.Itoa(int(desc.Source.Line)))
 		writer.AddNullTerminate()
 
 		writer.AddByte(byte(errFieldSrcFunction))
@@ -82,16 +83,31 @@ func WriteUnterminatedError(writer *buffer.Writer, err error) error {
 // ErrorResponse and sets `discardUntilSync` (ReadyForQuery comes from Sync).
 // In simple query mode it writes ErrorResponse + ReadyForQuery.
 func (srv *Session) WriteError(ctx context.Context, writer *buffer.Writer, err error) error {
+	desc := psqlerr.Flatten(err)
+	fatal := desc.Severity == psqlerr.LevelFatal || desc.Severity == psqlerr.LevelPanic
+
+	// This error is for a message after the held Describes, so the client
+	// has to see the first Describe fail, and then expects this message to be
+	// skipped. A FATAL error still has to close the connection though, and
+	// the client should see why, so then it's written after the error of
+	// the Describe.
+	if srv.held != nil {
+		if werr := srv.failDescribes(writer); werr != nil {
+			return werr
+		}
+		if !fatal {
+			return nil
+		}
+	}
+
 	if werr := WriteUnterminatedError(writer, err); werr != nil {
 		return werr
 	}
 
-	desc := psqlerr.Flatten(err)
-
 	// FATAL and PANIC errors terminate the connection. The client expects the
 	// server to close after sending the ErrorResponse, so we must not wait
 	// for a Sync or send ReadyForQuery.
-	if desc.Severity == psqlerr.LevelFatal || desc.Severity == psqlerr.LevelPanic {
+	if fatal {
 		return err
 	}
 

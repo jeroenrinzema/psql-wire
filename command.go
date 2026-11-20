@@ -74,6 +74,11 @@ type Session struct {
 	// discard messages until it receives a Sync, then respond with
 	// ReadyForQuery.
 	discardUntilSync bool
+
+	// held is set while output is held back, because Describes are waiting
+	// for the result columns of a statement prepared with
+	// WithDeferredColumns.
+	held *heldOutput
 }
 
 // isExtendedQueryMessage returns true for message types that belong to the
@@ -185,6 +190,16 @@ func (srv *Session) handleMessageSizeExceeded(ctx context.Context, reader *buffe
 // indicates a action executed by the client.
 // https://www.postgresql.org/docs/14/protocol-message-formats.html
 func (srv *Session) handleCommand(ctx context.Context, conn net.Conn, t types.ClientMessage, reader *buffer.Reader, writer *buffer.Writer) error {
+	// After a Flush or Sync the client may wait for the held Describes, and
+	// any other message is one that the client expects to be skipped if a
+	// Describe fails. Only a Bind, another Describe, or an Execute that answers
+	// the Describes, can be handled before they are answered.
+	if srv.held != nil && t != types.ClientBind && t != types.ClientDescribe && t != types.ClientExecute {
+		if err := srv.failDescribes(writer); err != nil {
+			return err
+		}
+	}
+
 	// Per the PostgreSQL protocol, after an error during extended query
 	// processing the server discards all messages until it receives a Sync.
 	if srv.discardUntilSync && t != types.ClientSync && t != types.ClientTerminate {
@@ -330,16 +345,20 @@ func (srv *Session) handleSimpleQuery(ctx context.Context, reader *buffer.Reader
 
 	// NOTE: it is possible to send multiple statements in one simple query.
 	for index := range statements {
-		err = statements[index].columns.Define(ctx, writer, nil)
-		if err != nil {
-			return srv.WriteError(ctx, writer, err)
+		if !statements[index].deferredColumns {
+			err = statements[index].columns.Define(ctx, writer, nil)
+			if err != nil {
+				return srv.WriteError(ctx, writer, err)
+			}
 		}
 
 		portal := &Portal{
 			statement: &Statement{
-				fn:      statements[index].fn,
-				columns: statements[index].columns,
+				fn:              statements[index].fn,
+				columns:         statements[index].columns,
+				deferredColumns: statements[index].deferredColumns,
 			},
+			simpleQuery: true,
 		}
 		err = portal.execute(ctx, NoLimit, reader, writer)
 		if err != nil {
@@ -430,6 +449,13 @@ func (srv *Session) parsePipelined(ctx context.Context, writer *buffer.Writer, n
 		return srv.drainQueueAndWriteError(ctx, writer, err)
 	}
 
+	// The parallel pipeline doesn't support holding back a Describe until
+	// the statement executes. Failing the Parse makes that clear right away,
+	// instead of only when the client describes the statement.
+	if statement.deferredColumns {
+		return srv.drainQueueAndWriteError(ctx, writer, errDeferredColumnsPipeline)
+	}
+
 	srv.logger.Debug("incoming extended query", slog.String("query", query), slog.String("name", name), slog.Int("parameters", len(statement.parameters)))
 
 	err = srv.Statements.Set(ctx, name, statement)
@@ -469,6 +495,10 @@ func (srv *Session) handleDescribe(ctx context.Context, reader *buffer.Reader, w
 			return srv.WriteError(ctx, writer, errors.New("unknown statement"))
 		}
 
+		if statement.deferredColumns {
+			srv.holdDescribe(writer, deferredDescribe{statement: statement})
+			return nil
+		}
 		if err := srv.writeParameterDescription(writer, statement.parameters); err != nil {
 			return err
 		}
@@ -484,6 +514,10 @@ func (srv *Session) handleDescribe(ctx context.Context, reader *buffer.Reader, w
 			return srv.WriteError(ctx, writer, errors.New("unknown portal"))
 		}
 
+		if portal.statement.deferredColumns {
+			srv.holdDescribe(writer, deferredDescribe{portal: portal})
+			return nil
+		}
 		return srv.writeColumnDescription(ctx, writer, portal.formats, portal.statement.columns)
 	}
 
@@ -725,6 +759,10 @@ func (srv *Session) handleExecute(ctx context.Context, reader *buffer.Reader, wr
 
 	if srv.ParallelPipeline.Enabled {
 		return srv.executePipelined(ctx, writer, name, limit)
+	}
+
+	if srv.held != nil {
+		return srv.executeHeld(ctx, name, Limit(limit), reader, writer)
 	}
 
 	err = srv.Portals.Execute(ctx, name, Limit(limit), reader, writer)
