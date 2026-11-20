@@ -1,19 +1,27 @@
 package wire
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
+	"encoding/binary"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
 	"net"
+	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/jackc/pgx/v5/pgproto3"
 	"github.com/jackc/pgx/v5/pgtype"
 	_ "github.com/jackc/pgx/v5/stdlib"
+	"github.com/jeroenrinzema/psql-wire/pkg/buffer"
 	"github.com/jeroenrinzema/psql-wire/pkg/mock"
 	"github.com/jeroenrinzema/psql-wire/pkg/types"
 	"github.com/lib/pq"
@@ -1366,4 +1374,495 @@ func TestCloseConnCallback(t *testing.T) {
 			t.Error("Timeout waiting for TerminateConn callback on clean Terminate")
 		}
 	})
+}
+
+func TestServerCopyInColumns(t *testing.T) {
+	t.Parallel()
+
+	columns := Columns{
+		{Name: "id", Oid: pgtype.Int4OID},
+		{Name: "name", Oid: pgtype.TextOID},
+	}
+
+	// lib/pq checks the transaction status after BEGIN and COMMIT.
+	var inTx atomic.Bool
+	handler := func(ctx context.Context, q Query) (PreparedStatements, error) {
+		query := q.Query
+		handle := func(ctx context.Context, writer DataWriter, parameters []Parameter) error {
+			if !strings.HasPrefix(strings.ToLower(query), "copy") {
+				tag := strings.ToUpper(strings.Fields(query)[0])
+				inTx.Store(tag == "BEGIN")
+				return writer.Complete(tag)
+			}
+
+			if strings.Contains(strings.ToLower(query), "binary") {
+				c, err := writer.CopyInColumns(BinaryFormat, columns)
+				if err != nil {
+					return err
+				}
+				b, err := NewBinaryColumnReader(ctx, c)
+				if err != nil {
+					return err
+				}
+				var n int
+				for {
+					_, err := b.Read(ctx)
+					if err == io.EOF {
+						break
+					}
+					if err != nil {
+						return err
+					}
+					n++
+				}
+				return writer.Complete(fmt.Sprintf("COPY %d", n))
+			}
+
+			c, err := writer.CopyInColumns(TextFormat, columns)
+			if err != nil {
+				return err
+			}
+			var n int
+			for {
+				err := c.Read(ctx)
+				if err == io.EOF {
+					break
+				}
+				if err != nil {
+					return err
+				}
+				n += bytes.Count(c.Msg, []byte("\n"))
+			}
+			return writer.Complete(fmt.Sprintf("COPY %d", n))
+		}
+
+		// pgx describes "select <cols> from <table>" to learn the column types.
+		if strings.HasPrefix(strings.ToLower(query), "select") {
+			return Prepared(NewStatement(func(ctx context.Context, writer DataWriter, _ []Parameter) error {
+				return writer.Complete("SELECT 0")
+			}, WithColumns(columns))), nil
+		}
+
+		// The columns come from the handler, so the statement has none: it is
+		// only marked as a COPY.
+		return Prepared(NewStatement(handle, WithCopy())), nil
+	}
+
+	txStatus := func(context.Context) types.ServerStatus {
+		if inTx.Load() {
+			return types.ServerTransactionBlock
+		}
+		return types.ServerIdle
+	}
+	server, err := NewServer(handler, Logger(slogt.New(t)), TxStatus(txStatus))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	address := TListenAndServe(t, server)
+
+	rows := [][]any{
+		{196, "My Posse In Effect"},
+		{181, "Almost KISS"},
+	}
+
+	t.Run("lib/pq", func(t *testing.T) {
+		connstr := fmt.Sprintf("host=%s port=%d sslmode=disable", address.IP, address.Port)
+		conn, err := sql.Open("postgres", connstr)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer func() { _ = conn.Close() }()
+
+		txn, err := conn.Begin()
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		stmt, err := txn.Prepare(pq.CopyIn("foo", "id", "name"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, row := range rows {
+			if _, err := stmt.Exec(row...); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if _, err := stmt.Exec(); err != nil {
+			t.Fatal(err)
+		}
+		if err := stmt.Close(); err != nil {
+			t.Fatal(err)
+		}
+		if err := txn.Commit(); err != nil {
+			t.Fatal(err)
+		}
+	})
+
+	t.Run("jackc/pgx", func(t *testing.T) {
+		ctx := context.Background()
+		connstr := fmt.Sprintf("postgres://%s:%d", address.IP, address.Port)
+		conn, err := pgx.Connect(ctx, connstr)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer func() { _ = conn.Close(ctx) }()
+
+		n, err := conn.CopyFrom(ctx, pgx.Identifier{"foo"}, []string{"id", "name"}, pgx.CopyFromRows(rows))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if n != 2 {
+			t.Fatalf("unexpected number of rows copied: %d", n)
+		}
+	})
+
+	t.Run("CopyFail", func(t *testing.T) {
+		ctx := context.Background()
+		connstr := fmt.Sprintf("postgres://%s:%d", address.IP, address.Port)
+		conn, err := pgx.Connect(ctx, connstr)
+		require.NoError(t, err)
+		defer func() { _ = conn.Close(ctx) }()
+
+		// pgx sends CopyFail when the source reader errors.
+		_, err = conn.PgConn().CopyFrom(ctx, &copyFailReader{}, "copy foo (id, name) from stdin")
+		var pgErr *pgconn.PgError
+		require.ErrorAs(t, err, &pgErr)
+		assert.Equal(t, "57014", pgErr.Code)
+		assert.Contains(t, pgErr.Message, "client gave up")
+
+		// Exactly one ErrorResponse was sent, so the connection is in sync.
+		tag, err := conn.PgConn().CopyFrom(ctx, strings.NewReader("1\tx\n"), "copy foo (id, name) from stdin")
+		require.NoError(t, err)
+		assert.Equal(t, "COPY 1", tag.String())
+	})
+}
+
+type copyFailReader struct{ sent bool }
+
+func (r *copyFailReader) Read(p []byte) (int, error) {
+	if !r.sent {
+		r.sent = true
+		return copy(p, "1\tx\n"), nil
+	}
+	return 0, errors.New("client gave up")
+}
+
+// A connection that closes mid-copy must not look like CopyDone (io.EOF), or
+// the handler would treat a partial stream as complete.
+func TestCopyReaderConnectionClosed(t *testing.T) {
+	t.Parallel()
+
+	var msgs []byte
+	msgs = append(msgs, byte(types.ClientCopyData))
+	msgs = binary.BigEndian.AppendUint32(msgs, 4+2)
+	msgs = append(msgs, "1\n"...)
+
+	reader := NewCopyReader(nil, buffer.NewReader(slogt.New(t), bytes.NewReader(msgs), buffer.DefaultBufferSize), nil, nil)
+	require.NoError(t, reader.Read(context.Background()))
+	assert.Equal(t, "1\n", string(reader.Msg))
+
+	err := reader.Read(context.Background())
+	require.Error(t, err)
+	assert.NotErrorIs(t, err, io.EOF)
+	assert.ErrorIs(t, err, io.ErrUnexpectedEOF)
+}
+
+// A statement marked WithCopy keeps its WithColumns columns for CopyIn, and
+// sends no RowDescription: not in the simple query protocol (lib/pq rejects
+// one before the CopyInResponse) and not in answer to a Describe (NoData).
+func TestServerCopyStatement(t *testing.T) {
+	t.Parallel()
+
+	columns := Columns{
+		{Name: "id", Oid: pgtype.Int4OID},
+		{Name: "name", Oid: pgtype.TextOID},
+	}
+
+	var inTx atomic.Bool
+	handler := func(ctx context.Context, q Query) (PreparedStatements, error) {
+		query := strings.ToLower(q.Query)
+		switch {
+		case strings.HasPrefix(query, "select"):
+			// pgx describes "select <cols> from <table>" to learn the types.
+			return Prepared(NewStatement(func(ctx context.Context, writer DataWriter, _ []Parameter) error {
+				return writer.Complete("SELECT 0")
+			}, WithColumns(columns))), nil
+		case strings.HasPrefix(query, "copy rows"):
+			return Prepared(NewStatement(func(ctx context.Context, writer DataWriter, _ []Parameter) error {
+				return writer.Row([]any{int32(1), "x"})
+			}, WithColumns(columns), WithCopy())), nil
+		case !strings.HasPrefix(query, "copy"):
+			return Prepared(NewStatement(func(ctx context.Context, writer DataWriter, _ []Parameter) error {
+				tag := strings.ToUpper(strings.Fields(q.Query)[0])
+				inTx.Store(tag == "BEGIN")
+				return writer.Complete(tag)
+			})), nil
+		}
+
+		handle := func(ctx context.Context, writer DataWriter, _ []Parameter) error {
+			if strings.Contains(query, "binary") {
+				c, err := writer.CopyIn(BinaryFormat)
+				if err != nil {
+					return err
+				}
+				b, err := NewBinaryColumnReader(ctx, c)
+				if err != nil {
+					return err
+				}
+				var n int
+				for {
+					_, err := b.Read(ctx)
+					if err == io.EOF {
+						break
+					}
+					if err != nil {
+						return err
+					}
+					n++
+				}
+				return writer.Complete(fmt.Sprintf("COPY %d", n))
+			}
+
+			c, err := writer.CopyIn(TextFormat)
+			if err != nil {
+				return err
+			}
+			var n int
+			for {
+				err := c.Read(ctx)
+				if err == io.EOF {
+					break
+				}
+				if err != nil {
+					return err
+				}
+				n += bytes.Count(c.Msg, []byte("\n"))
+			}
+			return writer.Complete(fmt.Sprintf("COPY %d", n))
+		}
+		return Prepared(NewStatement(handle, WithColumns(columns), WithCopy())), nil
+	}
+
+	txStatus := func(context.Context) types.ServerStatus {
+		if inTx.Load() {
+			return types.ServerTransactionBlock
+		}
+		return types.ServerIdle
+	}
+	server, err := NewServer(handler, Logger(slogt.New(t)), TxStatus(txStatus))
+	require.NoError(t, err)
+	address := TListenAndServe(t, server)
+	rows := [][]any{{196, "My Posse In Effect"}, {181, "Almost KISS"}}
+
+	t.Run("lib/pq", func(t *testing.T) {
+		conn, err := sql.Open("postgres", fmt.Sprintf("host=%s port=%d sslmode=disable", address.IP, address.Port))
+		require.NoError(t, err)
+		defer func() { _ = conn.Close() }()
+
+		txn, err := conn.Begin()
+		require.NoError(t, err)
+		stmt, err := txn.Prepare(pq.CopyIn("foo", "id", "name"))
+		require.NoError(t, err)
+		for _, row := range rows {
+			_, err := stmt.Exec(row...)
+			require.NoError(t, err)
+		}
+		_, err = stmt.Exec()
+		require.NoError(t, err)
+		require.NoError(t, stmt.Close()) //nolint:sqlclosecheck // Close ends the COPY
+		require.NoError(t, txn.Commit())
+	})
+
+	t.Run("jackc/pgx", func(t *testing.T) {
+		ctx := context.Background()
+		conn, err := pgx.Connect(ctx, fmt.Sprintf("postgres://%s:%d", address.IP, address.Port))
+		require.NoError(t, err)
+		defer func() { _ = conn.Close(ctx) }()
+
+		n, err := conn.CopyFrom(ctx, pgx.Identifier{"foo"}, []string{"id", "name"}, pgx.CopyFromRows(rows))
+		require.NoError(t, err)
+		assert.Equal(t, int64(2), n)
+
+		// Describe answers NoData, as PostgreSQL does for a COPY.
+		sd, err := conn.Prepare(ctx, "copy_stmt", "copy foo (id, name) from stdin")
+		require.NoError(t, err)
+		assert.Empty(t, sd.Fields)
+
+		// A COPY handler that writes rows gets an error, and the
+		// connection stays usable.
+		_, err = conn.Exec(ctx, "copy rows", pgx.QueryExecModeSimpleProtocol)
+		require.ErrorContains(t, err, "a COPY statement returns no rows")
+		tag, err := conn.PgConn().CopyFrom(ctx, strings.NewReader("1\tx\n"), "copy foo (id, name) from stdin")
+		require.NoError(t, err)
+		assert.Equal(t, "COPY 1", tag.String())
+	})
+}
+
+// copyFailServer serves "copy" statements whose handler reads the copy-in
+// stream and, if ignoreErrors is set, ignores the errors Read returns.
+func copyFailServer(t *testing.T, ignoreErrors bool) *net.TCPAddr {
+	t.Helper()
+	handler := func(ctx context.Context, q Query) (PreparedStatements, error) {
+		if !strings.HasPrefix(strings.ToLower(q.Query), "copy") {
+			return Prepared(NewStatement(func(ctx context.Context, writer DataWriter, _ []Parameter) error {
+				return writer.Complete("SELECT 0")
+			})), nil
+		}
+		handle := func(ctx context.Context, writer DataWriter, _ []Parameter) error {
+			c, err := writer.CopyIn(TextFormat)
+			if err != nil {
+				return err
+			}
+			for {
+				err := c.Read(ctx)
+				if err == io.EOF || (err != nil && ignoreErrors) {
+					break
+				}
+				if err != nil {
+					return err
+				}
+			}
+			return writer.Complete("COPY 1")
+		}
+		return Prepared(NewStatement(handle, WithColumns(Columns{{Name: "a", Oid: pgtype.TextOID}}), WithCopy())), nil
+	}
+	server, err := NewServer(handler, Logger(slogt.New(t)))
+	require.NoError(t, err)
+	return TListenAndServe(t, server)
+}
+
+// A handler that ignores the CopyFail error from Read must not report the
+// COPY as successful: Read no longer sends the ErrorResponse itself.
+func TestCopyFailIgnoredByHandler(t *testing.T) {
+	t.Parallel()
+	address := copyFailServer(t, true)
+	ctx := context.Background()
+	conn, err := pgx.Connect(ctx, fmt.Sprintf("postgres://%s:%d", address.IP, address.Port))
+	require.NoError(t, err)
+	defer func() { _ = conn.Close(ctx) }()
+
+	_, err = conn.PgConn().CopyFrom(ctx, &copyFailReader{}, "copy foo from stdin")
+	var pgErr *pgconn.PgError
+	require.ErrorAs(t, err, &pgErr)
+	assert.Equal(t, "57014", pgErr.Code)
+
+	// The connection is still in sync.
+	tag, err := conn.PgConn().CopyFrom(ctx, strings.NewReader("1\n"), "copy foo from stdin")
+	require.NoError(t, err)
+	assert.Equal(t, "COPY 1", tag.String())
+
+	t.Run("client goes away mid-copy", func(t *testing.T) {
+		// A client that sends a row and then closes its side of the
+		// connection, as a crashed client behind a proxy does. Half-closing
+		// keeps the server's answer readable: it must be an error, not
+		// "COPY 1", even though the handler ignores the error from Read.
+		conn, err := pgx.Connect(ctx, fmt.Sprintf("postgres://%s:%d", address.IP, address.Port))
+		require.NoError(t, err)
+		hijacked, err := conn.PgConn().Hijack()
+		require.NoError(t, err)
+		defer func() { _ = hijacked.Conn.Close() }()
+		fe := hijacked.Frontend
+
+		fe.Send(&pgproto3.Query{String: "copy foo from stdin"})
+		require.NoError(t, fe.Flush())
+		require.NoError(t, hijacked.Conn.SetReadDeadline(time.Now().Add(5*time.Second)))
+		msg, err := fe.Receive()
+		require.NoError(t, err)
+		require.IsType(t, &pgproto3.CopyInResponse{}, msg)
+
+		fe.Send(&pgproto3.CopyData{Data: []byte("1\n")})
+		require.NoError(t, fe.Flush())
+		tcp, ok := hijacked.Conn.(*net.TCPConn)
+		require.True(t, ok)
+		require.NoError(t, tcp.CloseWrite())
+
+		for {
+			msg, err := fe.Receive()
+			require.NoError(t, err, "want the server's answer before it closes")
+			if cc, ok := msg.(*pgproto3.CommandComplete); ok {
+				t.Fatalf("the COPY was reported as successful: %s", cc.CommandTag)
+			}
+			if _, ok := msg.(*pgproto3.ErrorResponse); ok {
+				return
+			}
+		}
+	})
+}
+
+// CopyFail over the extended protocol: one ErrorResponse, then the server
+// discards until Sync and answers ReadyForQuery.
+func TestCopyFailExtendedProtocol(t *testing.T) {
+	t.Parallel()
+	address := copyFailServer(t, false)
+	ctx := context.Background()
+	conn, err := pgx.Connect(ctx, fmt.Sprintf("postgres://%s:%d", address.IP, address.Port))
+	require.NoError(t, err)
+	hijacked, err := conn.PgConn().Hijack()
+	require.NoError(t, err)
+	defer func() { _ = hijacked.Conn.Close() }()
+	fe := hijacked.Frontend
+
+	receive := func() pgproto3.BackendMessage {
+		t.Helper()
+		require.NoError(t, hijacked.Conn.SetReadDeadline(time.Now().Add(5*time.Second)))
+		msg, err := fe.Receive()
+		require.NoError(t, err)
+		return msg
+	}
+
+	fe.Send(&pgproto3.Parse{Query: "copy foo from stdin"})
+	fe.Send(&pgproto3.Bind{})
+	fe.Send(&pgproto3.Describe{ObjectType: 'P'})
+	fe.Send(&pgproto3.Execute{})
+	fe.Send(&pgproto3.Flush{})
+	require.NoError(t, fe.Flush())
+
+	assert.IsType(t, &pgproto3.ParseComplete{}, receive())
+	assert.IsType(t, &pgproto3.BindComplete{}, receive())
+	assert.IsType(t, &pgproto3.NoData{}, receive(), "a COPY has no result columns")
+	assert.IsType(t, &pgproto3.CopyInResponse{}, receive())
+
+	fe.Send(&pgproto3.CopyData{Data: []byte("1\n")})
+	fe.Send(&pgproto3.CopyFail{Message: "client gave up"})
+	fe.Send(&pgproto3.Sync{})
+	require.NoError(t, fe.Flush())
+
+	errResp, ok := receive().(*pgproto3.ErrorResponse)
+	require.True(t, ok, "want an ErrorResponse")
+	assert.Equal(t, "57014", errResp.Code)
+	assert.Contains(t, errResp.Message, "client gave up")
+	assert.IsType(t, &pgproto3.ReadyForQuery{}, receive())
+
+	// The connection is still in sync.
+	fe.Send(&pgproto3.Query{String: "select 1"})
+	require.NoError(t, fe.Flush())
+	for {
+		msg := receive()
+		_, isErr := msg.(*pgproto3.ErrorResponse)
+		require.False(t, isErr, "unexpected error after the failed COPY")
+		if _, done := msg.(*pgproto3.ReadyForQuery); done {
+			break
+		}
+	}
+}
+
+func TestCopyReaderContextCanceled(t *testing.T) {
+	t.Parallel()
+	var msgs []byte
+	msgs = append(msgs, byte(types.ClientCopyData))
+	msgs = binary.BigEndian.AppendUint32(msgs, 4+2)
+	msgs = append(msgs, "1\n"...)
+	reader := NewCopyReader(nil, buffer.NewReader(slogt.New(t), bytes.NewReader(msgs), buffer.DefaultBufferSize), nil, nil)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	require.ErrorIs(t, reader.Read(ctx), context.Canceled)
+}
+
+func TestIsNormalConnectionClosureMidCopy(t *testing.T) {
+	t.Parallel()
+	srv := &Server{}
+	assert.True(t, srv.isNormalConnectionClosure(fmt.Errorf("connection closed during COPY: %w", io.ErrUnexpectedEOF)))
+	assert.False(t, srv.isNormalConnectionClosure(errors.New("something else")))
 }

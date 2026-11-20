@@ -71,6 +71,11 @@ func NewStatement(fn PreparedStatementFn, options ...PreparedOptionFn) *Prepared
 		option(stmt)
 	}
 
+	if stmt.copy {
+		// The columns of a COPY are what it copies, not what it returns.
+		stmt.copyColumns, stmt.columns = stmt.columns, nil
+	}
+
 	return stmt
 }
 
@@ -93,12 +98,31 @@ func WithParameters(parameters []uint32) PreparedOptionFn {
 	}
 }
 
+// WithCopy marks the prepared statement as a COPY ... FROM STDIN. A COPY
+// returns no rows, so a Describe of it answers NoData and the simple query
+// protocol sends no RowDescription for it, as in PostgreSQL. Clients such as
+// lib/pq fail on a RowDescription before the CopyInResponse.
+//
+// The columns set with [WithColumns] are then the columns of the COPY, which
+// [DataWriter.CopyIn] declares, rather than result columns. A handler that
+// only knows them once it executes can leave them out and use
+// [DataWriter.CopyInColumns]. Writing rows from its handler is an error.
+func WithCopy() PreparedOptionFn {
+	return func(stmt *PreparedStatement) {
+		stmt.copy = true
+	}
+}
+
 type PreparedStatements []*PreparedStatement
 
 type PreparedStatement struct {
 	fn         PreparedStatementFn
 	parameters []uint32
 	columns    Columns
+	// copy is set for a COPY ... FROM STDIN, see WithCopy. Its columns are
+	// then in copyColumns, and columns is empty.
+	copy        bool
+	copyColumns Columns
 }
 
 // SessionHandler represents a wrapper function defining the state of a single

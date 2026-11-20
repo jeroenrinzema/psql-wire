@@ -22,24 +22,25 @@ import (
 var CopySignature = []byte("PGCOPY\n\377\r\n\000")
 
 // NewCopyReader creates a new copy reader that reads copy-in data from the given
-// reader and writes the data to the given writer. The columns are used to determine
-// the format of the data that is read from the reader.
+// reader. The columns are used to determine the format of the data that is read
+// from the reader. The session and writer are unused, since Read returns errors
+// for the handler to report instead of writing them; they are kept for
+// compatibility.
 func NewCopyReader(session *Session, reader *buffer.Reader, writer *buffer.Writer, columns Columns) *CopyReader {
 	return &CopyReader{
 		Reader:  reader,
-		session: session,
-		writer:  writer,
 		columns: columns, // NOTE: the columns are only used to determine the format of the data that is read from the reader.
-		chunk:   make([]byte, reader.MaxMessageSize),
 	}
 }
 
 type CopyReader struct {
 	*buffer.Reader
-	session *Session
-	writer  *buffer.Writer
 	columns Columns
-	chunk   []byte
+	// failed, if set, receives any error that ends the copy other than
+	// CopyDone (a client abort, a closed connection, a failed read, a
+	// canceled context), so that the statement fails even if the handler
+	// ignores Read's error and would otherwise commit a partial copy.
+	failed *error
 }
 
 // Columns returns the columns that are currently defined within the copy reader.
@@ -47,15 +48,30 @@ func (r *CopyReader) Columns() Columns {
 	return r.columns
 }
 
-// Read reads a single chunk from the copy-in stream. The read chunk is returned
-// as a byte slice. If the end of the copy-in stream is reached, an io.EOF error
-// is returned.
+// Read reads a single chunk from the copy-in stream into r.Msg. If the end of
+// the copy-in stream is reached, an io.EOF error is returned. If the client
+// aborts the copy with CopyFail, or sends a message that is not allowed during
+// copy-in, the error is returned for the handler to return; Read does not
+// write it to the client itself, so the client gets exactly one ErrorResponse.
+//
+// io.EOF only ever means CopyDone. If the connection closes mid-copy, Read
+// returns io.ErrUnexpectedEOF, so that a caller cannot mistake a client that
+// went away for one that finished and commit a partial load.
+//
+// Read checks ctx before each message, so a canceled context stops the copy
+// between messages; it cannot interrupt a read that is waiting for the client.
 func (r *CopyReader) Read(ctx context.Context) error {
 reader:
 	for {
+		if err := ctx.Err(); err != nil {
+			return r.fail(err)
+		}
 		typed, _, err := r.ReadTypedMsg()
+		if errors.Is(err, io.EOF) {
+			return r.fail(fmt.Errorf("connection closed during COPY: %w", io.ErrUnexpectedEOF))
+		}
 		if err != nil {
-			return err
+			return r.fail(err)
 		}
 
 		switch typed {
@@ -70,16 +86,24 @@ reader:
 		case types.ClientCopyFail:
 			desc, err := r.GetString()
 			if err != nil {
-				return err
+				return r.fail(err)
 			}
-			return r.session.WriteError(ctx, r.writer, newErrClientCopyFailed(desc))
+			return r.fail(newErrClientCopyFailed(desc))
 		default:
 			// Receipt of any other non-copy message type constitutes an error that
 			// will abort the copy-in state as described above.
 			// https://www.postgresql.org/docs/current/protocol-flow.html#PROTOCOL-COPY
-			return r.session.WriteError(ctx, r.writer, NewErrUnimplementedMessageType(typed))
+			return r.fail(NewErrUnimplementedMessageType(typed))
 		}
 	}
+}
+
+// fail records an error that ended the copy, see CopyReader.failed.
+func (r *CopyReader) fail(err error) error {
+	if r.failed != nil {
+		*r.failed = err
+	}
+	return err
 }
 
 // Scanner is a function that scans a byte slice and returns the value as an any

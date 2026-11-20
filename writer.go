@@ -40,7 +40,17 @@ type DataWriter interface {
 	// operation. The copy operation can be used to send large amounts of data to
 	// the server in a single transaction. A column reader has to be used to read
 	// the data that is sent by the client to the CopyReader.
+	//
+	// It declares the statement's columns. Mark the statement with [WithCopy],
+	// which makes those the columns of the COPY: without it they are result
+	// columns, sent as a RowDescription before the CopyInResponse, which
+	// breaks clients that expect PGRES_COPY_IN, such as lib/pq.
 	CopyIn(format FormatCode) (*CopyReader, error)
+
+	// CopyInColumns is CopyIn with the given columns instead of the
+	// statement's, for a handler that only knows them once it executes. Mark
+	// the statement with [WithCopy] too.
+	CopyInColumns(format FormatCode, columns Columns) (*CopyReader, error)
 }
 
 // RowWriter is an optional DataWriter extension. Rows must be observably
@@ -65,6 +75,9 @@ func WriteRows(w DataWriter, rows [][]any) error {
 // ErrDataWritten is returned when an empty result is attempted to be sent to the
 // client while data has already been written.
 var ErrDataWritten = errors.New("data has already been written")
+
+// errCopyRows is returned when the handler of a COPY statement writes rows.
+var errCopyRows = errors.New("a COPY statement returns no rows")
 
 // ErrClosedWriter is returned when the data writer has been closed.
 var ErrClosedWriter = errors.New("closed writer")
@@ -93,6 +106,28 @@ type dataWriter struct {
 	// must continue yielding per row, including after subsequent Executes.
 	batchable     bool
 	encodeScratch []byte
+	// copy is set for a statement marked with WithCopy, whose columns are in
+	// copyColumns.
+	copy        bool
+	copyColumns Columns
+	// copyErr is set when a COPY ends with anything other than CopyDone: a
+	// client abort, a closed connection, a failed read or a canceled context.
+	// The statement then fails even if the handler ignores the error from
+	// CopyReader.Read, so a partial copy is never reported as complete.
+	copyErr error
+}
+
+// checkWritable returns an error if the writer is closed, or if a COPY ended
+// without CopyDone.
+func (writer *dataWriter) checkWritable() error {
+	if writer.closed {
+		return ErrClosedWriter
+	}
+	if writer.copyErr != nil {
+		// A COPY ended without CopyDone; the statement must not report success.
+		return writer.copyErr
+	}
+	return nil
 }
 
 func (writer *dataWriter) Columns() Columns {
@@ -100,8 +135,11 @@ func (writer *dataWriter) Columns() Columns {
 }
 
 func (writer *dataWriter) Row(values []any) error {
-	if writer.closed {
-		return ErrClosedWriter
+	if err := writer.checkWritable(); err != nil {
+		return err
+	}
+	if writer.copy {
+		return errCopyRows
 	}
 
 	err := writer.columns.write(writer.ctx, writer.formats, writer.client, values, TypeMap(writer.ctx), &writer.encodeScratch)
@@ -122,8 +160,11 @@ func (writer *dataWriter) Row(values []any) error {
 // Rows writes materialized rows, batching frames only when portal flow control
 // permits it. Limited portals keep Row's per-row suspension checkpoints.
 func (writer *dataWriter) Rows(rows [][]any) (err error) {
-	if writer.closed {
-		return ErrClosedWriter
+	if err := writer.checkWritable(); err != nil {
+		return err
+	}
+	if writer.copy {
+		return errCopyRows
 	}
 	if !writer.batchable {
 		for _, row := range rows {
@@ -160,20 +201,30 @@ func (writer *dataWriter) Rows(rows [][]any) (err error) {
 }
 
 func (writer *dataWriter) CopyIn(format FormatCode) (*CopyReader, error) {
-	if writer.closed {
-		return nil, ErrClosedWriter
+	columns := writer.columns
+	if writer.copy {
+		columns = writer.copyColumns
+	}
+	return writer.CopyInColumns(format, columns)
+}
+
+func (writer *dataWriter) CopyInColumns(format FormatCode, columns Columns) (*CopyReader, error) {
+	if err := writer.checkWritable(); err != nil {
+		return nil, err
 	}
 
-	err := writer.columns.CopyIn(writer.ctx, writer.client, format)
+	err := columns.CopyIn(writer.ctx, writer.client, format)
 	if err != nil {
 		return nil, err
 	}
-	return NewCopyReader(writer.session, writer.reader, writer.client, writer.columns), nil
+	reader := NewCopyReader(writer.session, writer.reader, writer.client, columns)
+	reader.failed = &writer.copyErr
+	return reader, nil
 }
 
 func (writer *dataWriter) Empty() error {
-	if writer.closed {
-		return ErrClosedWriter
+	if err := writer.checkWritable(); err != nil {
+		return err
 	}
 
 	if writer.written != 0 {
@@ -189,8 +240,8 @@ func (writer *dataWriter) Written() uint32 {
 }
 
 func (writer *dataWriter) Complete(description string) error {
-	if writer.closed {
-		return ErrClosedWriter
+	if err := writer.checkWritable(); err != nil {
+		return err
 	}
 
 	defer writer.close()
