@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jeroenrinzema/psql-wire/codes"
 	psqlerr "github.com/jeroenrinzema/psql-wire/errors"
@@ -426,4 +427,39 @@ func TestRowReturnsEncodeError(t *testing.T) {
 
 	err = conn.Close(ctx)
 	assert.NoError(t, err)
+}
+
+func TestErrorSource(t *testing.T) {
+	t.Parallel()
+
+	handler := func(ctx context.Context, query Query) (PreparedStatements, error) {
+		stmt := NewStatement(func(ctx context.Context, writer DataWriter, parameters []Parameter) error {
+			return psqlerr.WithSource(psqlerr.WithCode(errors.New("source error"), codes.FeatureNotSupported), "plancache.c", 886, "RevalidateCachedQuery")
+		})
+		return Prepared(stmt), nil
+	}
+
+	server, err := NewServer(handler, Logger(slogt.New(t)))
+	require.NoError(t, err)
+	address := TListenAndServe(t, server)
+
+	ctx := context.Background()
+	conn, err := pgx.Connect(ctx, fmt.Sprintf("postgres://%s:%d", address.IP, address.Port))
+	require.NoError(t, err)
+	defer func() { assert.NoError(t, conn.Close(ctx)) }()
+
+	_, err = conn.Exec(ctx, "SELECT 1")
+	var pgErr *pgconn.PgError
+	require.ErrorAs(t, err, &pgErr)
+	assert.Equal(t, "0A000", pgErr.Code)
+	assert.Equal(t, "source error", pgErr.Message)
+	assert.Equal(t, "plancache.c", pgErr.File)
+	assert.Equal(t, int32(886), pgErr.Line)
+	assert.Equal(t, "RevalidateCachedQuery", pgErr.Routine)
+
+	// The connection is still usable, so the error was parsed correctly.
+	_, err = conn.Exec(ctx, "SELECT 1")
+	require.Error(t, err)
+	require.ErrorAs(t, err, &pgErr)
+	assert.Equal(t, "source error", pgErr.Message)
 }
