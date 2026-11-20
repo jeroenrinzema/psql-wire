@@ -20,9 +20,11 @@ type Limit uint32
 const NoLimit Limit = 0
 
 type Statement struct {
-	fn         PreparedStatementFn
-	parameters []uint32
-	columns    Columns
+	fn          PreparedStatementFn
+	parameters  []uint32
+	columns     Columns
+	copy        bool
+	copyColumns Columns
 }
 
 func DefaultStatementCacheFn() StatementCache {
@@ -45,9 +47,11 @@ func (cache *DefaultStatementCache) Set(ctx context.Context, name string, stmt *
 	}
 
 	cache.statements[name] = &Statement{
-		fn:         stmt.fn,
-		parameters: stmt.parameters,
-		columns:    stmt.columns,
+		fn:          stmt.fn,
+		parameters:  stmt.parameters,
+		columns:     stmt.columns,
+		copy:        stmt.copy,
+		copyColumns: stmt.copyColumns,
 	}
 
 	return nil
@@ -154,14 +158,16 @@ func (p *Portal) execute(ctx context.Context, limit Limit, reader *buffer.Reader
 		// statement.fn.
 		seq := func(yield func(struct{}) bool) {
 			dw := &dataWriter{
-				ctx:     ctx,
-				session: session,
-				columns: p.statement.columns,
-				formats: p.formats,
-				reader:  reader,
-				client:  writer,
-				yield:   yield,
-				tag:     &p.tag,
+				ctx:         ctx,
+				session:     session,
+				columns:     p.statement.columns,
+				copy:        p.statement.copy,
+				copyColumns: p.statement.copyColumns,
+				formats:     p.formats,
+				reader:      reader,
+				client:      writer,
+				yield:       yield,
+				tag:         &p.tag,
 				// A first unlimited Execute drains the handler in this call;
 				// no later Execute can impose a limit on remaining rows.
 				batchable: limit == NoLimit,
@@ -169,6 +175,10 @@ func (p *Portal) execute(ctx context.Context, limit Limit, reader *buffer.Reader
 			err := p.statement.fn(ctx, dw, p.parameters)
 			if err != nil && !errors.Is(err, ErrSuspendedHandlerClosed) {
 				p.err = err
+			}
+			if err == nil && dw.copyErr != nil {
+				// The handler ignored an error that ended a COPY early.
+				p.err = dw.copyErr
 			}
 		}
 

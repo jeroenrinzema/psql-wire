@@ -402,7 +402,9 @@ func (srv *Server) Wait() {
 // that shouldn't be logged as an error.
 func (srv *Server) isNormalConnectionClosure(err error) bool {
 	// Check for conn closed or conn termination normally
-	if errors.Is(err, io.EOF) || errors.Is(err, net.ErrClosed) {
+	// io.ErrUnexpectedEOF is a connection that ended mid-message, or during a
+	// COPY (see CopyReader.Read).
+	if errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) || errors.Is(err, net.ErrClosed) {
 		return true
 	}
 

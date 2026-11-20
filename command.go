@@ -47,9 +47,9 @@ func NewErrMultipleCommandsStatements() error {
 
 // newErrClientCopyFailed is returned whenever the client aborts a copy operation.
 func newErrClientCopyFailed(desc string) error {
-	err := fmt.Errorf("client aborted copy: %s", desc)
-	// TODO: What error code should this really be?
-	return psqlerr.WithSeverity(psqlerr.WithCode(err, codes.Uncategorized), psqlerr.LevelError)
+	err := fmt.Errorf("COPY from stdin failed: %s", desc)
+	// Postgres reports a client CopyFail as query_canceled.
+	return psqlerr.WithSeverity(psqlerr.WithCode(err, codes.QueryCanceled), psqlerr.LevelError)
 }
 
 type Session struct {
@@ -337,8 +337,10 @@ func (srv *Session) handleSimpleQuery(ctx context.Context, reader *buffer.Reader
 
 		portal := &Portal{
 			statement: &Statement{
-				fn:      statements[index].fn,
-				columns: statements[index].columns,
+				fn:          statements[index].fn,
+				columns:     statements[index].columns,
+				copy:        statements[index].copy,
+				copyColumns: statements[index].copyColumns,
 			},
 		}
 		err = portal.execute(ctx, NoLimit, reader, writer)
