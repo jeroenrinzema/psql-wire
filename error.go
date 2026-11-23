@@ -2,6 +2,7 @@ package wire
 
 import (
 	"context"
+	"strconv"
 
 	psqlerr "github.com/jeroenrinzema/psql-wire/errors"
 	"github.com/jeroenrinzema/psql-wire/pkg/buffer"
@@ -15,15 +16,17 @@ type errFieldType byte
 //
 //nolint:varcheck,deadcode
 const (
-	errFieldSeverity       errFieldType = 'S'
-	errFieldMsgPrimary     errFieldType = 'M'
-	errFieldSQLState       errFieldType = 'C'
-	errFieldDetail         errFieldType = 'D'
-	errFieldHint           errFieldType = 'H'
-	errFieldSrcFile        errFieldType = 'F'
-	errFieldSrcLine        errFieldType = 'L'
-	errFieldSrcFunction    errFieldType = 'R'
-	errFieldConstraintName errFieldType = 'n'
+	errFieldSeverity            errFieldType = 'S'
+	errFieldSeverityUnlocalized errFieldType = 'V'
+	errFieldMsgPrimary          errFieldType = 'M'
+	errFieldSQLState            errFieldType = 'C'
+	errFieldDetail              errFieldType = 'D'
+	errFieldHint                errFieldType = 'H'
+	errFieldPosition            errFieldType = 'P'
+	errFieldSrcFile             errFieldType = 'F'
+	errFieldSrcLine             errFieldType = 'L'
+	errFieldSrcFunction         errFieldType = 'R'
+	errFieldConstraintName      errFieldType = 'n'
 )
 
 // WriteUnterminatedError writes an ErrorResponse message to the client without
@@ -39,6 +42,10 @@ func WriteUnterminatedError(writer *buffer.Writer, err error) error {
 	writer.Start(types.ServerErrorResponse)
 
 	writer.AddByte(byte(errFieldSeverity))
+	writer.AddString(string(desc.Severity))
+	writer.AddNullTerminate()
+	// Severities are not localized, so S and V carry the same value.
+	writer.AddByte(byte(errFieldSeverityUnlocalized))
 	writer.AddString(string(desc.Severity))
 	writer.AddNullTerminate()
 	writer.AddByte(byte(errFieldSQLState))
@@ -60,17 +67,29 @@ func WriteUnterminatedError(writer *buffer.Writer, err error) error {
 		writer.AddNullTerminate()
 	}
 
+	if desc.Position > 0 {
+		writer.AddByte(byte(errFieldPosition))
+		writer.AddString(strconv.Itoa(int(desc.Position)))
+		writer.AddNullTerminate()
+	}
+
 	if desc.Source != nil {
 		writer.AddByte(byte(errFieldSrcFile))
 		writer.AddString(desc.Source.File)
 		writer.AddNullTerminate()
 
 		writer.AddByte(byte(errFieldSrcLine))
-		writer.AddInt32(desc.Source.Line)
+		writer.AddString(strconv.Itoa(int(desc.Source.Line)))
 		writer.AddNullTerminate()
 
 		writer.AddByte(byte(errFieldSrcFunction))
 		writer.AddString(desc.Source.Function)
+		writer.AddNullTerminate()
+	}
+
+	if desc.ConstraintName != "" {
+		writer.AddByte(byte(errFieldConstraintName))
+		writer.AddString(desc.ConstraintName)
 		writer.AddNullTerminate()
 	}
 

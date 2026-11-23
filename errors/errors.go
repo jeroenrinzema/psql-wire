@@ -11,6 +11,7 @@ type Error struct {
 	Message        string
 	Detail         string
 	Hint           string
+	Position       int32
 	Severity       Severity
 	ConstraintName string
 	Source         *Source
@@ -39,6 +40,7 @@ func Flatten(err error) Error {
 		Message:        err.Error(),
 		Detail:         GetDetail(err),
 		Hint:           GetHint(err),
+		Position:       GetPosition(err),
 		Severity:       DefaultSeverity(GetSeverity(err)),
 		ConstraintName: GetConstraintName(err),
 		Source:         GetSource(err),
